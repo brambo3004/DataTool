@@ -24,8 +24,9 @@ BOUNDARY_COLS = ['verhardingssoort', 'Soort deklaag specifiek', 'Jaar aanleg', '
 @st.cache_data
 def load_data():
     """Laadt data, voegt samen en fixt geometrie. Wordt gecached voor snelheid."""
-    df1 = pd.read_csv(FILE_NIET_RIJSTROOK)
-    df2 = pd.read_csv(FILE_WEL_RIJSTROOK)
+    # low_memory=False voorkomt warnings over mixed types
+    df1 = pd.read_csv(FILE_NIET_RIJSTROOK, low_memory=False)
+    df2 = pd.read_csv(FILE_WEL_RIJSTROOK, low_memory=False)
     df = pd.concat([df1, df2], ignore_index=True)
     
     # Geometrie parsen (RDS voorkeur)
@@ -165,21 +166,27 @@ with col_map:
     st.subheader(f"Kaart: {selected_road}")
     
     if not road_df.empty:
-        # Bereken centrum voor kaart
-        centroid = road_df.unary_union.centroid
+        # Bereken centrum voor kaart (gebruik union_all ipv deprecated unary_union)
+        try:
+             # Nieuwere geopandas versies
+            centroid = road_df.union_all().centroid
+        except AttributeError:
+             # Oudere versies fallback
+            centroid = road_df.unary_union.centroid
+            
         m = folium.Map(location=[centroid.y, centroid.x], zoom_start=15, tiles="CartoDB positron")
         
         # Functie voor kleur
         def get_color(row):
-            if row['Is_Project_Grens']: return 'orange'
-            if 'Missend' in row['validation_error']: return 'red'
-            if 'Onterecht' in row['validation_error']: return 'purple'
+            if row.get('Is_Project_Grens', False): return 'orange'
+            if 'Missend' in row.get('validation_error', ''): return 'red'
+            if 'Onterecht' in row.get('validation_error', ''): return 'purple'
             return 'green'
 
         # Voeg objecten toe aan kaart
-        # We gebruiken GeoJSON voor performance
+        # FIX: Is_Project_Grens toegevoegd aan de lijst hieronder
         folium.GeoJson(
-            road_df[['geometry', 'subthema', 'validation_error', 'Onderhoudsproject', 'Advies_Onderhoudsproject', 'id']],
+            road_df[['geometry', 'subthema', 'validation_error', 'Onderhoudsproject', 'Advies_Onderhoudsproject', 'id', 'Is_Project_Grens']],
             style_function=lambda x: {
                 'fillColor': get_color(x['properties']),
                 'color': 'black',
@@ -207,7 +214,6 @@ with col_data:
     st.markdown("Je kunt hieronder direct in de tabel typen of vinkjes zetten.")
     
     # We gebruiken data_editor. 
-    # Let op: we halen de geometrie even weg voor weergave, dat edit niet lekker.
     edited_df = st.data_editor(
         road_df[cols_to_show],
         key="editor",
