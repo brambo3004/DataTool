@@ -105,26 +105,19 @@ def calculate_logic(gdf):
             # Nu sorteren we de subset op volgorde
             subset = subset.sort_values('volgorde_score')
             
-            # --- GRENSBEPALING (AANGEPAST) ---
+            # --- GRENSBEPALING ---
             # We kijken alleen naar primaire objecten voor grenzen
             primair_mask = subset['subthema_clean'].isin(['rijstrook', 'parallelweg', 'fietspad'])
             subset_primair = subset[primair_mask].copy()
             
             # FIX: We vergelijken nu PER SUBTHEMA. 
-            # Dus: vergelijk rijstrook met vorige RIJSTROOK (niet met vorig fietspad)
             for col in BOUNDARY_COLS:
                 if col in subset_primair.columns:
                     # Group by subthema, dan shift. 
-                    # Dit haalt de waarde van het *vorige* object van *hetzelfde* type op.
                     prev_values = subset_primair.groupby('subthema_clean')[col].shift(1)
-                    
-                    # Vergelijk
                     verandering = subset_primair[col].ne(prev_values)
-                    
-                    # De allereerste van een groep is altijd 'True' (want prev is NaN), die negeren we
                     verandering = verandering & prev_values.notna()
                     
-                    # Markeer in de hoofdtabel
                     grens_indices = subset_primair[verandering].index
                     if not grens_indices.empty:
                         gdf.loc[grens_indices, 'Is_Project_Grens'] = True
@@ -170,7 +163,7 @@ with col_map:
     st.subheader(f"Kaart: {selected_road}")
     
     if not road_df.empty:
-        # === DE FIX: Vertaal naar GPS coördinaten (EPSG:4326) voor de kaart ===
+        # === Vertaal naar GPS coördinaten (EPSG:4326) voor de kaart ===
         road_df_web = road_df.to_crs(epsg=4326)
         
         # Bereken centrum
@@ -182,26 +175,33 @@ with col_map:
         # Maak kaart (Let op: Folium wil [Lat, Lon], dus Y, X)
         m = folium.Map(location=[centroid.y, centroid.x], zoom_start=15, tiles="CartoDB positron")
         
-        # --- VISUALISATIE VOLGORDE LIJN (NIEUW) ---
-        # Haal de centroïden op in de gesorteerde volgorde
-        # Shapely gebruikt (lon, lat), Folium wil (lat, lon)
-        line_points = [(geom.centroid.y, geom.centroid.x) for geom in road_df_web.geometry]
+        # --- VISUALISATIE VOLGORDE LIJNEN (PER TYPE) ---
+        # Definieer kleuren per type
+        type_colors = {'rijstrook': 'blue', 'fietspad': 'red', 'parallelweg': 'green'}
         
-        # Teken de blauwe lijn
-        folium.PolyLine(
-            line_points, 
-            color="blue", 
-            weight=1.5, 
-            opacity=0.6, 
-            tooltip="Berekende Volgorde"
-        ).add_to(m)
+        for stype, color in type_colors.items():
+            # Filter op dit specifieke type
+            subset_type = road_df_web[road_df_web['subthema_clean'] == stype]
+            
+            if not subset_type.empty:
+                # Haal punten op
+                line_points = [(geom.centroid.y, geom.centroid.x) for geom in subset_type.geometry]
+                
+                if len(line_points) > 1:
+                    folium.PolyLine(
+                        line_points, 
+                        color=color, 
+                        weight=2, 
+                        opacity=0.7, 
+                        tooltip=f"Volgorde {stype}"
+                    ).add_to(m)
 
-        # Functie voor kleur
+        # Functie voor kleur van vlakken
         def get_color(row):
             if row.get('Is_Project_Grens', False): return 'orange'
             if 'Missend' in row.get('validation_error', ''): return 'red'
             if 'Onterecht' in row.get('validation_error', ''): return 'purple'
-            return 'green'
+            return 'gray' # Neutrale kleur voor de vlakken zelf, lijnen geven type aan
 
         # Voeg objecten toe aan kaart
         folium.GeoJson(
@@ -209,8 +209,8 @@ with col_map:
             style_function=lambda x: {
                 'fillColor': get_color(x['properties']),
                 'color': 'black',
-                'weight': 1,
-                'fillOpacity': 0.6
+                'weight': 0.5,
+                'fillOpacity': 0.4
             },
             tooltip=folium.GeoJsonTooltip(
                 fields=['subthema', 'validation_error', 'Onderhoudsproject', 'Advies_Onderhoudsproject'],
@@ -220,7 +220,7 @@ with col_map:
         
         st_folium(m, width=700, height=500)
         
-        st.info("Legenda: 🟢 OK | 🔴 Missende Data | 🟠 Mogelijke Grens | 🟣 Onterechte Data | 🔵 Volgorde Lijn")
+        st.info("Lijnen: 🔵 Rijstrook | 🔴 Fietspad | 🟢 Parallelweg")
 
 with col_data:
     st.subheader("Data Mutatie")
