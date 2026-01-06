@@ -39,6 +39,7 @@ def load_data():
     df['geometry'] = df['rds coordinaten'].apply(parse_geom)
     df = df.dropna(subset=['geometry'])
     gdf = gpd.GeoDataFrame(df, geometry='geometry')
+    # Definieer dat dit RD coordinaten zijn (meters)
     gdf.set_crs(epsg=28992, inplace=True, allow_override=True)
     
     # Maak unieke index om editen makkelijker te maken
@@ -104,27 +105,30 @@ def calculate_logic(gdf):
             # Nu sorteren we de subset op volgorde
             subset = subset.sort_values('volgorde_score')
             
-            # --- GRENSBEPALING (Het nieuwe stuk) ---
+            # --- GRENSBEPALING (AANGEPAST) ---
             # We kijken alleen naar primaire objecten voor grenzen
             primair_mask = subset['subthema_clean'].isin(['rijstrook', 'parallelweg', 'fietspad'])
             subset_primair = subset[primair_mask].copy()
             
-            # We vergelijken de huidige rij met de vorige rij (shift)
-            # Als er iets verandert in de belangrijke kolommen, is het een grens
+            # FIX: We vergelijken nu PER SUBTHEMA. 
+            # Dus: vergelijk rijstrook met vorige RIJSTROOK (niet met vorig fietspad)
             for col in BOUNDARY_COLS:
                 if col in subset_primair.columns:
-                    # Vergelijk met vorige waarde. 
-                    # shift(1) schuift data 1 plek op naar beneden.
-                    # ne() betekent 'not equal'
-                    verandering = subset_primair[col].ne(subset_primair[col].shift(1))
+                    # Group by subthema, dan shift. 
+                    # Dit haalt de waarde van het *vorige* object van *hetzelfde* type op.
+                    prev_values = subset_primair.groupby('subthema_clean')[col].shift(1)
                     
-                    # De eerste regel is altijd 'anders' omdat vorige NaN is, die negeren we
-                    verandering.iloc[0] = False
+                    # Vergelijk
+                    verandering = subset_primair[col].ne(prev_values)
+                    
+                    # De allereerste van een groep is altijd 'True' (want prev is NaN), die negeren we
+                    verandering = verandering & prev_values.notna()
                     
                     # Markeer in de hoofdtabel
                     grens_indices = subset_primair[verandering].index
-                    gdf.loc[grens_indices, 'Is_Project_Grens'] = True
-                    gdf.loc[grens_indices, 'validation_error'] += f'Mogelijke Projectgrens ({col} wijzigt); '
+                    if not grens_indices.empty:
+                        gdf.loc[grens_indices, 'Is_Project_Grens'] = True
+                        gdf.loc[grens_indices, 'validation_error'] += f'Mogelijke Projectgrens ({col} wijzigt); '
 
             # Zet volgorde terug in hoofdtabel
             gdf.loc[mask, 'volgorde_score'] = subset['volgorde_score']
@@ -152,7 +156,7 @@ else:
 all_roads = sorted([str(x) for x in processed_gdf['Wegnummer'].dropna().unique()])
 selected_road = st.sidebar.selectbox("Kies een Wegnummer", all_roads)
 
-# Filter dataset
+# Filter dataset voor deze weg
 road_df = processed_gdf[processed_gdf['Wegnummer'] == selected_road].copy()
 
 # Sorteer op berekende volgorde
@@ -166,16 +170,32 @@ with col_map:
     st.subheader(f"Kaart: {selected_road}")
     
     if not road_df.empty:
-        # Bereken centrum voor kaart (gebruik union_all ipv deprecated unary_union)
+        # === DE FIX: Vertaal naar GPS coördinaten (EPSG:4326) voor de kaart ===
+        road_df_web = road_df.to_crs(epsg=4326)
+        
+        # Bereken centrum
         try:
-             # Nieuwere geopandas versies
-            centroid = road_df.union_all().centroid
+            centroid = road_df_web.union_all().centroid
         except AttributeError:
-             # Oudere versies fallback
-            centroid = road_df.unary_union.centroid
+            centroid = road_df_web.unary_union.centroid
             
+        # Maak kaart (Let op: Folium wil [Lat, Lon], dus Y, X)
         m = folium.Map(location=[centroid.y, centroid.x], zoom_start=15, tiles="CartoDB positron")
         
+        # --- VISUALISATIE VOLGORDE LIJN (NIEUW) ---
+        # Haal de centroïden op in de gesorteerde volgorde
+        # Shapely gebruikt (lon, lat), Folium wil (lat, lon)
+        line_points = [(geom.centroid.y, geom.centroid.x) for geom in road_df_web.geometry]
+        
+        # Teken de blauwe lijn
+        folium.PolyLine(
+            line_points, 
+            color="blue", 
+            weight=1.5, 
+            opacity=0.6, 
+            tooltip="Berekende Volgorde"
+        ).add_to(m)
+
         # Functie voor kleur
         def get_color(row):
             if row.get('Is_Project_Grens', False): return 'orange'
@@ -184,9 +204,8 @@ with col_map:
             return 'green'
 
         # Voeg objecten toe aan kaart
-        # FIX: Is_Project_Grens toegevoegd aan de lijst hieronder
         folium.GeoJson(
-            road_df[['geometry', 'subthema', 'validation_error', 'Onderhoudsproject', 'Advies_Onderhoudsproject', 'id', 'Is_Project_Grens']],
+            road_df_web[['geometry', 'subthema', 'validation_error', 'Onderhoudsproject', 'Advies_Onderhoudsproject', 'id', 'Is_Project_Grens']],
             style_function=lambda x: {
                 'fillColor': get_color(x['properties']),
                 'color': 'black',
@@ -201,7 +220,7 @@ with col_map:
         
         st_folium(m, width=700, height=500)
         
-        st.info("Legenda: 🟢 OK | 🔴 Missende Data | 🟠 Mogelijke Grens | 🟣 Onterechte Data")
+        st.info("Legenda: 🟢 OK | 🔴 Missende Data | 🟠 Mogelijke Grens | 🟣 Onterechte Data | 🔵 Volgorde Lijn")
 
 with col_data:
     st.subheader("Data Mutatie")
@@ -211,9 +230,6 @@ with col_data:
                     'verhardingssoort', 'Jaar deklaag', 'Is_Project_Grens']
     
     # Maak de tabel editbaar
-    st.markdown("Je kunt hieronder direct in de tabel typen of vinkjes zetten.")
-    
-    # We gebruiken data_editor. 
     edited_df = st.data_editor(
         road_df[cols_to_show],
         key="editor",
