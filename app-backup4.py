@@ -19,6 +19,7 @@ HIERARCHY_RANK = {'rijstrook': 1, 'parallelweg': 2, 'fietspad': 3}
 SUBTHEMA_MUST_HAVE_PROJECT = ['afrit en entree', 'fietspad', 'inrit en doorsteek', 'parallelweg', 'rijstrook']
 SUBTHEMA_MUST_NOT_HAVE_PROJECT = ['fietsstalling', 'parkeerplaats', 'rotonderand', 'verkeerseiland of middengeleider']
 MUTATION_REQUIRED_COLS = ['subthema', 'naam', 'Gebruikersfunctie', 'Type onderdeel', 'verhardingssoort', 'Onderhoudsproject']
+# Deze attributen bepalen of een groep wordt doorgeknipt én worden getoond in de tooltip/uitleg
 SEGMENTATION_ATTRIBUTES = ['verhardingssoort', 'Soort deklaag specifiek', 'Jaar aanleg', 'Jaar deklaag', 'Besteknummer']
 
 ALL_META_COLS = [
@@ -36,14 +37,10 @@ def load_data():
     df2 = pd.read_csv(FILE_WEL_RIJSTROOK, low_memory=False)
     df = pd.concat([df1, df2], ignore_index=True)
     
-    # Behoud origineel ID als bron_id indien aanwezig
     if 'id' in df.columns: 
         df.rename(columns={'id': 'bron_id'}, inplace=True)
     
-    # We maken sys_id aan als string om type-verwarring te voorkomen
-    # Dit fungeert als de unieke sleutel voor de applicatie logica
     df['sys_id'] = range(len(df))
-    df['sys_id'] = df['sys_id'].astype(str)
     
     def parse_geom(x):
         try: return wkt.loads(x)
@@ -52,22 +49,8 @@ def load_data():
     df['geometry'] = df['rds coordinaten'].apply(parse_geom)
     df = df.dropna(subset=['geometry'])
     gdf = gpd.GeoDataFrame(df, geometry='geometry')
+    gdf.set_crs(epsg=28992, inplace=True, allow_override=True)
     
-    # --- INTELLIGENTE CRS DETECTIE ---
-    if not gdf.empty:
-        first_geom = gdf['geometry'].iloc[0]
-        # Als x < 180 is het waarschijnlijk GPS (WGS84)
-        if first_geom and first_geom.centroid.x < 180:
-            gdf.set_crs(epsg=4326, inplace=True, allow_override=True)
-            # Converteer naar RD (Meters) voor berekeningen
-            gdf = gdf.to_crs(epsg=28992)
-        else:
-            # Anders nemen we aan dat het al RD is
-            gdf.set_crs(epsg=28992, inplace=True, allow_override=True)
-    else:
-        gdf.set_crs(epsg=28992, inplace=True, allow_override=True)
-    
-    # Index instellen op sys_id, maar behoud kolom ook voor tooltip/properties
     gdf.set_index('sys_id', drop=False, inplace=True)
     gdf.index.name = None
             
@@ -98,7 +81,7 @@ def load_data():
 
 def build_graph_from_geometry(gdf):
     gdf_buffer = gdf.copy()
-    gdf_buffer['geometry'] = gdf_buffer.geometry.buffer(1.5)
+    gdf_buffer['geometry'] = gdf_buffer.geometry.buffer(1.5) # Buffer 1.5m voor inritten
     
     cols = ['geometry', 'subthema_clean', 'Rank', 'sys_id']
     
@@ -135,6 +118,7 @@ def build_graph_from_geometry(gdf):
 
 def check_rules(gdf):
     violations = []
+    
     mask_missing = (
         gdf['subthema_clean'].isin([x.lower() for x in SUBTHEMA_MUST_HAVE_PROJECT]) &
         (gdf['Onderhoudsproject'].isna() | (gdf['Onderhoudsproject'] == ''))
@@ -157,6 +141,16 @@ def check_rules(gdf):
             'missing_cols': ['Onderhoudsproject'] 
         })
         
+    mask_recent = gdf['reg_jaar'].isin([2025, 2026])
+    if mask_recent.any():
+        for idx, row in gdf[mask_recent].iterrows():
+            missing_cols = [c for c in MUTATION_REQUIRED_COLS if pd.isna(row.get(c)) or str(row.get(c)).strip() == '']
+            if missing_cols:
+                violations.append({
+                    'type': 'mutation', 'id': idx, 'subthema': row['subthema'],
+                    'msg': f"Incompleet: {', '.join(missing_cols)}",
+                    'missing_cols': missing_cols
+                })
     return violations
 
 def generate_grouped_proposals(gdf, G):
@@ -177,6 +171,7 @@ def generate_grouped_proposals(gdf, G):
         if not nodes_of_type: continue
             
         G_sub = G.subgraph(nodes_of_type).copy()
+        
         edges_to_remove = []
         for u, v in G_sub.edges():
             row_u = gdf.loc[u]
@@ -197,10 +192,13 @@ def generate_grouped_proposals(gdf, G):
             group_id = f"{config['prefix']}_{i+1}"
             node_list = list(comp)
             first_node = gdf.loc[node_list[0]]
+            
+            # Bouw de "Reden" string op met alle relevante kenmerken
             specs = []
             for attr in SEGMENTATION_ATTRIBUTES:
                 val = str(first_node.get(attr, '')).strip()
                 if val and val.lower() != 'nan':
+                    # Maak het leesbaar: "Verharding: Asfalt"
                     specs.append(f"{val}")
             
             reason_txt = ", ".join(specs) if specs else "Geen specifieke kenmerken"
@@ -218,10 +216,12 @@ def generate_grouped_proposals(gdf, G):
 
     # FASE 2: Pac-Man Absorptie
     remaining = set([n for n in G.nodes if n not in processed_ids])
+    
     changes = True
     while changes:
         changes = False
         to_remove_from_remaining = set()
+        
         for node_id in remaining:
             neighbors = list(G.neighbors(node_id))
             found_groups = set()
@@ -234,13 +234,17 @@ def generate_grouped_proposals(gdf, G):
                 for gid in found_groups:
                     rank = groups[gid]['rank']
                     candidates.append((rank, gid))
+                
                 candidates.sort(key=lambda x: x[0])
                 best_group_id = candidates[0][1]
+                
                 groups[best_group_id]['ids'].append(node_id)
                 node_to_group[node_id] = best_group_id
+                
                 to_remove_from_remaining.add(node_id)
                 processed_ids.add(node_id)
                 changes = True
+        
         remaining -= to_remove_from_remaining
 
     return {k: v for k, v in groups.items() if v['ids']}
@@ -248,14 +252,14 @@ def generate_grouped_proposals(gdf, G):
 def get_pdok_hectopunten_visual_only(bounds):
     wfs_url = "https://service.pdok.nl/rws/nwbwegen/wfs/v1_0"
     buffer = 500
+    minx, miny, maxx, maxy = bounds
+    bbox_str = f"{minx-buffer},{miny-buffer},{maxx+buffer},{maxy+buffer}"
+    params = {
+        "service": "WFS", "version": "1.0.0", "request": "GetFeature", 
+        "typeName": "hectopunten", "outputFormat": "json", 
+        "bbox": bbox_str, "maxFeatures": 5000
+    }
     try:
-        minx, miny, maxx, maxy = bounds
-        bbox_str = f"{minx-buffer},{miny-buffer},{maxx+buffer},{maxy+buffer}"
-        params = {
-            "service": "WFS", "version": "1.0.0", "request": "GetFeature", 
-            "typeName": "hectopunten", "outputFormat": "json", 
-            "bbox": bbox_str, "maxFeatures": 5000
-        }
         r = requests.get(wfs_url, params=params, timeout=4)
         if r.status_code == 200:
             data = r.json()
@@ -273,6 +277,7 @@ def get_pdok_hectopunten_visual_only(bounds):
 def log_change(oid, field, old_val, new_val, status="Succes"):
     if 'change_log' not in st.session_state:
         st.session_state['change_log'] = []
+    
     st.session_state['change_log'].append({
         'Tijd': datetime.now().strftime("%H:%M:%S"),
         'ID': oid,
@@ -288,10 +293,11 @@ if 'data_complete' not in st.session_state:
     with st.spinner('Data laden...'):
         st.session_state['data_complete'] = load_data()
 else:
-    # Verzeker dat sys_id bestaat
     if 'sys_id' not in st.session_state['data_complete'].columns:
         st.cache_data.clear()
-        st.session_state['data_complete'] = load_data()
+        with st.spinner('Reloading data...'):
+            st.session_state['data_complete'] = load_data()
+            st.rerun()
 
 raw_gdf = st.session_state['data_complete']
 
@@ -310,11 +316,6 @@ st.sidebar.title("iASSET Advisor")
 all_roads = sorted([str(x) for x in raw_gdf['Wegnummer'].dropna().unique()])
 selected_road = st.sidebar.selectbox("Kies Wegnummer", all_roads)
 
-if st.sidebar.button("⚠️ Cache Legen / Reset"):
-    st.cache_data.clear()
-    st.session_state.clear()
-    st.rerun()
-
 road_gdf = raw_gdf[raw_gdf['Wegnummer'] == selected_road].copy()
 
 if 'graph_current' not in st.session_state or st.session_state.get('last_road') != selected_road:
@@ -326,8 +327,7 @@ if 'graph_current' not in st.session_state or st.session_state.get('last_road') 
         st.session_state['zoom_bounds'] = None
         st.session_state['selected_error_id'] = None
         st.session_state['selected_group_id'] = None
-        # Logboek niet wissen bij wissel weg
-        st.session_state['last_click_ts'] = 0
+        st.session_state['change_log'] = [] 
 
 G_road = st.session_state['graph_current']
 
@@ -336,10 +336,12 @@ col_map, col_inspector = st.columns([3, 2])
 
 # --- RECHTS: INSPECTOR ---
 with col_inspector:
+    st.subheader("Werklijst")
     
     def on_mode_change():
         st.session_state['selected_error_id'] = None
         st.session_state['selected_group_id'] = None
+        st.session_state['manual_selection'] = set()
         st.session_state['zoom_bounds'] = None
         
     mode = st.radio("Modus:", ["🔍 Data Kwaliteit", "🏗️ Project Adviseur", "👆 Handmatige Selectie"], 
@@ -348,51 +350,79 @@ with col_inspector:
 
     # --- MODUS 1: KWALITEIT ---
     if mode == "🔍 Data Kwaliteit":
-        st.subheader("Data Validatie")
         violations = check_rules(road_gdf)
         if not violations:
             st.success("Schoon! Geen datakwaliteit issues.")
         else:
             st.write(f"**{len(violations)} issues gevonden**")
-            with st.container(height=500):
+            
+            with st.container(height=400):
                 for v in violations:
                     vid = v['id']
-                    if st.button(f"{v['subthema']} - {v['msg']}", key=f"err_{vid}", use_container_width=True):
-                        st.session_state['selected_error_id'] = vid
-                        obj_geom = road_gdf.loc[vid].geometry
-                        st.session_state['zoom_bounds'] = obj_geom.bounds
-                        st.rerun()
+                    is_selected = (st.session_state['selected_error_id'] == vid)
+                    
+                    if is_selected:
+                        with st.container(border=True):
+                            st.markdown("**:blue-background[GESELECTEERD]**")
+                            c1, c2 = st.columns([3, 1])
+                            with c1:
+                                st.markdown(f"**{v['subthema']}**")
+                                st.caption(f"{v['msg']}")
+                            with c2:
+                                if st.button("Toon", key=f"btn_err_{vid}"):
+                                    st.session_state['selected_error_id'] = vid
+                                    obj_geom = road_gdf.loc[vid].geometry
+                                    st.session_state['zoom_bounds'] = obj_geom.bounds
+                                    st.rerun()
+                    else:
+                        with st.container():
+                            c1, c2 = st.columns([3, 1])
+                            with c1:
+                                st.markdown(f"**{v['subthema']}**")
+                                st.caption(f"{v['msg']}")
+                            with c2:
+                                if st.button("Toon", key=f"btn_err_{vid}"):
+                                    st.session_state['selected_error_id'] = vid
+                                    obj_geom = road_gdf.loc[vid].geometry
+                                    st.session_state['zoom_bounds'] = obj_geom.bounds
+                                    st.rerun()
+                            st.divider()
 
             if st.session_state['selected_error_id']:
                 err_id = st.session_state['selected_error_id']
                 if err_id in road_gdf.index:
                     st.divider()
-                    st.markdown(f"#### Corrigeer ID: {err_id}")
+                    st.markdown(f"#### Corrigeer ID {err_id}")
+                    
                     row = road_gdf.loc[err_id]
                     viol_info = next((v for v in violations if v['id'] == err_id), None)
                     cols_to_fix = viol_info['missing_cols'] if viol_info else ['Onderhoudsproject']
+                    
                     inputs = {}
                     for col in cols_to_fix:
                         curr_val = row.get(col, '')
+                        if pd.isna(curr_val): curr_val = ""
                         inputs[col] = st.text_input(f"Vul in: {col}", value=str(curr_val), key=f"fix_{col}_{err_id}")
+                    
                     if st.button("Opslaan Correctie"):
                         for col, new_val in inputs.items():
                             old_val = raw_gdf.at[err_id, col]
                             raw_gdf.at[err_id, col] = new_val
                             log_change(err_id, col, old_val, new_val)
+                        
                         st.success("Opgeslagen!")
                         st.session_state['selected_error_id'] = None
                         st.rerun()
 
     # --- MODUS 2: PROJECT ADVISEUR ---
     elif mode == "🏗️ Project Adviseur":
-        st.subheader("AI Adviezen")
         if 'computed_groups' not in st.session_state or st.session_state['computed_groups'] is None:
-            with st.spinner("AI berekent groepen..."):
+            with st.spinner("AI berekent groepen (incl. absorptie)..."):
                 groups = generate_grouped_proposals(road_gdf, G_road)
                 st.session_state['computed_groups'] = groups
         
         all_groups = st.session_state['computed_groups']
+        
         active_groups = {
             k:v for k,v in all_groups.items() 
             if k not in st.session_state['processed_groups'] 
@@ -401,217 +431,214 @@ with col_inspector:
         
         if not active_groups:
             st.success("Geen adviezen meer beschikbaar.")
-            if st.button("Reset Adviezen"):
+            if st.button("Herberekenen / Reset"):
                 st.session_state['computed_groups'] = None
                 st.session_state['processed_groups'] = set()
                 st.rerun()
         else:
-            st.write(f"**{len(active_groups)} suggesties**")
-            with st.container(height=500):
+            st.write(f"**{len(active_groups)} suggesties beschikbaar**")
+            
+            with st.container(height=400):
                 for g_id in sorted(active_groups.keys()):
                     g_data = active_groups[g_id]
                     count = len(g_data['ids'])
                     icon = "🛣️" if "RIJBAAN" in g_id else "🚲" if "FIETSPAD" in g_id else "🛤️" if "PARALLEL" in g_id else "🌳"
                     
-                    with st.expander(f"{icon} {g_data['subthema'].title()} ({count} obj)"):
-                        st.caption(g_data['reason'])
-                        c1, c2, c3 = st.columns(3)
-                        if c1.button("Toon", key=f"v_{g_id}"):
-                            st.session_state['selected_group_id'] = g_id
-                            grp_geom = road_gdf.loc[g_data['ids']].unary_union
-                            st.session_state['zoom_bounds'] = grp_geom.bounds
-                            st.rerun()
-                        if c2.button("Bewerk", key=f"e_{g_id}"):
-                            st.session_state['selected_group_id'] = g_id
-                            st.rerun()
-                        if c3.button("Negeer", key=f"i_{g_id}"):
-                            st.session_state['ignored_groups'].add(g_id)
-                            st.rerun()
+                    is_sel = (st.session_state['selected_group_id'] == g_id)
+                    
+                    if is_sel:
+                         with st.container(border=True):
+                            st.markdown("**:blue-background[GESELECTEERD]**")
+                            st.markdown(f"**{icon} {g_data['subthema'].title()}** ({count} obj)")
+                            st.caption(f"{g_data['reason']}")
+                            b1, b2, b3 = st.columns(3)
+                            with b1: # Toon
+                                if st.button("👁️ Toon", key=f"vis_{g_id}"):
+                                    st.session_state['selected_group_id'] = g_id
+                                    grp_geom = road_gdf.loc[g_data['ids']].unary_union
+                                    st.session_state['zoom_bounds'] = grp_geom.bounds
+                                    st.rerun()
+                            with b2: # Naam
+                                if st.button("✏️ Naam", key=f"edit_{g_id}"):
+                                    st.session_state['selected_group_id'] = g_id
+                                    grp_geom = road_gdf.loc[g_data['ids']].unary_union
+                                    st.session_state['zoom_bounds'] = grp_geom.bounds
+                                    st.rerun()
+                            with b3: # Negeer
+                                if st.button("🗑️ Negeer", key=f"ign_{g_id}"):
+                                    st.session_state['ignored_groups'].add(g_id)
+                                    st.rerun()
+                    else:
+                        with st.container():
+                            st.markdown(f"**{icon} {g_data['subthema'].title()}** ({count} obj)")
+                            st.caption(f"{g_data['reason']}")
+                            b1, b2, b3 = st.columns(3)
+                            with b1:
+                                if st.button("👁️ Toon", key=f"vis_{g_id}"):
+                                    st.session_state['selected_group_id'] = g_id
+                                    grp_geom = road_gdf.loc[g_data['ids']].unary_union
+                                    st.session_state['zoom_bounds'] = grp_geom.bounds
+                                    st.rerun()
+                            with b2:
+                                if st.button("✏️ Naam", key=f"edit_{g_id}"):
+                                    st.session_state['selected_group_id'] = g_id
+                                    grp_geom = road_gdf.loc[g_data['ids']].unary_union
+                                    st.session_state['zoom_bounds'] = grp_geom.bounds
+                                    st.rerun()
+                            with b3:
+                                if st.button("🗑️ Negeer", key=f"ign_{g_id}"):
+                                    st.session_state['ignored_groups'].add(g_id)
+                                    st.rerun()
+                            st.divider()
 
             if st.session_state['selected_group_id'] and st.session_state['selected_group_id'] in active_groups:
                 sel_gid = st.session_state['selected_group_id']
-                st.divider()
-                st.info(f"Geselecteerd: {sel_gid}")
-                name_input = st.text_input("Projectnaam:", key="proj_name_input")
-                if st.button("Toepassen"):
-                    for oid in active_groups[sel_gid]['ids']:
-                        if oid in raw_gdf.index:
-                            old_v = raw_gdf.at[oid, 'Onderhoudsproject']
-                            raw_gdf.at[oid, 'Onderhoudsproject'] = name_input
-                            log_change(oid, 'Onderhoudsproject', old_v, name_input)
-                    st.session_state['processed_groups'].add(sel_gid)
-                    st.session_state['selected_group_id'] = None
-                    st.rerun()
+                sel_data = active_groups[sel_gid]
+                
+                st.info(f"📍 Groep: {sel_gid} ({len(sel_data['ids'])} objecten)")
+                
+                name_input = st.text_input("Projectnaam (bv. N351-HRB-20.1-24.3)", key="proj_name_input")
+                
+                if st.button("✅ Opslaan & Toepassen"):
+                    if name_input.strip():
+                        for oid in sel_data['ids']:
+                            if oid in raw_gdf.index:
+                                old_v = raw_gdf.at[oid, 'Onderhoudsproject']
+                                raw_gdf.at[oid, 'Onderhoudsproject'] = name_input
+                                raw_gdf.at[oid, 'Advies_Bron'] = sel_data['reason']
+                                log_change(oid, 'Onderhoudsproject', old_v, name_input)
+                        
+                        st.session_state['processed_groups'].add(sel_gid)
+                        st.session_state['selected_group_id'] = None
+                        st.session_state['zoom_bounds'] = None
+                        st.success("Opgeslagen!")
+                        st.rerun()
 
     # --- MODUS 3: HANDMATIG ---
     elif mode == "👆 Handmatige Selectie":
-        selection = st.session_state['manual_selection']
-        st.subheader(f"Selectie: {len(selection)} objecten")
+        st.info("Klik op objecten in de kaart om ze aan/uit te vinken.")
+        
+        selection = list(st.session_state['manual_selection'])
         
         if selection:
-            sel_df = road_gdf[road_gdf['sys_id'].isin(selection)]
-            st.dataframe(sel_df[['subthema', 'Onderhoudsproject', 'naam']], height=200, use_container_width=True)
+            st.write(f"**{len(selection)} objecten geselecteerd**")
             
-            col_act1, col_act2 = st.columns(2)
-            if col_act1.button("🗑️ Wis Selectie"):
+            sel_df = road_gdf.loc[selection][['subthema', 'Onderhoudsproject']]
+            st.dataframe(sel_df, height=150)
+            
+            if st.button("🧹 Wis Selectie"):
                 st.session_state['manual_selection'] = set()
                 st.rerun()
             
-            st.markdown("#### Massa Update")
-            manual_name = st.text_input("Nieuw Project:", key="man_proj_input")
-            if st.button("Update Selectie"):
-                for oid in selection:
-                    if oid in raw_gdf.index:
-                        old_v = raw_gdf.at[oid, 'Onderhoudsproject']
-                        raw_gdf.at[oid, 'Onderhoudsproject'] = manual_name
-                        log_change(oid, 'Onderhoudsproject', old_v, manual_name)
-                st.success("Bijgewerkt!")
-                st.rerun()
-        else:
-            st.info("Klik op de kaart om te selecteren.")
+            st.divider()
+            manual_name = st.text_input("Projectnaam voor selectie", key="man_proj_input")
+            
+            if st.button("💾 Opslaan op Selectie"):
+                if manual_name.strip():
+                    for oid in selection:
+                        # Zekerheid: convert to int if needed
+                        try: oid_int = int(oid)
+                        except: continue
 
-# --- LINKS: KAART (ROBUUSTE VERSIE) ---
+                        if oid_int in raw_gdf.index:
+                            old_v = raw_gdf.at[oid_int, 'Onderhoudsproject']
+                            raw_gdf.at[oid_int, 'Onderhoudsproject'] = manual_name
+                            raw_gdf.at[oid_int, 'Advies_Bron'] = "Handmatige Selectie"
+                            log_change(oid_int, 'Onderhoudsproject', old_v, manual_name)
+                    
+                    st.success(f"{len(selection)} objecten bijgewerkt!")
+                    st.session_state['manual_selection'] = set()
+                    st.rerun()
+        else:
+            st.warning("Selecteer objecten op de kaart.")
+
+# --- LINKS: KAART ---
 with col_map:
     st.subheader(f"Kaart: {selected_road}")
     
-    # 1. GeoDataFrames voorbereiden
     road_web = road_gdf.to_crs(epsg=4326)
     
-    # Check bounds
     if st.session_state['zoom_bounds']:
         minx, miny, maxx, maxy = st.session_state['zoom_bounds']
-        c_x, c_y = (minx+maxx)/2, (miny+maxy)/2
-        zoom = 18
+        b_poly = wkt.loads(f"POLYGON(({minx} {miny}, {minx} {maxy}, {maxx} {maxy}, {maxx} {miny}, {minx} {miny}))")
+        b_gseries = gpd.GeoSeries([b_poly], crs="EPSG:28992").to_crs(epsg=4326)
+        b = b_gseries.total_bounds
+        fit_b = [[b[1], b[0]], [b[3], b[2]]]
+        m = folium.Map(location=[(b[1]+b[3])/2, (b[0]+b[2])/2], zoom_start=16, tiles="CartoDB positron")
+        m.fit_bounds(fit_b)
     else:
-        if not road_web.empty:
-            b = road_web.total_bounds
-            c_x, c_y = (b[0]+b[2])/2, (b[1]+b[3])/2
-            zoom = 14
-        else:
-            c_x, c_y, zoom = 5.1, 52.1, 8
+        c = road_web.unary_union.centroid
+        m = folium.Map(location=[c.y, c.x], zoom_start=14, tiles="CartoDB positron")
 
-    m = folium.Map(location=[c_y, c_x], zoom_start=zoom, tiles="CartoDB positron")
+    def style_fn(feature):
+        oid = feature['properties']['sys_id']
+        
+        if oid in st.session_state['manual_selection']:
+            return {'fillColor': 'magenta', 'color': 'black', 'weight': 2, 'fillOpacity': 0.8}
+        
+        if oid == st.session_state['selected_error_id']:
+             return {'fillColor': 'red', 'color': 'black', 'weight': 3, 'fillOpacity': 0.8}
+             
+        if st.session_state['selected_group_id']:
+            active_grp = st.session_state['computed_groups'][st.session_state['selected_group_id']]
+            if oid in active_grp['ids']:
+                return {'fillColor': 'cyan', 'color': 'black', 'weight': 2, 'fillOpacity': 0.8}
 
-    # 2. BASIS LAAG (Alle objecten)
-    # Standaard styling (grijs of groen als project al bestaat)
-    def base_style(feature):
-        proj = feature['properties'].get('Onderhoudsproject', '')
+        proj = feature['properties'].get('Onderhoudsproject')
         if proj:
             return {'fillColor': '#00cc00', 'color': 'gray', 'weight': 0.5, 'fillOpacity': 0.4}
+            
         return {'fillColor': 'gray', 'color': 'black', 'weight': 0.5, 'fillOpacity': 0.2}
+
+    # TOOLTIP VELDEN UITBREIDEN
+    meta_cols = [c for c in ALL_META_COLS if c in road_web.columns]
+    cols_to_select = ['geometry', 'sys_id'] + meta_cols
     
-    # Zorg dat sys_id in properties zit
-    cols_base = ['geometry', 'sys_id', 'subthema', 'Onderhoudsproject']
-    road_web_json = road_web[cols_base].reset_index(drop=True)
+    # We voegen extra segmentatie-attributen toe aan de tooltip
+    tooltip_fields = ['subthema', 'Onderhoudsproject'] + [c for c in SEGMENTATION_ATTRIBUTES if c in road_web.columns]
     
     folium.GeoJson(
-        road_web_json,
-        style_function=base_style,
-        tooltip=folium.GeoJsonTooltip(fields=['subthema', 'Onderhoudsproject', 'sys_id']),
-        name="Alle Wegen"
+        road_web[cols_to_select],
+        style_function=style_fn,
+        tooltip=folium.GeoJsonTooltip(fields=tooltip_fields, style="font-size: 11px;")
     ).add_to(m)
+
+    pdok_hm = get_pdok_hectopunten_visual_only(road_gdf.total_bounds)
+    if not pdok_hm.empty:
+        pdok_web = pdok_hm.to_crs(epsg=4326)
+        for _, row in pdok_web.iterrows():
+            if row.geometry:
+                g = row.geometry.centroid
+                val = float(row.get('hm_val', 0))/10
+                icon_html = f"""<div style="font-size: 10pt; font-weight: bold; color: black; text-shadow: 1px 1px 0 #fff;">{val:.1f}</div>"""
+                folium.Marker([g.y, g.x], icon=folium.DivIcon(icon_size=(40,20), icon_anchor=(10,10), html=icon_html)).add_to(m)
+                folium.CircleMarker([g.y, g.x], radius=2, color='red', fill=True).add_to(m)
+
+    # CLICK HANDLER
+    output = st_folium(m, width=None, height=600, returned_objects=["last_object_clicked"], key="folium_map")
     
-    # 3. SELECTIE HIGHLIGHT LAAG (Rood)
-    # In plaats van style_function dynamisch te maken, voegen we fysiek een laag toe
-    # bovenop de andere voor de geselecteerde items.
-    selected_ids = st.session_state['manual_selection']
-    if selected_ids:
-        # Filter alleen de geselecteerde rijen
-        selected_gdf = road_web[road_web['sys_id'].isin(selected_ids)]
-        if not selected_gdf.empty:
-            selected_json = selected_gdf[['geometry', 'sys_id', 'subthema']].reset_index(drop=True)
-            folium.GeoJson(
-                selected_json,
-                style_function=lambda x: {'fillColor': '#ff0000', 'color': 'black', 'weight': 2, 'fillOpacity': 0.7},
-                interactive=True, # Moet interactief zijn om ook te kunnen deselecteren
-                name="Selectie"
-            ).add_to(m)
+    if mode == "👆 Handmatige Selectie" and output and output.get("last_object_clicked"):
+        clicked_props = output["last_object_clicked"].get("properties")
+        if clicked_props and 'sys_id' in clicked_props:
+            click_id = clicked_props['sys_id']
             
-    # 4. ERROR / GROEP HIGHLIGHTS
-    if st.session_state['selected_error_id']:
-        eid = st.session_state['selected_error_id']
-        e_gdf = road_web[road_web['sys_id'] == str(eid)]
-        if not e_gdf.empty:
-            folium.GeoJson(e_gdf, style_function=lambda x: {'color': 'red', 'weight': 3, 'fillOpacity':0}).add_to(m)
-
-    if st.session_state['selected_group_id']:
-        gid = st.session_state['selected_group_id']
-        g_ids = st.session_state['computed_groups'][gid]['ids']
-        g_gdf = road_web[road_web['sys_id'].isin([str(i) for i in g_ids])]
-        if not g_gdf.empty:
-             folium.GeoJson(
-                 g_gdf, 
-                 style_function=lambda x: {'fillColor': 'cyan', 'color': 'blue', 'weight': 2, 'fillOpacity': 0.6}
-             ).add_to(m)
-
-    # 5. RENDER EN CLICK HANDLING
-    output = st_folium(m, width=None, height=600, returned_objects=["last_object_clicked"])
-
-    # 6. LOGICA
-    if output and output.get("last_object_clicked"):
-        clicked = output["last_object_clicked"]
-        props = clicked.get("properties", {})
-        
-        # Probeer ID te vinden
-        clicked_id = props.get("sys_id")
-        
-        if clicked_id:
-            clicked_id = str(clicked_id)
+            # Zorg dat we int hebben
+            try: click_id = int(click_id)
+            except: pass
             
-            # Voorkom oneindige loop door te checken of we deze click al verwerkt hebben
-            # We genereren een pseudo-hash van de click
-            click_hash = f"{clicked_id}_{datetime.now().timestamp()}"
-            
-            # Omdat streamlit herlaadt, is een eenvoudige state check vaak genoeg
-            # Maar we moeten wel weten of de gebruiker NOG EENS op hetzelfde klikte (deselecteren)
-            # of dat dit de oude event is. 
-            # st_folium geeft last_object_clicked terug, die blijft staan na rerun.
-            # We moeten de 'last_object_clicked' alleen verwerken als hij anders is dan de vorige verwerking?
-            # Nee, want je kunt toggle doen.
-            
-            # TRUC: We kijken of de selectie logica moet omdraaien.
-            # Echter, omdat st_folium de oude output terugstuurt bij een rerun die NIET door de kaart
-            # getriggerd werd (bv. knop in sidebar), moeten we oppassen.
-            # Voor nu gaan we ervan uit dat een user interactie de rerun triggert.
-            
-            # Om "stale clicks" te voorkomen bij knopdrukken elders:
-            # Helaas is dat lastig in Streamlit zonder custom JS.
-            # We accepteren de klik, en updaten de set.
-            
-            current_selection = st.session_state['manual_selection']
-            
-            # We moeten checken of we deze ID net hebben verwerkt.
-            # Dit doen we door te kijken naar de interne state. 
-            # Omdat we 'st.rerun' doen direct na de logica, is de output bij de volgende run
-            # nog steeds DEZELFDE 'last_object_clicked'. Dit zou leiden tot infinite toggle loop.
-            # OPLOSSING: We negeren de click als 'last_object_clicked' identiek is aan wat we in session_state hebben opgeslagen.
-            
-            prev_click = st.session_state.get('prev_click_obj')
-            
-            # Vergelijk geometry bounds of coordinates om te zien of het ECHT een nieuwe click is
-            # Of simpeler: als ID hetzelfde is, negeren we hem tenzij... tja.
-            # Workaround: We kijken of de visuele staat overeenkomt met de data state.
-            
-            # Beter: We gebruiken de ID en togglen hem.
-            # Om de infinite loop te breken:
-            # 1. User klikt -> output heeft ID -> Wij togglen -> Rerun.
-            # 2. Script runt -> output heeft NOG STEEDS ID -> Wij togglen WEER -> Rerun.
-            # Dit is het probleem.
-            
-            # Oplossing: check if 'last_object_clicked' changed.
-            if output["last_object_clicked"] != st.session_state.get("last_processed_click"):
-                if clicked_id in current_selection:
-                    current_selection.remove(clicked_id)
-                    st.toast(f"Gedeselecteerd: {clicked_id}")
-                else:
-                    current_selection.add(clicked_id)
-                    st.toast(f"Geselecteerd: {clicked_id}")
-                
-                st.session_state['manual_selection'] = current_selection
-                st.session_state["last_processed_click"] = output["last_object_clicked"]
-                st.rerun()
+            if click_id in st.session_state['manual_selection']:
+                st.session_state['manual_selection'].remove(click_id)
+            else:
+                st.session_state['manual_selection'].add(click_id)
+            st.rerun()
 
 st.divider()
+st.subheader("📝 Logboek Wijzigingen & Export")
+
 if st.session_state['change_log']:
-    st.markdown("### 📝 Logboek")
-    st.dataframe(pd.DataFrame(st.session_state['change_log']))
+    st.dataframe(pd.DataFrame(st.session_state['change_log']), use_container_width=True)
+else:
+    st.caption("Nog geen wijzigingen aangebracht.")
+
+csv = st.session_state['data_complete'].drop(columns=['geometry', 'Rank', 'subthema_clean', 'reg_jaar', 'sys_id'], errors='ignore').to_csv(index=False).encode('utf-8')
+st.download_button("📥 Download Definitieve CSV", csv, "iASSET_Smart_Export.csv", "text/csv")
