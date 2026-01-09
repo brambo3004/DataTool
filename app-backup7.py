@@ -22,34 +22,12 @@ SUBTHEMA_MUST_NOT_HAVE_PROJECT = ['fietsstalling', 'parkeerplaats', 'rotonderand
 MUTATION_REQUIRED_COLS = ['subthema', 'naam', 'Gebruikersfunctie', 'Type onderdeel', 'verhardingssoort', 'Onderhoudsproject']
 SEGMENTATION_ATTRIBUTES = ['verhardingssoort', 'Soort deklaag specifiek', 'Jaar aanleg', 'Jaar deklaag', 'Besteknummer']
 
-# Labels voor leesbare weergave in de adviseur
-FRIENDLY_LABELS = {
-    'verhardingssoort': 'Verharding',
-    'Soort deklaag specifiek': 'Deklaag',
-    'Jaar aanleg': 'Aanleg',
-    'Jaar deklaag': 'Deklaagjaar',
-    'Besteknummer': 'Bestek',
-    'Onderhoudsproject': 'Huidig Project'
-}
-
 ALL_META_COLS = [
     'subthema', 'Situering', 'verhardingssoort', 'Soort deklaag specifiek', 
     'Jaar aanleg', 'Jaar deklaag', 'Onderhoudsproject', 
     'Advies_Onderhoudsproject', 'validation_error', 'Spoor_ID', 
-    'Is_Project_Grens', 'Advies_Bron', 'Wegnummer', 'Besteknummer',
-    'tijdstipRegistratie'
+    'Is_Project_Grens', 'Advies_Bron', 'Wegnummer', 'Besteknummer'
 ]
-
-# --- HULPFUNCTIES ---
-
-def clean_display_value(val):
-    """Verwijdert .0 van getallen en maakt strings netjes."""
-    if pd.isna(val) or val == '' or str(val).lower() == 'nan':
-        return ""
-    s = str(val).strip()
-    if s.endswith(".0"):
-        return s[:-2]
-    return s
 
 # --- FUNCTIES: DATA & NETWERK ---
 
@@ -87,47 +65,17 @@ def load_data():
     gdf['subthema_clean'] = gdf['subthema'].astype(str).str.lower().str.strip()
     gdf['Rank'] = gdf['subthema_clean'].apply(lambda x: HIERARCHY_RANK.get(x, 4))
     
-    # Verbeterde Datum Parsing
-    def parse_date_info(x):
-        # Stap 1: Maak er een string van en haal .0 weg (essentieel voor floats zoals 2025.0)
-        s = str(x).strip()
-        if s.endswith('.0'):
-            s = s[:-2]
-            
-        if not s or s.lower() == 'nan':
-            return 0, 0
-
-        # Stap 2: Is het gewoon een jaartal? (4 cijfers)
-        # Dit vangt "2025" af voordat Pandas het als timestamp (jaar 1970) ziet
-        if len(s) == 4 and s.isdigit():
-            return int(s), 0
-
-        # Stap 3: Probeer datum parsing (bv "2025-01-01" of "01-02-2025")
+    def parse_year(x):
         try:
-            dt = pd.to_datetime(s, errors='coerce')
-            if pd.notna(dt):
-                return dt.year, dt.month
-        except: 
-            pass
-            
-        # Stap 4: Fallback slicing (als er "2025..." staat maar formaat onbekend is)
-        if len(s) >= 4 and s[:4].isdigit():
-             return int(s[:4]), 0
-             
-        return 0, 0
+            s = str(x).strip()
+            if len(s) >= 4 and s[:4].isdigit(): return int(s[:4])
+        except: pass
+        return 0
     
     if 'tijdstipRegistratie' in gdf.columns:
-        parsed = gdf['tijdstipRegistratie'].apply(parse_date_info)
-        gdf['reg_jaar'] = [p[0] for p in parsed]
-        gdf['reg_maand'] = [p[1] for p in parsed]
+        gdf['reg_jaar'] = gdf['tijdstipRegistratie'].apply(parse_year)
     else:
         gdf['reg_jaar'] = 0
-        gdf['reg_maand'] = 0
-
-    # Clean jaartallen in de data zelf
-    for col in ['Jaar aanleg', 'Jaar deklaag']:
-        if col in gdf.columns:
-            gdf[col] = gdf[col].apply(clean_display_value)
 
     return gdf
 
@@ -198,12 +146,9 @@ def check_rules(gdf):
         for idx, row in gdf[mask_recent].iterrows():
             missing_cols = [c for c in MUTATION_REQUIRED_COLS if pd.isna(row.get(c)) or str(row.get(c)).strip() == '']
             if missing_cols:
-                maand_str = f"-{int(row['reg_maand']):02d}" if row['reg_maand'] > 0 else ""
-                datum_label = f"{int(row['reg_jaar'])}{maand_str}"
-                
                 violations.append({
                     'type': 'mutation', 'id': idx, 'subthema': row['subthema'],
-                    'msg': f"Mutatie {datum_label}: Incompleet ({', '.join(missing_cols)})",
+                    'msg': f"Incompleet: {', '.join(missing_cols)}",
                     'missing_cols': missing_cols
                 })
     return violations
@@ -233,8 +178,8 @@ def generate_grouped_proposals(gdf, G):
             row_v = gdf.loc[v]
             match = True
             for col in SEGMENTATION_ATTRIBUTES:
-                val_u = clean_display_value(row_u.get(col, ''))
-                val_v = clean_display_value(row_v.get(col, ''))
+                val_u = str(row_u.get(col, '')).strip().replace('nan', '')
+                val_v = str(row_v.get(col, '')).strip().replace('nan', '')
                 if val_u != val_v:
                     match = False
                     break
@@ -248,18 +193,12 @@ def generate_grouped_proposals(gdf, G):
             node_list = list(comp)
             first_node = gdf.loc[node_list[0]]
             
-            # --- VERBETERDE LABELS ---
+            # Bouw de "Reden" string op met alle relevante kenmerken
             specs = []
-            
             for attr in SEGMENTATION_ATTRIBUTES:
-                val = clean_display_value(first_node.get(attr, ''))
-                if val:
-                    label = FRIENDLY_LABELS.get(attr, attr)
-                    specs.append(f"{label}: {val}")
-            
-            curr_proj = clean_display_value(first_node.get('Onderhoudsproject', ''))
-            if curr_proj:
-                specs.append(f"Huidig: {curr_proj}")
+                val = str(first_node.get(attr, '')).strip()
+                if val and val.lower() != 'nan':
+                    specs.append(f"{val}")
             
             reason_txt = ", ".join(specs) if specs else "Geen specifieke kenmerken"
 
@@ -267,7 +206,7 @@ def generate_grouped_proposals(gdf, G):
                 'ids': node_list,
                 'subthema': subthema_key,
                 'category': 'Ruggengraat',
-                'reason': reason_txt,
+                'reason': f"Gegroepeerd op: {reason_txt}",
                 'rank': config['rank']
             }
             for n in node_list:
@@ -312,6 +251,9 @@ def generate_grouped_proposals(gdf, G):
 def get_pdok_hectopunten_visual_only(road_gdf):
     """
     Haalt hectometerpaaltjes op via PDOK WFS.
+    AANGEPAST: 
+    1. Checkt of kolom 'id' bestaat voor drop_duplicates (voorkomt KeyError).
+    2. Deelt de weg op in chunks (voorkomt Bounding Box limit issues).
     """
     wfs_url = "https://service.pdok.nl/rws/nwbwegen/wfs/v1_0"
     buffer_meters = 200 
@@ -354,6 +296,7 @@ def get_pdok_hectopunten_visual_only(road_gdf):
     gdf_result = gpd.GeoDataFrame.from_features(all_features)
     gdf_result.set_crs(epsg=28992, inplace=True)
     
+    # --- FIX VOOR KEYERROR 'id' ---
     hm_col = None
     if 'hectometrering' in gdf_result.columns: hm_col = 'hectometrering'
     elif 'hectomtrng' in gdf_result.columns: hm_col = 'hectomtrng'
@@ -450,9 +393,10 @@ with col_inspector:
             st.write(f"**{len(violations)} issues gevonden**")
             
             with st.container(height=400):
+                # --- FIX: enumerate toegevoegd voor unieke keys ---
                 for i, v in enumerate(violations):
                     vid = v['id']
-                    unique_key = f"btn_err_{vid}_{i}" 
+                    unique_key = f"btn_err_{vid}_{i}" # Unieke key incl index
                     
                     is_selected = (st.session_state['selected_error_id'] == vid)
                     
@@ -495,8 +439,9 @@ with col_inspector:
                     
                     inputs = {}
                     for col in cols_to_fix:
-                        curr_val = clean_display_value(row.get(col, ''))
-                        inputs[col] = st.text_input(f"Vul in: {col}", value=curr_val, key=f"fix_{col}_{err_id}")
+                        curr_val = row.get(col, '')
+                        if pd.isna(curr_val): curr_val = ""
+                        inputs[col] = st.text_input(f"Vul in: {col}", value=str(curr_val), key=f"fix_{col}_{err_id}")
                     
                     if st.button("Opslaan Correctie"):
                         for col, new_val in inputs.items():
@@ -701,11 +646,6 @@ if 'change_log' in st.session_state and st.session_state['change_log']:
 if changed_ids:
     df_export = st.session_state['data_complete'].loc[list(changed_ids)][valid_export_cols].copy()
     
-    # Zorg ook in de export dat jaartallen netjes zijn (geen .0)
-    for col in ['Jaar aanleg', 'Jaar deklaag']:
-        if col in df_export.columns:
-            df_export[col] = df_export[col].apply(clean_display_value)
-            
     st.success(f"📦 Er staan {len(df_export)} gewijzigde objecten klaar voor export.")
     
     csv = df_export.to_csv(index=False, sep=';').encode('utf-8')
