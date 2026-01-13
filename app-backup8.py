@@ -9,14 +9,12 @@ import networkx as nx
 from datetime import datetime
 import numpy as np
 import io
-import os
 
 # --- CONFIGURATIE ---
 st.set_page_config(layout="wide", page_title="iASSET Tool - Smart Advisor")
 
 FILE_NIET_RIJSTROOK = "N-allemaal-niet-rijstrook.csv"
 FILE_WEL_RIJSTROOK = "N-allemaal-alleen-rijstrook.csv"
-AUTOSAVE_FILE = "autosave_log.csv" 
 
 HIERARCHY_RANK = {'rijstrook': 1, 'parallelweg': 2, 'fietspad': 3}
 
@@ -40,7 +38,7 @@ ALL_META_COLS = [
     'Jaar aanleg', 'Jaar deklaag', 'Onderhoudsproject', 
     'Advies_Onderhoudsproject', 'validation_error', 'Spoor_ID', 
     'Is_Project_Grens', 'Advies_Bron', 'Wegnummer', 'Besteknummer',
-    'tijdstipRegistratie', 'nummer', 'gps coordinaten', 'rds coordinaten', 'Metrering'
+    'tijdstipRegistratie'
 ]
 
 # --- HULPFUNCTIES ---
@@ -53,19 +51,6 @@ def clean_display_value(val):
     if s.endswith(".0"):
         return s[:-2]
     return s
-
-def save_autosave():
-    if 'change_log' in st.session_state and st.session_state['change_log']:
-        df_log = pd.DataFrame(st.session_state['change_log'])
-        df_log.to_csv(AUTOSAVE_FILE, index=False, sep=';')
-    else:
-        if os.path.exists(AUTOSAVE_FILE):
-            os.remove(AUTOSAVE_FILE)
-
-def apply_change_to_data(oid, field, new_val):
-    raw_gdf = st.session_state['data_complete']
-    if oid in raw_gdf.index:
-        raw_gdf.at[oid, field] = new_val
 
 # --- FUNCTIES: DATA & NETWERK ---
 
@@ -103,23 +88,22 @@ def load_data():
     gdf['subthema_clean'] = gdf['subthema'].astype(str).str.lower().str.strip()
     gdf['Rank'] = gdf['subthema_clean'].apply(lambda x: HIERARCHY_RANK.get(x, 4))
     
-    # Hectometrering opschonen (fallback)
-    if 'Metrering' in gdf.columns:
-        gdf['hm_sort'] = pd.to_numeric(gdf['Metrering'].astype(str).str.replace(',', '.'), errors='coerce')
-        gdf['hm_sort'] = gdf['hm_sort'].fillna(99999.9)
-    else:
-        gdf['hm_sort'] = 99999.9
-
     def parse_date_info(x):
         s = str(x).strip()
-        if s.endswith('.0'): s = s[:-2]
-        if not s or s.lower() == 'nan': return 0, 0
-        if len(s) == 4 and s.isdigit(): return int(s), 0
+        if s.endswith('.0'):
+            s = s[:-2]
+        if not s or s.lower() == 'nan':
+            return 0, 0
+        if len(s) == 4 and s.isdigit():
+            return int(s), 0
         try:
             dt = pd.to_datetime(s, errors='coerce')
-            if pd.notna(dt): return dt.year, dt.month
-        except: pass
-        if len(s) >= 4 and s[:4].isdigit(): return int(s[:4]), 0
+            if pd.notna(dt):
+                return dt.year, dt.month
+        except: 
+            pass
+        if len(s) >= 4 and s[:4].isdigit():
+             return int(s[:4]), 0
         return 0, 0
     
     if 'tijdstipRegistratie' in gdf.columns:
@@ -225,11 +209,6 @@ def generate_grouped_proposals(gdf, G):
     
     processed_ids = set()
     
-    # --- STAP 0: BEPAAL RICHTING VAN DE HELE WEG ---
-    minx, miny, maxx, maxy = gdf.total_bounds
-    road_vector_x = maxx - minx
-    road_vector_y = maxy - miny
-    
     # FASE 1: Ruggengraat
     for subthema_key, config in BACKBONES.items():
         nodes_of_type = [n for n in G.nodes if gdf.loc[n, 'subthema_clean'] == subthema_key]
@@ -258,14 +237,9 @@ def generate_grouped_proposals(gdf, G):
             node_list = list(comp)
             first_node = gdf.loc[node_list[0]]
             
-            # --- Bereken "Geografische Positie Score" ---
-            grp_geom = gdf.loc[node_list].unary_union
-            center = grp_geom.centroid
-            
-            # Projectie
-            spatial_score = (center.x * road_vector_x) + (center.y * road_vector_y)
-            
+            # --- VERBETERDE LABELS ---
             specs = []
+            
             for attr in SEGMENTATION_ATTRIBUTES:
                 val = clean_display_value(first_node.get(attr, ''))
                 if val:
@@ -283,9 +257,7 @@ def generate_grouped_proposals(gdf, G):
                 'subthema': subthema_key,
                 'category': 'Ruggengraat',
                 'reason': reason_txt,
-                'rank': config['rank'],
-                'current_project_name': curr_proj,
-                'spatial_sort_val': spatial_score 
+                'rank': config['rank']
             }
             for n in node_list:
                 node_to_group[n] = group_id
@@ -327,6 +299,9 @@ def generate_grouped_proposals(gdf, G):
     return {k: v for k, v in groups.items() if v['ids']}
 
 def get_pdok_hectopunten_visual_only(road_gdf):
+    """
+    Haalt hectometerpaaltjes op via PDOK WFS.
+    """
     wfs_url = "https://service.pdok.nl/rws/nwbwegen/wfs/v1_0"
     buffer_meters = 200 
     chunk_size = 50     
@@ -339,6 +314,7 @@ def get_pdok_hectopunten_visual_only(road_gdf):
     road_sorted = road_sorted.sort_values('sort_x')
 
     all_features = []
+    
     num_segments = len(road_sorted)
     
     for i in range(0, num_segments, chunk_size):
@@ -395,30 +371,18 @@ def log_change(oid, field, old_val, new_val, status="Succes"):
         'Nieuw': str(new_val),
         'Status': status
     })
-    save_autosave()
 
-# --- START APPLICATIE & AUTOLOAD ---
+# --- START APPLICATIE ---
 
 if 'data_complete' not in st.session_state:
     with st.spinner('Data laden...'):
         st.session_state['data_complete'] = load_data()
-        
-        if os.path.exists(AUTOSAVE_FILE):
-            try:
-                df_auto = pd.read_csv(AUTOSAVE_FILE, sep=';')
-                st.session_state['change_log'] = df_auto.to_dict('records')
-                count_restored = 0
-                for row in st.session_state['change_log']:
-                    apply_change_to_data(row['ID'], row['Veld'], row['Nieuw'])
-                    count_restored += 1
-                if count_restored > 0:
-                    st.toast(f"🔄 {count_restored} wijzigingen hersteld uit autosave!", icon="💾")
-            except Exception as e:
-                st.error(f"Kon autosave niet laden: {e}")
 else:
     if 'sys_id' not in st.session_state['data_complete'].columns:
         st.cache_data.clear()
-        st.rerun()
+        with st.spinner('Reloading data...'):
+            st.session_state['data_complete'] = load_data()
+            st.rerun()
 
 raw_gdf = st.session_state['data_complete']
 
@@ -446,7 +410,8 @@ if 'graph_current' not in st.session_state or st.session_state.get('last_road') 
         st.session_state['zoom_bounds'] = None
         st.session_state['selected_error_id'] = None
         st.session_state['selected_group_id'] = None
-        
+        st.session_state['change_log'] = [] 
+
 G_road = st.session_state['graph_current']
 
 # --- LAYOUT ---
@@ -556,17 +521,9 @@ with col_inspector:
         else:
             st.write(f"**{len(active_groups)} suggesties beschikbaar**")
             
-            # AANGEPAST: Sorteer met negatieve spatial score (draait richting om)
-            def sort_key_advisor(item):
-                gid, data = item
-                r = data.get('rank', 99)
-                spatial = data.get('spatial_sort_val', 0)
-                return (r, -spatial) # <--- MINTEKEN VOOR OMKEREN
-            
-            sorted_items = sorted(active_groups.items(), key=sort_key_advisor)
-            
             with st.container(height=400):
-                for g_id, g_data in sorted_items:
+                for g_id in sorted(active_groups.keys()):
+                    g_data = active_groups[g_id]
                     count = len(g_data['ids'])
                     icon = "🛣️" if "RIJBAAN" in g_id else "🚲" if "FIETSPAD" in g_id else "🛤️" if "PARALLEL" in g_id else "🌳"
                     
@@ -706,28 +663,13 @@ st.divider()
 st.subheader("📝 Logboek Wijzigingen & Export")
 
 if st.session_state['change_log']:
-    reversed_log = list(reversed(list(enumerate(st.session_state['change_log']))))
-    
-    with st.container(height=300):
-        for idx, entry in reversed_log:
-            c1, c2, c3, c4 = st.columns([1, 2, 4, 1])
-            c1.text(entry['Tijd'])
-            c2.text(f"ID: {entry['ID']}")
-            c3.text(f"{entry['Veld']}: {entry['Oud']} ➡ {entry['Nieuw']}")
-            
-            if c4.button("↩️ Herstel", key=f"undo_{idx}"):
-                apply_change_to_data(entry['ID'], entry['Veld'], entry['Oud'])
-                del st.session_state['change_log'][idx]
-                save_autosave()
-                st.success("Wijziging ongedaan gemaakt!")
-                st.rerun()
+    st.dataframe(pd.DataFrame(st.session_state['change_log']), use_container_width=True)
 else:
     st.caption("Nog geen wijzigingen aangebracht.")
 
 # --- EXPORT CONFIGURATIE (ALLEEN MUTATIES) ---
 EXPORT_COLUMNS = [
     'bron_id',              # De unieke sleutel 
-    'nummer',               
     'Wegnummer',
     'subthema', 
     'Onderhoudsproject',    
@@ -735,9 +677,7 @@ EXPORT_COLUMNS = [
     'Soort deklaag specifiek',
     'Jaar aanleg',
     'Jaar deklaag',
-    'Besteknummer',
-    'gps coordinaten',      
-    'rds coordinaten'       
+    'Besteknummer'
 ]
 
 valid_export_cols = [c for c in EXPORT_COLUMNS if c in st.session_state['data_complete'].columns]
@@ -750,18 +690,22 @@ if 'change_log' in st.session_state and st.session_state['change_log']:
 if changed_ids:
     df_export = st.session_state['data_complete'].loc[list(changed_ids)][valid_export_cols].copy()
     
+    # 1. Jaartallen opschonen
     for col in ['Jaar aanleg', 'Jaar deklaag']:
         if col in df_export.columns:
             df_export[col] = df_export[col].apply(clean_display_value)
             
+    # 2. TERUG HERNOEMEN: 'bron_id' -> 'id' (belangrijk voor iASSET!)
     if 'bron_id' in df_export.columns:
         df_export.rename(columns={'bron_id': 'id'}, inplace=True)
         
     st.success(f"📦 Er staan {len(df_export)} gewijzigde objecten klaar voor export.")
     
+    # KOLOMMEN MAKEN VOOR KNOPPEN
     c_dl1, c_dl2 = st.columns(2)
     
     with c_dl1:
+        # OPTIE A: CSV (zoals voorheen)
         csv = df_export.to_csv(index=False, sep=';').encode('utf-8-sig')
         st.download_button(
             label="📥 Download CSV", 
@@ -771,8 +715,10 @@ if changed_ids:
         )
         
     with c_dl2:
+        # OPTIE B: EXCEL (Nieuw)
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            # AANGEPAST: Sheetnaam 'Verhardingen'
             df_export.to_excel(writer, index=False, sheet_name='Verhardingen')
             
         st.download_button(

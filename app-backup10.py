@@ -16,7 +16,7 @@ st.set_page_config(layout="wide", page_title="iASSET Tool - Smart Advisor")
 
 FILE_NIET_RIJSTROOK = "N-allemaal-niet-rijstrook.csv"
 FILE_WEL_RIJSTROOK = "N-allemaal-alleen-rijstrook.csv"
-AUTOSAVE_FILE = "autosave_log.csv" 
+AUTOSAVE_FILE = "autosave_log.csv" # Bestand voor automatische opslag
 
 HIERARCHY_RANK = {'rijstrook': 1, 'parallelweg': 2, 'fietspad': 3}
 
@@ -40,7 +40,7 @@ ALL_META_COLS = [
     'Jaar aanleg', 'Jaar deklaag', 'Onderhoudsproject', 
     'Advies_Onderhoudsproject', 'validation_error', 'Spoor_ID', 
     'Is_Project_Grens', 'Advies_Bron', 'Wegnummer', 'Besteknummer',
-    'tijdstipRegistratie', 'nummer', 'gps coordinaten', 'rds coordinaten', 'Metrering'
+    'tijdstipRegistratie', 'nummer', 'gps coordinaten', 'rds coordinaten'
 ]
 
 # --- HULPFUNCTIES ---
@@ -55,14 +55,17 @@ def clean_display_value(val):
     return s
 
 def save_autosave():
+    """Schrijft de huidige change_log naar disk."""
     if 'change_log' in st.session_state and st.session_state['change_log']:
         df_log = pd.DataFrame(st.session_state['change_log'])
         df_log.to_csv(AUTOSAVE_FILE, index=False, sep=';')
     else:
+        # Als log leeg is, verwijder bestand als het bestaat
         if os.path.exists(AUTOSAVE_FILE):
             os.remove(AUTOSAVE_FILE)
 
 def apply_change_to_data(oid, field, new_val):
+    """Update een enkele waarde in de hoofddataset."""
     raw_gdf = st.session_state['data_complete']
     if oid in raw_gdf.index:
         raw_gdf.at[oid, field] = new_val
@@ -103,13 +106,6 @@ def load_data():
     gdf['subthema_clean'] = gdf['subthema'].astype(str).str.lower().str.strip()
     gdf['Rank'] = gdf['subthema_clean'].apply(lambda x: HIERARCHY_RANK.get(x, 4))
     
-    # Hectometrering opschonen (fallback)
-    if 'Metrering' in gdf.columns:
-        gdf['hm_sort'] = pd.to_numeric(gdf['Metrering'].astype(str).str.replace(',', '.'), errors='coerce')
-        gdf['hm_sort'] = gdf['hm_sort'].fillna(99999.9)
-    else:
-        gdf['hm_sort'] = 99999.9
-
     def parse_date_info(x):
         s = str(x).strip()
         if s.endswith('.0'): s = s[:-2]
@@ -225,11 +221,6 @@ def generate_grouped_proposals(gdf, G):
     
     processed_ids = set()
     
-    # --- STAP 0: BEPAAL RICHTING VAN DE HELE WEG ---
-    minx, miny, maxx, maxy = gdf.total_bounds
-    road_vector_x = maxx - minx
-    road_vector_y = maxy - miny
-    
     # FASE 1: Ruggengraat
     for subthema_key, config in BACKBONES.items():
         nodes_of_type = [n for n in G.nodes if gdf.loc[n, 'subthema_clean'] == subthema_key]
@@ -258,13 +249,6 @@ def generate_grouped_proposals(gdf, G):
             node_list = list(comp)
             first_node = gdf.loc[node_list[0]]
             
-            # --- Bereken "Geografische Positie Score" ---
-            grp_geom = gdf.loc[node_list].unary_union
-            center = grp_geom.centroid
-            
-            # Projectie
-            spatial_score = (center.x * road_vector_x) + (center.y * road_vector_y)
-            
             specs = []
             for attr in SEGMENTATION_ATTRIBUTES:
                 val = clean_display_value(first_node.get(attr, ''))
@@ -284,8 +268,7 @@ def generate_grouped_proposals(gdf, G):
                 'category': 'Ruggengraat',
                 'reason': reason_txt,
                 'rank': config['rank'],
-                'current_project_name': curr_proj,
-                'spatial_sort_val': spatial_score 
+                'current_project_name': curr_proj
             }
             for n in node_list:
                 node_to_group[n] = group_id
@@ -395,6 +378,7 @@ def log_change(oid, field, old_val, new_val, status="Succes"):
         'Nieuw': str(new_val),
         'Status': status
     })
+    # Direct opslaan naar disk na wijziging
     save_autosave()
 
 # --- START APPLICATIE & AUTOLOAD ---
@@ -403,10 +387,12 @@ if 'data_complete' not in st.session_state:
     with st.spinner('Data laden...'):
         st.session_state['data_complete'] = load_data()
         
+        # AUTOSAVE LADEN BIJ OPSTARTEN
         if os.path.exists(AUTOSAVE_FILE):
             try:
                 df_auto = pd.read_csv(AUTOSAVE_FILE, sep=';')
                 st.session_state['change_log'] = df_auto.to_dict('records')
+                # Her-appliceren van wijzigingen op verse data
                 count_restored = 0
                 for row in st.session_state['change_log']:
                     apply_change_to_data(row['ID'], row['Veld'], row['Nieuw'])
@@ -446,6 +432,7 @@ if 'graph_current' not in st.session_state or st.session_state.get('last_road') 
         st.session_state['zoom_bounds'] = None
         st.session_state['selected_error_id'] = None
         st.session_state['selected_group_id'] = None
+        # Let op: we wissen change_log NIET meer hier, want die is globaal
         
 G_road = st.session_state['graph_current']
 
@@ -556,12 +543,11 @@ with col_inspector:
         else:
             st.write(f"**{len(active_groups)} suggesties beschikbaar**")
             
-            # AANGEPAST: Sorteer met negatieve spatial score (draait richting om)
             def sort_key_advisor(item):
                 gid, data = item
                 r = data.get('rank', 99)
-                spatial = data.get('spatial_sort_val', 0)
-                return (r, -spatial) # <--- MINTEKEN VOOR OMKEREN
+                p = data.get('current_project_name', '')
+                return (r, p)
             
             sorted_items = sorted(active_groups.items(), key=sort_key_advisor)
             
@@ -706,6 +692,7 @@ st.divider()
 st.subheader("📝 Logboek Wijzigingen & Export")
 
 if st.session_state['change_log']:
+    # We tonen de lijst omgekeerd (nieuwste bovenaan) voor makkelijk undo'en
     reversed_log = list(reversed(list(enumerate(st.session_state['change_log']))))
     
     with st.container(height=300):
@@ -715,10 +702,17 @@ if st.session_state['change_log']:
             c2.text(f"ID: {entry['ID']}")
             c3.text(f"{entry['Veld']}: {entry['Oud']} ➡ {entry['Nieuw']}")
             
+            # De UNDO Knop
             if c4.button("↩️ Herstel", key=f"undo_{idx}"):
+                # 1. Pas data weer aan naar oud
                 apply_change_to_data(entry['ID'], entry['Veld'], entry['Oud'])
+                
+                # 2. Verwijder uit log (gebruik de originele index 'idx')
                 del st.session_state['change_log'][idx]
+                
+                # 3. Save direct
                 save_autosave()
+                
                 st.success("Wijziging ongedaan gemaakt!")
                 st.rerun()
 else:
@@ -750,18 +744,22 @@ if 'change_log' in st.session_state and st.session_state['change_log']:
 if changed_ids:
     df_export = st.session_state['data_complete'].loc[list(changed_ids)][valid_export_cols].copy()
     
+    # 1. Jaartallen opschonen
     for col in ['Jaar aanleg', 'Jaar deklaag']:
         if col in df_export.columns:
             df_export[col] = df_export[col].apply(clean_display_value)
             
+    # 2. TERUG HERNOEMEN: 'bron_id' -> 'id' (belangrijk voor iASSET!)
     if 'bron_id' in df_export.columns:
         df_export.rename(columns={'bron_id': 'id'}, inplace=True)
         
     st.success(f"📦 Er staan {len(df_export)} gewijzigde objecten klaar voor export.")
     
+    # KOLOMMEN MAKEN VOOR KNOPPEN
     c_dl1, c_dl2 = st.columns(2)
     
     with c_dl1:
+        # OPTIE A: CSV (zoals voorheen)
         csv = df_export.to_csv(index=False, sep=';').encode('utf-8-sig')
         st.download_button(
             label="📥 Download CSV", 
@@ -771,8 +769,10 @@ if changed_ids:
         )
         
     with c_dl2:
+        # OPTIE B: EXCEL (Nieuw)
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            # AANGEPAST: Sheetnaam 'Verhardingen'
             df_export.to_excel(writer, index=False, sheet_name='Verhardingen')
             
         st.download_button(
