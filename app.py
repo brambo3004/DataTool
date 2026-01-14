@@ -173,9 +173,15 @@ def build_graph_from_geometry(gdf):
 
 # --- FUNCTIES: ANALYSE ---
 
-def check_rules(gdf):
+def check_rules(gdf, G=None):
+    """
+    Checkt datakwaliteit:
+    1. Missende attributen (bestaande logica).
+    2. Topologische eilandjes (nieuwe logica: objecten die nergens aan vast zitten).
+    """
     violations = []
     
+    # --- STAP 1: Attribuut checks (bestaande logica) ---
     mask_missing = (
         gdf['subthema_clean'].isin([x.lower() for x in SUBTHEMA_MUST_HAVE_PROJECT]) &
         (gdf['Onderhoudsproject'].isna() | (gdf['Onderhoudsproject'] == ''))
@@ -211,12 +217,53 @@ def check_rules(gdf):
                     'msg': f"Mutatie {datum_label}: Incompleet ({', '.join(missing_cols)})",
                     'missing_cols': missing_cols
                 })
+    
+    # --- STAP 2: Topologische checks (Nieuw: Weeskinderen) ---
+    if G is not None:
+        # We negeren objecten die sowieso geen project hoeven (zoals parkeerplaatsen)
+        # voor de bepaling of iets 'fout' is, maar ze tellen wel mee als verbinding.
+        
+        # Haal alle backbones op (rijstrook, parallelweg, fietspad)
+        backbone_types = ['rijstrook', 'parallelweg', 'fietspad']
+        ignore_types = [x.lower() for x in SUBTHEMA_MUST_NOT_HAVE_PROJECT]
+        
+        # Vind alle losse componenten in het netwerk
+        components = list(nx.connected_components(G))
+        
+        for comp in components:
+            # Check of dit eilandje een ruggengraat heeft
+            has_backbone = False
+            valid_nodes_in_island = []
+            
+            for node_id in comp:
+                sub = gdf.loc[node_id, 'subthema_clean']
+                
+                if sub in backbone_types:
+                    has_backbone = True
+                
+                # Check of dit een object is dat wél een project zou moeten hebben
+                if sub not in ignore_types:
+                    valid_nodes_in_island.append(node_id)
+            
+            # Als er GEEN ruggengraat in dit eiland zit, zijn de valide objecten 'verloren'
+            if not has_backbone and valid_nodes_in_island:
+                for vid in valid_nodes_in_island:
+                    row = gdf.loc[vid]
+                    violations.append({
+                        'type': 'error', 
+                        'id': vid, 
+                        'subthema': row['subthema'],
+                        'msg': 'Geïsoleerd object: Geen verbinding met hoofdnetwerk (Rijbaan/Parallel/Fiets)',
+                        'missing_cols': []
+                    })
+
     return violations
 
 def generate_grouped_proposals(gdf, G):
     groups = {}
     node_to_group = {}
     
+    # Configuratie van de hiërarchie
     BACKBONES = {
         'rijstrook':   {'prefix': 'GRP_RIJBAAN',   'rank': 1},
         'parallelweg': {'prefix': 'GRP_PARALLEL',  'rank': 2},
@@ -224,13 +271,18 @@ def generate_grouped_proposals(gdf, G):
     }
     
     processed_ids = set()
+    backbone_types = set(BACKBONES.keys())
+    ignore_types = set([x.lower() for x in SUBTHEMA_MUST_NOT_HAVE_PROJECT])
     
-    # --- STAP 0: BEPAAL RICHTING VAN DE HELE WEG ---
-    minx, miny, maxx, maxy = gdf.total_bounds
-    road_vector_x = maxx - minx
-    road_vector_y = maxy - miny
+    # Hulpfunctie om eigenschappen te vergelijken
+    def get_seg_hash(node_id):
+        row = gdf.loc[node_id]
+        vals = [clean_display_value(row.get(c, '')) for c in SEGMENTATION_ATTRIBUTES]
+        return tuple(vals)
+
+    # --- FASE 1: Ruggengraat Formeren ---
+    initial_groups = [] 
     
-    # FASE 1: Ruggengraat
     for subthema_key, config in BACKBONES.items():
         nodes_of_type = [n for n in G.nodes if gdf.loc[n, 'subthema_clean'] == subthema_key]
         if not nodes_of_type: continue
@@ -239,103 +291,178 @@ def generate_grouped_proposals(gdf, G):
         
         edges_to_remove = []
         for u, v in G_sub.edges():
-            row_u = gdf.loc[u]
-            row_v = gdf.loc[v]
-            match = True
-            for col in SEGMENTATION_ATTRIBUTES:
-                val_u = clean_display_value(row_u.get(col, ''))
-                val_v = clean_display_value(row_v.get(col, ''))
-                if val_u != val_v:
-                    match = False
-                    break
-            if not match: edges_to_remove.append((u, v))
+            if get_seg_hash(u) != get_seg_hash(v):
+                 edges_to_remove.append((u, v))
                 
         G_sub.remove_edges_from(edges_to_remove)
         components = list(nx.connected_components(G_sub))
         
         for i, comp in enumerate(components):
-            group_id = f"{config['prefix']}_{i+1}"
+            temp_id = f"{config['prefix']}_TEMP_{i}"
             node_list = list(comp)
             first_node = gdf.loc[node_list[0]]
             
-            # --- Bereken "Geografische Positie Score" ---
-            grp_geom = gdf.loc[node_list].unary_union
-            center = grp_geom.centroid
-            # Projectie
-            spatial_score = (center.x * road_vector_x) + (center.y * road_vector_y)
+            # Metadata voor labels en vergelijking
+            seg_props = get_seg_hash(node_list[0])
             
             specs = []
-            for attr in SEGMENTATION_ATTRIBUTES:
-                val = clean_display_value(first_node.get(attr, ''))
+            for idx, attr in enumerate(SEGMENTATION_ATTRIBUTES):
+                val = seg_props[idx]
                 if val:
-                    label = FRIENDLY_LABELS.get(attr, attr)
-                    specs.append(f"{label}: {val}")
+                    specs.append(f"{FRIENDLY_LABELS.get(attr, attr)}: {val}")
             
             curr_proj = clean_display_value(first_node.get('Onderhoudsproject', ''))
-            if curr_proj:
-                specs.append(f"Huidig: {curr_proj}")
-            
+            if curr_proj: specs.append(f"Huidig: {curr_proj}")
             reason_txt = ", ".join(specs) if specs else "Geen specifieke kenmerken"
 
-            groups[group_id] = {
+            groups[temp_id] = {
                 'ids': node_list,
                 'subthema': subthema_key,
                 'category': 'Ruggengraat',
                 'reason': reason_txt,
                 'rank': config['rank'],
-                'current_project_name': curr_proj,
-                'spatial_sort_val': spatial_score 
+                'prefix': config['prefix'],
+                'seg_props': seg_props # Opslaan voor merge check
             }
+            
+            initial_groups.append((config['rank'], temp_id))
             for n in node_list:
-                node_to_group[n] = group_id
+                node_to_group[n] = temp_id
                 processed_ids.add(n)
 
-    # FASE 2: Pac-Man Absorptie
-    forbidden_subthemes = [x.lower() for x in SUBTHEMA_MUST_NOT_HAVE_PROJECT]
+    # --- FASE 2: Gelaagde Expansie (Olievlek) ---
+    initial_groups.sort(key=lambda x: x[0])
     
-    remaining = set()
-    for n in G.nodes:
-        if n in processed_ids:
-            continue
-        
-        # Check op Zwarte Lijst
-        node_sub = str(gdf.loc[n, 'subthema_clean']).lower().strip()
-        if node_sub in forbidden_subthemes:
-            continue # Deze slaan we over
+    for rank, group_id in initial_groups:
+        queue = list(groups[group_id]['ids'])
+        idx = 0
+        while idx < len(queue):
+            current_node = queue[idx]
+            idx += 1
             
-        remaining.add(n)
-    
-    changes = True
-    while changes:
-        changes = False
-        to_remove_from_remaining = set()
-        
-        for node_id in remaining:
-            neighbors = list(G.neighbors(node_id))
-            found_groups = set()
-            for n in neighbors:
-                if n in node_to_group:
-                    found_groups.add(node_to_group[n])
-            
-            if found_groups:
-                candidates = []
-                for gid in found_groups:
-                    rank = groups[gid]['rank']
-                    candidates.append((rank, gid))
+            neighbors = G.neighbors(current_node)
+            for buur in neighbors:
+                if buur in processed_ids: continue
+                buur_sub = gdf.loc[buur, 'subthema_clean']
                 
-                candidates.sort(key=lambda x: x[0])
-                best_group_id = candidates[0][1]
+                if buur_sub in backbone_types: continue
+                if buur_sub in ignore_types: continue
                 
-                groups[best_group_id]['ids'].append(node_id)
-                node_to_group[node_id] = best_group_id
-                
-                to_remove_from_remaining.add(node_id)
-                processed_ids.add(node_id)
-                changes = True
-        
-        remaining -= to_remove_from_remaining
+                groups[group_id]['ids'].append(buur)
+                node_to_group[buur] = group_id
+                processed_ids.add(buur)
+                queue.append(buur)
 
-    return {k: v for k, v in groups.items() if v['ids']}
+    # --- FASE 3: Ritsen (Merging) ---
+    # We proberen groepen samen te voegen die via secundaire objecten (nu toegevoegd) aan elkaar raken
+    # en dezelfde eigenschappen hebben.
+    
+    merged_map = {} # map oude_group_id -> nieuwe_group_id
+    active_group_ids = list(groups.keys())
+    
+    changed = True
+    while changed:
+        changed = False
+        # Bouw graaf van groepen
+        G_groups = nx.Graph()
+        G_groups.add_nodes_from(active_group_ids)
+        
+        # Check connecties tussen groepen
+        # Dit is zwaar, dus we doen het slim: check buren van nodes in groep
+        for gid in active_group_ids:
+            g_data = groups[gid]
+            my_props = g_data['seg_props']
+            my_sub = g_data['subthema']
+            
+            # Verzamel alle buren van deze hele groep
+            boundary_nodes = set()
+            for node in g_data['ids']:
+                for buur in G.neighbors(node):
+                    if buur in node_to_group and node_to_group[buur] != gid:
+                        other_gid = node_to_group[buur]
+                        # Check criteria voor merge:
+                        # 1. Zelfde subthema (rijbaan <-> rijbaan)
+                        # 2. Zelfde eigenschappen
+                        if other_gid in groups:
+                            other_data = groups[other_gid]
+                            if (other_data['subthema'] == my_sub and 
+                                other_data['seg_props'] == my_props):
+                                G_groups.add_edge(gid, other_gid)
+
+        # Zoek componenten (groepen van groepen die samen horen)
+        meta_components = list(nx.connected_components(G_groups))
+        
+        # Als er componenten zijn met >1 groep, moeten we mergen
+        new_active_ids = []
+        
+        for comp in meta_components:
+            comp_list = list(comp)
+            if len(comp_list) > 1:
+                # Merge deze groepen
+                primary_id = comp_list[0]
+                changed = True
+                
+                for other_id in comp_list[1:]:
+                    # Voeg nodes toe aan primary
+                    groups[primary_id]['ids'].extend(groups[other_id]['ids'])
+                    # Update pointers
+                    for n in groups[other_id]['ids']:
+                        node_to_group[n] = primary_id
+                    # Verwijder oude
+                    del groups[other_id]
+                
+                new_active_ids.append(primary_id)
+            else:
+                new_active_ids.append(comp_list[0])
+        
+        active_group_ids = new_active_ids
+
+    # --- FASE 4: Sorteren en Hernoemen ---
+    if not groups: return {}
+
+    minx, miny, maxx, maxy = gdf.total_bounds
+    width = maxx - minx
+    height = maxy - miny
+    use_x_axis = width > height
+    
+    sortable_groups = []
+    for g_id, g_data in groups.items():
+        if not g_data['ids']: continue
+        nodes_geom = gdf.loc[g_data['ids'], 'geometry']
+        avg_x = nodes_geom.centroid.x.mean()
+        avg_y = nodes_geom.centroid.y.mean()
+        score = avg_x if use_x_axis else avg_y
+        sortable_groups.append({'score': score, 'data': g_data, 'rank': g_data['rank']})
+
+    # Richting detectie
+    reverse_order = False
+    hm_col = next((c for c in gdf.columns if 'hect' in c.lower() or 'hm' == c.lower()), None)
+    if hm_col:
+        try:
+            valid_hm = gdf[pd.to_numeric(gdf[hm_col], errors='coerce').notna()].copy()
+            if not valid_hm.empty:
+                valid_hm['hm_num'] = pd.to_numeric(valid_hm[hm_col])
+                node_start = valid_hm.loc[valid_hm['hm_num'].idxmin()]
+                node_end = valid_hm.loc[valid_hm['hm_num'].idxmax()]
+                p_s = node_start.geometry.centroid.x if use_x_axis else node_start.geometry.centroid.y
+                p_e = node_end.geometry.centroid.x if use_x_axis else node_end.geometry.centroid.y
+                if p_s > p_e: reverse_order = True
+        except: pass
+
+    key_func = (lambda x: (x['rank'], -x['score'])) if reverse_order else (lambda x: (x['rank'], x['score']))
+    sortable_groups.sort(key=key_func)
+    
+    final_groups = {}
+    counters = {} 
+    for item in sortable_groups:
+        data = item['data']
+        prefix = data['prefix']
+        if prefix not in counters: counters[prefix] = 1
+        new_id = f"{prefix}_{counters[prefix]}"
+        counters[prefix] += 1
+        final_groups[new_id] = data
+        
+    return final_groups
 
 def get_pdok_hectopunten_visual_only(road_gdf):
     wfs_url = "https://service.pdok.nl/rws/nwbwegen/wfs/v1_0"
@@ -476,9 +603,9 @@ with col_inspector:
                     horizontal=True, on_change=on_mode_change)
     st.divider()
 
-    # --- MODUS 1: KWALITEIT ---
+# --- MODUS 1: KWALITEIT ---
     if mode == "🔍 Data Kwaliteit":
-        violations = check_rules(road_gdf)
+        violations = check_rules(road_gdf, G_road) # <--- NIEUWE REGEL MET GRAAF
         if not violations:
             st.success("Schoon! Geen datakwaliteit issues.")
         else:
@@ -683,7 +810,15 @@ with col_map:
         m = folium.Map(location=[(b[1]+b[3])/2, (b[0]+b[2])/2], zoom_start=16, tiles="CartoDB positron")
         m.fit_bounds(fit_b)
     else:
-        c = road_web.unary_union.centroid
+        # Fix voor DeprecationWarning van unary_union
+        try:
+            # Nieuwe methode in recente GeoPandas versies
+            geom_union = road_web.geometry.union_all()
+        except AttributeError:
+            # Fallback voor oudere versies
+            geom_union = road_web.unary_union
+            
+        c = geom_union.centroid
         m = folium.Map(location=[c.y, c.x], zoom_start=14, tiles="CartoDB positron")
 
     def style_fn(feature):
@@ -726,6 +861,73 @@ with col_map:
                 icon_html = f"""<div style="font-size: 10pt; font-weight: bold; color: black; text-shadow: 1px 1px 0 #fff;">{val:.1f}</div>"""
                 folium.Marker([g.y, g.x], icon=folium.DivIcon(icon_size=(40,20), icon_anchor=(10,10), html=icon_html)).add_to(m)
                 folium.CircleMarker([g.y, g.x], radius=2, color='red', fill=True).add_to(m)
+
+    # --- DEBUG NETWERK LAAG ---
+    st.write("### 🛠️ Debug Tools")
+    show_network = st.toggle("🕸️ Toon Netwerk & Verbindingen", value=False)
+    
+    if show_network and 'graph_current' in st.session_state:
+        G_debug = st.session_state['graph_current']
+        
+        # Mapping maken van node -> groep
+        node_group_map = {}
+        if 'computed_groups' in st.session_state and st.session_state['computed_groups']:
+            for grp_id, grp_data in st.session_state['computed_groups'].items():
+                for node_id in grp_data['ids']:
+                    node_group_map[node_id] = grp_id
+        
+        lines_internal = []
+        lines_external = []
+        
+        # BELANGRIJK: We gebruiken road_web (EPSG:4326) voor de coordinaten, 
+        # niet road_gdf (RD), anders tekenen we buiten beeld!
+        for u, v in G_debug.edges():
+            if u in road_web.index and v in road_web.index:
+                p1 = road_web.loc[u].geometry.centroid
+                p2 = road_web.loc[v].geometry.centroid
+                
+                # Checken of groep gelijk is
+                grp_u = node_group_map.get(u)
+                grp_v = node_group_map.get(v)
+                
+                # Folium verwacht [Lat, Lon] -> oftewel [y, x]
+                coords = [[p1.y, p1.x], [p2.y, p2.x]]
+                
+                if grp_u and grp_v and grp_u == grp_v:
+                    lines_internal.append(coords)
+                else:
+                    lines_external.append(coords)
+
+        #if lines_external:
+        #    folium.PolyLine(
+        #        lines_external, color="red", weight=1.5, opacity=0.6, 
+        #        tooltip="Fysieke verbinding (Geen groep)"
+        #    ).add_to(m)
+            
+        if lines_internal:
+            folium.PolyLine(
+                lines_internal, color="#00FF00", weight=3, opacity=0.8, 
+                tooltip="Gegroepeerde verbinding"
+            ).add_to(m)
+            
+        # Puntjes tekenen (optioneel, kan zwaar zijn bij veel data)
+        # for node_id in G_debug.nodes():
+        #      if node_id in road_web.index:
+        #          pt = road_web.loc[node_id].geometry.centroid
+        #          folium.CircleMarker([pt.y, pt.x], radius=2, color="blue").add_to(m)
+            
+        # Voeg ook de centroïden toe als stippen
+        # Dit helpt om te zien waar de lijnen vandaan komen
+        for node_id in G_debug.nodes():
+             if node_id in road_gdf.index:
+                 pt = road_gdf.loc[node_id].geometry.centroid
+                 folium.CircleMarker(
+                     location=[pt.y, pt.x],
+                     radius=2,
+                     color="blue",
+                     fill=True,
+                     fillOpacity=1
+                 ).add_to(m)
 
     # CLICK HANDLER
     output = st_folium(m, width=None, height=600, returned_objects=["last_object_clicked"], key="folium_map")
