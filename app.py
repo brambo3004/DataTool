@@ -261,7 +261,6 @@ def generate_grouped_proposals(gdf, G):
             # --- Bereken "Geografische Positie Score" ---
             grp_geom = gdf.loc[node_list].unary_union
             center = grp_geom.centroid
-            
             # Projectie
             spatial_score = (center.x * road_vector_x) + (center.y * road_vector_y)
             
@@ -292,7 +291,19 @@ def generate_grouped_proposals(gdf, G):
                 processed_ids.add(n)
 
     # FASE 2: Pac-Man Absorptie
-    remaining = set([n for n in G.nodes if n not in processed_ids])
+    forbidden_subthemes = [x.lower() for x in SUBTHEMA_MUST_NOT_HAVE_PROJECT]
+    
+    remaining = set()
+    for n in G.nodes:
+        if n in processed_ids:
+            continue
+        
+        # Check op Zwarte Lijst
+        node_sub = str(gdf.loc[n, 'subthema_clean']).lower().strip()
+        if node_sub in forbidden_subthemes:
+            continue # Deze slaan we over
+            
+        remaining.add(n)
     
     changes = True
     while changes:
@@ -524,9 +535,14 @@ with col_inspector:
                     
                     if st.button("Opslaan Correctie"):
                         for col, new_val in inputs.items():
+                            # --- AANGEPAST: Alleen opslaan als waarde verschilt ---
                             old_val = raw_gdf.at[err_id, col]
-                            raw_gdf.at[err_id, col] = new_val
-                            log_change(err_id, col, old_val, new_val)
+                            val_old_clean = clean_display_value(old_val)
+                            val_new_clean = clean_display_value(new_val)
+                            
+                            if val_old_clean != val_new_clean:
+                                raw_gdf.at[err_id, col] = new_val
+                                log_change(err_id, col, val_old_clean, new_val)
                         
                         st.success("Opgeslagen!")
                         st.session_state['selected_error_id'] = None
@@ -556,12 +572,12 @@ with col_inspector:
         else:
             st.write(f"**{len(active_groups)} suggesties beschikbaar**")
             
-            # AANGEPAST: Sorteer met negatieve spatial score (draait richting om)
+            # Sorteer met negatieve spatial score (draait richting om)
             def sort_key_advisor(item):
                 gid, data = item
                 r = data.get('rank', 99)
                 spatial = data.get('spatial_sort_val', 0)
-                return (r, -spatial) # <--- MINTEKEN VOOR OMKEREN
+                return (r, -spatial) 
             
             sorted_items = sorted(active_groups.items(), key=sort_key_advisor)
             
@@ -627,17 +643,29 @@ with col_inspector:
                 
                 if st.button("✅ Opslaan & Toepassen"):
                     if name_input.strip():
+                        val_new_clean = clean_display_value(name_input)
+                        
+                        count_updates = 0
                         for oid in sel_data['ids']:
                             if oid in raw_gdf.index:
+                                # --- AANGEPAST: Alleen opslaan als waarde verschilt ---
                                 old_v = raw_gdf.at[oid, 'Onderhoudsproject']
-                                raw_gdf.at[oid, 'Onderhoudsproject'] = name_input
-                                raw_gdf.at[oid, 'Advies_Bron'] = sel_data['reason']
-                                log_change(oid, 'Onderhoudsproject', old_v, name_input)
+                                val_old_clean = clean_display_value(old_v)
+                                
+                                if val_old_clean != val_new_clean:
+                                    raw_gdf.at[oid, 'Onderhoudsproject'] = name_input
+                                    raw_gdf.at[oid, 'Advies_Bron'] = sel_data['reason']
+                                    log_change(oid, 'Onderhoudsproject', val_old_clean, name_input)
+                                    count_updates += 1
                         
                         st.session_state['processed_groups'].add(sel_gid)
                         st.session_state['selected_group_id'] = None
                         st.session_state['zoom_bounds'] = None
-                        st.success("Opgeslagen!")
+                        
+                        if count_updates > 0:
+                            st.success(f"Opgeslagen! {count_updates} objecten bijgewerkt.")
+                        else:
+                            st.info("Geen wijzigingen nodig, alle objecten hadden deze naam al.")
                         st.rerun()
 
 # --- LINKS: KAART ---
@@ -706,6 +734,7 @@ st.divider()
 st.subheader("📝 Logboek Wijzigingen & Export")
 
 if st.session_state['change_log']:
+    # We tonen de lijst omgekeerd (nieuwste bovenaan)
     reversed_log = list(reversed(list(enumerate(st.session_state['change_log']))))
     
     with st.container(height=300):
