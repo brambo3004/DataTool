@@ -1031,95 +1031,92 @@ with col_inspector:
 with col_map:
     st.subheader(f"Kaart: {selected_road}")
 
-    # --- A. DEBUG OUTPUT (Allereerste actie) ---
-    st.info(f"🚀 DEBUG START: We gaan de kaart bouwen voor {selected_road}...")
-    
-    # Data voorbereiden
+    # 1. DEBUG: Meteen laten zien dat we leven (bovenaan!)
+    st.info(f"🚀 Status: Bezig met laden kaart voor {selected_road}...")
+
+    # 2. Check: Is er wel data?
     if road_gdf.empty:
-        st.error("❌ CRITISCH: 'road_gdf' is leeg! Er is geen data voor deze weg.")
-        st.stop() # Stop de executie hier om crash te voorkomen
-        
+        st.error("❌ FOUT: 'road_gdf' is leeg. Selecteer een andere weg.")
+        st.stop() # Stop hier, anders crasht de rest
+
+    # CRS Conversie
     try:
         road_web = road_gdf.to_crs(epsg=4326)
-        st.write(f"- Data geconverteerd. Aantal rijen: {len(road_web)}")
     except Exception as e:
         st.error(f"❌ Fout bij CRS conversie: {e}")
         st.stop()
 
-    # --- B. VEILIG MIDDENPUNT BEREKENEN ---
-    # We gebruiken de 'bounds' (vierkantje) in plaats van centroid, dat crasht veel minder snel.
+    # 3. VEILIG DE KAART MAKEN
+    # We gebruiken 'total_bounds' in plaats van 'centroid'. 
+    # Centroid crasht vaak op complexe/foute geometrieën, bounds bijna nooit.
     try:
         if st.session_state['zoom_bounds']:
-            minx, miny, maxx, maxy = st.session_state['zoom_bounds']
+             minx, miny, maxx, maxy = st.session_state['zoom_bounds']
         else:
-            minx, miny, maxx, maxy = road_web.total_bounds
-            
+             minx, miny, maxx, maxy = road_web.total_bounds
+        
+        # Bereken midden van de box
         center_lat = (miny + maxy) / 2
         center_lon = (minx + maxx) / 2
         
-        # Maak de kaart
         m = folium.Map(location=[center_lat, center_lon], zoom_start=14, tiles="CartoDB positron")
         
-        # Pas zoom aan als we bounds hebben
         if st.session_state['zoom_bounds']:
             m.fit_bounds([[miny, minx], [maxy, maxx]])
             
-        st.write(f"- Kaart aangemaakt op coördinaat: {center_lat:.4f}, {center_lon:.4f}")
-        
     except Exception as e:
-        st.error(f"❌ Crash bij maken kaart/middenpunt: {e}")
-        # Fallback kaart zodat de app niet wit blijft
-        m = folium.Map(location=[52.5, 5.5], zoom_start=7)
+        st.error(f"⚠️ Kon kaart niet centreren: {e}")
+        # Fallback: Start gewoon op 'Nederland' als het misgaat
+        m = folium.Map(location=[52.2, 5.5], zoom_start=8)
 
-    # --- C. HARDE DEBUG PINNEN (Direct na kaart creatie) ---
-    # We tekenen ALTIJD 5 blauwe pinnen op de eerste 5 punten uit de data
-    # Dit staat los van het netwerk, puur om te zien of folium werkt.
-    st.write("- Pinnen toevoegen...")
+    # 4. HARDE TEST: 5 ECHTE PINNEN (Direct uit de data)
+    # Dit staat los van uw netwerk-logica. Als dit werkt, werkt Folium.
+    st.write("De 5 test-pinnen worden nu geplaatst...")
     try:
-        pins_count = 0
         for idx, row in road_web.head(5).iterrows():
             geom = row.geometry
             if geom:
-                # Pak centroid van dit specifieke object
                 pt = geom.centroid
+                # We dwingen 'float' af om Numpy-problemen te voorkomen
                 folium.Marker(
-                    [pt.y, pt.x],
-                    tooltip=f"TEST PIN {idx}",
-                    icon=folium.Icon(color='blue', icon='info-sign')
+                    [float(pt.y), float(pt.x)],
+                    popup=f"Test {idx}",
+                    icon=folium.Icon(color='red', icon='info-sign')
                 ).add_to(m)
-                pins_count += 1
-        st.success(f"✅ {pins_count} test-pinnen (van de ruwe data) op de kaart gezet.")
+        st.success("✅ Test-pinnen toegevoegd aan kaart-object.")
     except Exception as e:
-        st.error(f"❌ Fout bij tekenen test-pinnen: {e}")
+        st.error(f"❌ Fout bij plaatsen test-pinnen: {e}")
 
-    # --- D. NETWERK VISUALISATIE (Uw originele wens) ---
-    # Alleen doen als de sanity check hierboven werkte
+    # 5. UW NETWERK (VISUALISATIE)
+    # Als 'Test-pinnen' hierboven werkt, maar dit blok niet, zit de fout in 'G_debug'
     if 'graph_current' in st.session_state:
         G_debug = st.session_state['graph_current']
         
-        # Checkbox om het netwerk aan/uit te zetten (standaard AAN voor nu)
-        if st.checkbox("Toon Netwerk Nodes (Rode stippen)", value=True):
-            net_nodes = 0
+        # Checkbox om het aan/uit te zetten (standaard AAN)
+        if st.checkbox("Toon Netwerk Nodes (Blauwe stippen)", value=True):
+            count_net = 0
             for node_id in G_debug.nodes():
-                # We doen max 100 nodes om performance issues uit te sluiten tijdens debug
-                if net_nodes > 100: break
+                # Veiligheidslimiet
+                if count_net > 500: break
                 
                 if node_id in road_web.index:
                     geom = road_web.loc[node_id].geometry
                     if geom:
                         pt = geom.centroid
+                        # Blauwe cirkeltjes voor de nodes
                         folium.CircleMarker(
-                            [pt.y, pt.x],
+                            [float(pt.y), float(pt.x)],
                             radius=4,
-                            color='red',
+                            color='blue',
                             fill=True,
-                            fill_color='red'
+                            fill_color='blue',
+                            fill_opacity=0.8,
+                            tooltip=f"Node {node_id}"
                         ).add_to(m)
-                        net_nodes += 1
-            st.caption(f"📍 {net_nodes} netwerk-nodes getekend (rood).")
+                        count_net += 1
+            st.caption(f"📍 {count_net} netwerk-nodes getekend.")
 
-    # --- E. DE ORIGINELE GEOJSON LAAG ---
-    # Dit is uw bestaande styling logica
+    # 6. ORIGINELE STYLING (Lijnen en kleuren)
     suggested_ids = set()
     if 'computed_groups' in st.session_state and st.session_state['computed_groups']:
         for g_id, g_data in st.session_state['computed_groups'].items():
@@ -1146,13 +1143,31 @@ with col_map:
     cols_to_select = ['geometry', 'sys_id'] + meta_cols
     tooltip_fields = ['subthema', 'Onderhoudsproject'] + [c for c in SEGMENTATION_ATTRIBUTES if c in road_web.columns]
     
+    # Voeg de GeoJson laag toe
     folium.GeoJson(
         road_web[cols_to_select],
         style_function=style_fn,
         tooltip=folium.GeoJsonTooltip(fields=tooltip_fields, style="font-size: 11px;")
     ).add_to(m)
 
-    # 6. Teken de kaart
+    # 7. HECTOMETERPAALTJES (Optioneel)
+    pdok_hm = get_pdok_hectopunten_visual_only(road_gdf)
+    if not pdok_hm.empty:
+        try:
+            pdok_web = pdok_hm.to_crs(epsg=4326)
+            for _, row in pdok_web.iterrows():
+                if row.geometry:
+                    g = row.geometry.centroid
+                    val = float(row.get('hm_val', 0))/10
+                    icon_html = f"""<div style="font-size: 9pt; font-weight: bold;">{val:.1f}</div>"""
+                    folium.Marker(
+                        [g.y, g.x], 
+                        icon=folium.DivIcon(icon_size=(30,15), icon_anchor=(15,7), html=icon_html)
+                    ).add_to(m)
+        except Exception as e:
+            print(f"HM paaltjes fout: {e}")
+
+    # 8. TEKEN DE KAART
     st_folium(m, width=None, height=600, returned_objects=["last_object_clicked"], key="folium_map")
 
     # --- DEBUG TOOL: SORTERING ---
