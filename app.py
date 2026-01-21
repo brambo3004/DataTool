@@ -33,11 +33,41 @@ HIERARCHY_RANK = {
     'fietspad': 3
 }
 
-# OUDE LOGICA (wordt niet meer actief gebruikt voor validatie, maar staat er nog voor de zekerheid).
-SUBTHEMA_MUST_HAVE_PROJECT = [
-    'afrit en entree', 'fietspad', 'inrit en doorsteek', 
-    'parallelweg', 'rijstrook', 'landbouwpad', 'busbaan'
-]
+# --- CONFIGURATIE WEGRICHTINGEN ---
+# NTS = North to South (Noord -> Zuid) | Startpunt is hoogste Y (Noord)
+# STN = South to North (Zuid -> Noord) | Startpunt is laagste Y (Zuid)
+# WTE = West to East   (West -> Oost)  | Startpunt is laagste X (West)
+# ETW = East to West   (Oost -> West)  | Startpunt is hoogste X (Oost)
+
+# Alleen gekeken naar het eerste stukje van de weg
+ROAD_DIRECTIONS = {
+    'N351': 'ETW', # Oost naar West
+    'N353': 'STN', # Zuid naar Noord
+    'N354': 'ETW', # Oost naar West
+    'N355': 'WTE', # West naar Oost
+    'N356': 'NTS',
+    'N357': 'STN',
+    'N358': 'WTE',
+    'N359': 'ETW',
+    'N361': 'ETW',
+    'N369': 'STN',
+    'N380': 'WTE',
+    'N381': 'NTS',
+    'N383': 'STN',
+    'N384': 'STN',
+    'N390': 'ETW',
+    'N392': 'WTE',
+    'N393': 'ETW',
+    'N398': 'ETW',
+    'N910': 'WTE',
+    'N913': 'ETW',
+    'N917': 'WTE',
+    'N918': 'STN',
+    'N919': 'ETW',
+    'N924': 'ETW',
+    'N927': 'ETW',
+    'N928': 'NTS'
+}
 
 # --- CONFIGURATIE AANPASSING ---
 
@@ -64,7 +94,7 @@ SEGMENTATION_ATTRIBUTES = ['verhardingssoort', 'Soort deklaag specifiek', 'Jaar 
 
 # Dit is een woordenboekje om ingewikkelde kolomnamen (links) te vertalen naar leesbare tekst (rechts) voor de gebruiker.
 FRIENDLY_LABELS = {
-    'verhardingssoort': 'Verharding',
+    'verhardingssoort': 'Verhardingssoort',
     'Soort deklaag specifiek': 'Deklaag',
     'Jaar aanleg': 'Aanleg',
     'Jaar deklaag': 'Deklaagjaar',
@@ -527,25 +557,71 @@ def generate_grouped_proposals(gdf, G):
                     # Zet hem in de wachtrij, zodat hij OOK zijn buren weer kan toevoegen.
                     queue.append(buur)
 
-    # --- STAP C: SORTEREN ---
+    # --- STAP C: SORTEREN (AANGEPAST: AS-PROJECTIE) ---
     if not groups: return {}
 
-    # We willen de projecten netjes nummeren (van links naar rechts of onder naar boven).
-    minx, miny, maxx, maxy = gdf.total_bounds
-    # Is het gebied breder dan dat het hoog is? Dan sorteren we op X-as.
-    use_x_axis = (maxx - minx) > (maxy - miny)
-    
-    for g_id, g_data in groups.items():
-        # Bereken het midden van alle punten in de groep.
-        nodes_geom = gdf.loc[g_data['ids'], 'geometry']
-        avg_x = nodes_geom.centroid.x.mean()
-        avg_y = nodes_geom.centroid.y.mean()
-        g_data['spatial_sort_val'] = avg_x if use_x_axis else avg_y
+    # 1. Bepaal configuratie en richting
+    current_road_label = str(gdf['Wegnummer'].iloc[0]) if 'Wegnummer' in gdf.columns else 'Onbekend'
+    direction_code = ROAD_DIRECTIONS.get(current_road_label, 'UNKNOWN')
 
-    # Sorteer de lijst.
-    sorted_groups = sorted(groups.items(), key=lambda x: (x[1]['rank'], x[1]['spatial_sort_val']))
+    # 2. Bereken waarden per groep
+    for g_id, g_data in groups.items():
+        group_nodes = gdf.loc[g_data['ids']]
+        
+        # We berekenen het midden van de groep
+        center = group_nodes.geometry.unary_union.centroid
+        
+        # --- TIE-BREAKER LOGICA ---
+        # In plaats van "afstand tot startpunt", berekenen we een "positie op de as".
+        # Dit getal zorgt voor de volgorde als de hectometrering gelijk is.
+        
+        tie_breaker_val = 0
+        
+        if direction_code == 'WTE':   # West naar Oost
+            # We willen van West (Laag X) naar Oost (Hoog X).
+            # Python sorteert standaard Low->High. Dus X werkt direct.
+            tie_breaker_val = center.x
+            
+        elif direction_code == 'ETW': # Oost naar West
+            # We willen van Oost (Hoog X) naar West (Laag X).
+            # Om Hoog X als EERSTE te krijgen bij een Low->High sort, maken we hem negatief.
+            # (-200 komt voor -100).
+            tie_breaker_val = -center.x
+            
+        elif direction_code == 'STN': # Zuid naar Noord
+            # Zuid (Laag Y) -> Noord (Hoog Y).
+            tie_breaker_val = center.y
+            
+        elif direction_code == 'NTS': # Noord naar Zuid
+            # Noord (Hoog Y) -> Zuid (Laag Y).
+            tie_breaker_val = -center.y
+            
+        else:
+            # Fallback (UNKNOWN):
+            # Doe maar gewoon West naar Oost (X-as)
+            tie_breaker_val = center.x
+
+        g_data['tie_breaker_dist'] = tie_breaker_val # Voor debug en sortering
+
+        # --- PRIMAIR: HECTOMETRERING ---
+        min_hm = group_nodes['hm_sort'].min()
+        
+        if min_hm < 90000.0:
+            g_data['sort_value'] = min_hm
+            g_data['sort_mode'] = 'hm'
+        else:
+            # Als er helemaal geen hectometer is, is onze tie-breaker de hoofdwaarde
+            g_data['sort_value'] = tie_breaker_val
+            g_data['sort_mode'] = 'axis'
+
+    # 3. Sorteer de lijst
+    sorted_groups = sorted(groups.items(), key=lambda x: (
+        x[1]['rank'],            # 1. Belangrijkste eerst (Rijbaan)
+        x[1]['sort_value'],      # 2. Hectometer (Primair)
+        x[1]['tie_breaker_dist'] # 3. De positie op de as (Secundair/Tie-breaker)
+    ))
     
-    # Hernoem ze naar nette nummers (GRP_RIJBAAN_1, GRP_RIJBAAN_2, etc.)
+    # Hernoemen en returnen...
     final_groups = {}
     counters = {} 
     for _, data in sorted_groups:
@@ -677,6 +753,7 @@ raw_gdf = st.session_state['data_complete']
 # Hier onthouden we wat je hebt aangeklikt, genegeerd of ingezoomd.
 if 'processed_groups' not in st.session_state: st.session_state['processed_groups'] = set()
 if 'ignored_groups' not in st.session_state: st.session_state['ignored_groups'] = set()
+if 'ignored_errors' not in st.session_state: st.session_state['ignored_errors'] = set() # <--- NIEUW
 if 'change_log' not in st.session_state: st.session_state['change_log'] = []
 
 if 'selected_group_id' not in st.session_state: st.session_state['selected_group_id'] = None
@@ -723,17 +800,26 @@ with col_inspector:
         
     # De keuze-knop voor wat je wilt doen.
     mode = st.radio("Modus:", 
-                    ["🔍 Data Kwaliteit", "🏗️ Project Adviseur", "✏️ Individueel Bewerken"], 
+                    ["🔍 Data Kwaliteit", "🏗️ Project Adviseur"], 
                     horizontal=True, on_change=on_mode_change)
     st.divider()
 
 # --- MODUS 1: KWALITEIT (De Politieagent) ---
     if mode == "🔍 Data Kwaliteit":
         # Roep de 'Inspecteur' aan (uit Deel 2).
-        violations = check_rules(road_gdf, G_road)
+        all_violations = check_rules(road_gdf, G_road)
+        
+        # FILTER: Haal de meldingen weg die in de 'ignored_errors' lijst staan.
+        violations = [v for v in all_violations if v['id'] not in st.session_state['ignored_errors']]
         
         if not violations:
             st.success("Schoon! Geen datakwaliteit issues.")
+            
+            # Als er wél verborgen items zijn, geef een optie om ze terug te halen.
+            if len(all_violations) > 0:
+                if st.button("🔄 Reset genegeerde meldingen"):
+                    st.session_state['ignored_errors'] = set()
+                    st.rerun()
         else:
             st.write(f"**{len(violations)} issues gevonden**")
             
@@ -741,50 +827,60 @@ with col_inspector:
             with st.container(height=400):
                 for i, v in enumerate(violations):
                     vid = v['id']
-                    unique_key = f"btn_err_{vid}_{i}" 
+                    
+                    # Unieke keys maken voor de knoppen
+                    key_show = f"btn_err_show_{vid}_{i}" 
+                    key_ign = f"btn_err_ign_{vid}_{i}"
                     
                     # Als je op een fout hebt geklikt, wordt hij blauw gemarkeerd.
                     is_selected = (st.session_state['selected_error_id'] == vid)
                     
-                    if is_selected:
-                        with st.container(border=True):
+                    # Bepaal de stijl van de container
+                    container_args = {"border": True} if is_selected else {}
+                    
+                    with st.container(**container_args):
+                        if is_selected:
                             st.markdown("**:blue-background[GESELECTEERD]**")
-                            c1, c2 = st.columns([3, 1])
-                            with c1:
-                                st.markdown(f"**{v['subthema']}**")
-                                st.caption(f"{v['msg']}")
-                            with c2:
-                                # Knop om in te zoomen op de fout.
-                                if st.button("Toon", key=unique_key):
-                                    st.session_state['selected_error_id'] = vid
-                                    obj_geom = road_gdf.loc[vid].geometry
-                                    st.session_state['zoom_bounds'] = obj_geom.bounds
-                                    st.rerun()
-                    else:
-                        # De normale weergave van een foutmelding.
-                        with st.container():
-                            c1, c2 = st.columns([3, 1])
-                            with c1:
-                                st.markdown(f"**{v['subthema']}**")
-                                st.caption(f"{v['msg']}")
-                            with c2:
-                                if st.button("Toon", key=unique_key):
-                                    st.session_state['selected_error_id'] = vid
-                                    obj_geom = road_gdf.loc[vid].geometry
-                                    st.session_state['zoom_bounds'] = obj_geom.bounds
-                                    st.rerun()
+                        
+                        # We maken 3 kolommen: Tekst (breed), Toon (smal), Negeer (smal)
+                        c1, c2, c3 = st.columns([2, 1, 1])
+                        
+                        with c1:
+                            st.markdown(f"**{v['subthema']}**")
+                            st.caption(f"{v['msg']}")
+                        
+                        with c2:
+                            # Knop om in te zoomen (Oogje)
+                            if st.button("👁️", key=key_show, help="Toon op kaart"):
+                                st.session_state['selected_error_id'] = vid
+                                obj_geom = road_gdf.loc[vid].geometry
+                                st.session_state['zoom_bounds'] = obj_geom.bounds
+                                st.rerun()
+                        
+                        with c3:
+                            # Knop om te negeren (Prullenbakje)
+                            if st.button("🗑️", key=key_ign, help="Negeer deze melding"):
+                                st.session_state['ignored_errors'].add(vid)
+                                # Als we degene negeren die we net bekeken, resetten we de view
+                                if is_selected:
+                                    st.session_state['selected_error_id'] = None
+                                    st.session_state['zoom_bounds'] = None
+                                st.rerun()
+                                
+                        if not is_selected:
                             st.divider()
 
             # Als er een fout geselecteerd is, tonen we hieronder een reparatie-formulier.
             if st.session_state['selected_error_id']:
                 err_id = st.session_state['selected_error_id']
+                # Check of het ID nog wel in de gefilterde lijst zit (anders crasht het misschien)
                 if err_id in road_gdf.index:
                     st.divider()
                     st.markdown(f"#### Corrigeer ID {err_id}")
                     
                     row = road_gdf.loc[err_id]
                     # Zoek op welke kolommen ontbreken.
-                    viol_info = next((v for v in violations if v['id'] == err_id), None)
+                    viol_info = next((v for v in all_violations if v['id'] == err_id), None)
                     cols_to_fix = viol_info['missing_cols'] if viol_info else ['Onderhoudsproject']
                     
                     inputs = {}
@@ -837,8 +933,9 @@ with col_inspector:
             def sort_key_advisor(item):
                 gid, data = item
                 r = data.get('rank', 99)
-                spatial = data.get('spatial_sort_val', 0)
-                return (r, -spatial) 
+                pos = data.get('sort_value', 0)
+                tie = data.get('tie_breaker_dist', 0) # De nieuwe tie-breaker
+                return (r, pos, tie) # Sorteer op 3 niveaus
             
             sorted_items = sorted(active_groups.items(), key=sort_key_advisor)
             
@@ -928,66 +1025,6 @@ with col_inspector:
                         else:
                             st.info("Geen wijzigingen nodig, naam bestond al.")
                         st.rerun()
-    
-    # --- MODUS 3: INDIVIDUEEL BEWERKEN (Handwerk) ---
-    elif mode == "✏️ Individueel Bewerken":
-        
-        # Kijk of de gebruiker op de kaart heeft geklikt.
-        clicked_id = None
-        map_state = st.session_state.get('folium_map')
-        
-        if map_state and map_state.get('last_object_clicked'):
-            props = map_state['last_object_clicked'].get('properties')
-            if props:
-                clicked_id = props.get('sys_id')
-        
-        if clicked_id is not None and clicked_id in road_gdf.index:
-            row = road_gdf.loc[clicked_id]
-            
-            st.markdown(f"#### ✏️ Object Bewerken (ID: {clicked_id})")
-            st.info(f"**{row['subthema'].title()}**")
-            
-            # Maak een formulier.
-            with st.form(key=f"edit_form_{clicked_id}"):
-                c1, c2 = st.columns(2)
-                
-                editable_fields = [
-                    'Onderhoudsproject', 'verhardingssoort', 'Soort deklaag specifiek',
-                    'Jaar aanleg', 'Jaar deklaag', 'Besteknummer'
-                ]
-                
-                inputs = {}
-                for i, field in enumerate(editable_fields):
-                    col_obj = c1 if i % 2 == 0 else c2
-                    current_val = clean_display_value(row.get(field, ''))
-                    with col_obj:
-                        inputs[field] = st.text_input(FRIENDLY_LABELS.get(field, field), value=current_val)
-                
-                st.divider()
-                submitted = st.form_submit_button("💾 Wijzigingen Opslaan", use_container_width=True)
-                
-                if submitted:
-                    changes_made = 0
-                    for field, new_val in inputs.items():
-                        old_val = raw_gdf.at[clicked_id, field]
-                        val_old_clean = clean_display_value(old_val)
-                        val_new_clean = clean_display_value(new_val)
-                        
-                        if val_old_clean != val_new_clean:
-                            raw_gdf.at[clicked_id, field] = new_val
-                            log_change(clicked_id, field, val_old_clean, new_val)
-                            changes_made += 1
-                    
-                    if changes_made > 0:
-                        st.success(f"✅ {changes_made} veld(en) bijgewerkt!")
-                        st.cache_data.clear()
-                        st.rerun()
-                    else:
-                        st.info("Geen wijzigingen gedetecteerd.")
-                        
-        else:
-            st.info("👆 **Selecteer een object op de kaart** om de eigenschappen te wijzigen.")
-            st.caption("Klik op een lijn of vlak in het kaartvenster hiernaast.")
 
 # --- LINKS: KAART ---
 with col_map:
@@ -1032,14 +1069,6 @@ with col_map:
         
         # A. IS HET GESELECTEERD? -> Cyaan (Felblauw)
         is_selected = False
-        
-        # Check selectie via 'Bewerken Modus'
-        if mode == "✏️ Individueel Bewerken":
-            map_state = st.session_state.get('folium_map')
-            if map_state and map_state.get('last_object_clicked'):
-                clicked_props = map_state['last_object_clicked'].get('properties')
-                if clicked_props and clicked_props.get('sys_id') == oid:
-                    is_selected = True
         
         # Check selectie via 'Foutmelding'
         if oid == st.session_state.get('selected_error_id'):
@@ -1122,6 +1151,31 @@ with col_map:
 
     # 6. Teken de kaart daadwerkelijk op het scherm.
     st_folium(m, width=None, height=600, returned_objects=["last_object_clicked"], key="folium_map")
+
+    # --- DEBUG TOOL: SORTERING ---
+    st.divider()
+    st.markdown("### 🕵️ Debug: Sortering Analyse")
+    
+    if 'computed_groups' in st.session_state and st.session_state['computed_groups']:
+        debug_data = []
+        # We maken een lijstje van wat de computer heeft berekend
+        for gid, data in st.session_state['computed_groups'].items():
+            # Alleen tonen als het nog niet verwerkt is
+            if gid not in st.session_state['processed_groups']:
+                debug_data.append({
+                    "ID": gid,
+                    "Methode": data.get('sort_mode', '?'),
+                    "HM Waarde": data.get('sort_value', 999),
+                    "Afstand (Tie-breaker)": int(data.get('tie_breaker_dist', 0)),
+                    "Subthema": data.get('subthema')
+                })
+        
+        if debug_data:
+            # Toon als tabel, gesorteerd op HM Waarde
+            df_debug = pd.DataFrame(debug_data).sort_values(by=['HM Waarde', 'Afstand (Tie-breaker)'])
+            st.dataframe(df_debug, use_container_width=True, hide_index=True)
+        else:
+            st.info("Geen actieve groepen om te analyseren.")
 
 st.divider()
 
