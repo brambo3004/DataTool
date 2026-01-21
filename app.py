@@ -1054,6 +1054,42 @@ with col_map:
         c = geom_union.centroid
         m = folium.Map(location=[c.y, c.x], zoom_start=14, tiles="CartoDB positron")
 
+	# --- SANITY CHECK START (Tijdelijk: Plak dit direct na m = folium.Map...) ---
+    st.warning("🚧 START DEBUG CHECK")
+    
+    # 1. Bestaat de graaf?
+    if 'graph_current' in st.session_state:
+        G_chk = st.session_state['graph_current']
+        node_count = len(G_chk.nodes())
+        st.write(f"- Aantal nodes in graaf: {node_count}")
+        
+        # 2. Bestaat de kaart data?
+        web_count = len(road_web)
+        st.write(f"- Aantal rijen in road_web: {web_count}")
+        
+        # 3. Check overlap (Dit is vaak het probleem!)
+        sample_node = list(G_chk.nodes())[0] if node_count > 0 else "Geen"
+        st.write(f"- Voorbeeld Node ID uit graaf: {sample_node}")
+        
+        is_in_web = sample_node in road_web.index if node_count > 0 else False
+        st.write(f"- Zit dit ID in road_web.index? {is_in_web}")
+        
+        # 4. Forceer 5 pinnen (ongeacht logica)
+        st.write("- Poging om 5 pinnen te plaatsen...")
+        found = 0
+        for nid in G_chk.nodes():
+            if found >= 5: break
+            if nid in road_web.index:
+                geom = road_web.loc[nid].geometry
+                if geom:
+                    # GEEN icoontjes, gewoon de simpele default marker
+                    folium.Marker([geom.centroid.y, geom.centroid.x], popup=f"ID {nid}").add_to(m)
+                    found += 1
+        st.success(f"- {found} test-pinnen toegevoegd aan kaartobject 'm'.")
+    else:
+        st.error("CRITISCH: 'graph_current' ontbreekt in session_state!")
+    # --- SANITY CHECK EINDE ---
+
     # --- KLEURENDOOS: Bepaal de kleur van elk lijntje ---
     suggested_ids = set()
     if 'computed_groups' in st.session_state and st.session_state['computed_groups']:
