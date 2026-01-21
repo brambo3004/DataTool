@@ -1119,13 +1119,15 @@ with col_map:
                 folium.Marker([g.y, g.x], icon=folium.DivIcon(icon_size=(40,20), icon_anchor=(10,10), html=icon_html)).add_to(m)
                 folium.CircleMarker([g.y, g.x], radius=2, color='red', fill=True).add_to(m)
 
-    # 5. Debug Tools (optioneel, om het netwerk te zien).
+# 5. Debug Tools (optioneel, om het netwerk te zien).
     st.write("### 🛠️ Debug Tools")
     show_network = st.toggle("🕸️ Toon Netwerk & Verbindingen", value=False)
     
     if show_network and 'graph_current' in st.session_state:
         G_debug = st.session_state['graph_current']
         node_group_map = {}
+        
+        # Mapping maken voor de lijntjes
         if st.session_state.get('computed_groups'):
             for grp_id, grp_data in st.session_state['computed_groups'].items():
                 for node_id in grp_data['ids']:
@@ -1143,29 +1145,35 @@ with col_map:
                     p2 = road_web.loc[v].geometry.centroid
                     lines_internal.append([[p1.y, p1.x], [p2.y, p2.x]])
 
-        # 1. Teken de lijnen (Oranje-Rood, komt bovenop de wegen)
+        # 1. Teken de lijnen
         if lines_internal:
             folium.PolyLine(
                 lines_internal, 
                 color="#FF4500",  # Oranje-Rood
-                weight=2.5,       # Iets dikker
+                weight=2.5, 
                 opacity=1.0
             ).add_to(m)
             
-        # 2. Teken de bolletjes (Zwart met witte rand - Bullseye)
+        # 2. Teken de bolletjes (MET FIX VOOR COORDINATEN)
+        count_nodes = 0
         for node_id in G_debug.nodes():
-             if node_id in road_gdf.index:
-                 pt = road_gdf.loc[node_id].geometry.centroid
+             # BELANGRIJK: Check in road_web (GPS), niet road_gdf (Meters)
+             if node_id in road_web.index:
+                 pt = road_web.loc[node_id].geometry.centroid # <--- HIER ZAT DE FOUT
+                 
                  folium.CircleMarker(
                      [pt.y, pt.x], 
-                     radius=6,            # Groter (was 4)
+                     radius=5,            
                      color="white",       # Witte rand
-                     weight=2,            # Dikkere rand (was 1)
+                     weight=1.5,
                      fill=True,
-                     fill_color="black",  # Zwarte kern (hard contrast)
-                     fill_opacity=1.0,
-                     z_index_offset=1000  # Probeer ze bovenop te dwingen (werkt soms bij markers)
+                     fill_color="black",  # Zwarte kern
+                     fill_opacity=1.0
                  ).add_to(m)
+                 count_nodes += 1
+        
+        # Feedback voor de gebruiker om zeker te weten dat de code draait
+        st.caption(f"Debug info: {len(lines_internal)} interne verbindingen en {count_nodes} knooppunten getekend.")
 
     # 6. Teken de kaart daadwerkelijk op het scherm.
     st_folium(m, width=None, height=600, returned_objects=["last_object_clicked"], key="folium_map")
