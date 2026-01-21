@@ -80,6 +80,7 @@ BACKBONE_TYPES = ['rijstrook', 'parallelweg', 'landbouwpad', 'busbaan', 'fietspa
 # Dit zijn 'losse' dingen die op zichzelf mogen bestaan zonder project.
 SUBTHEMA_EXCEPTIONS = [
     'fietsstalling', 
+    'geleideconstructie',
     'parkeerplaats', 
     'rotonderand', 
     'verkeerseiland of middengeleider'
@@ -1131,36 +1132,39 @@ with col_map:
                     node_group_map[node_id] = grp_id
         
         lines_internal = []
+        # Verzamel lijnen
         for u, v in G_debug.edges():
             if u in road_web.index and v in road_web.index:
                 grp_u = node_group_map.get(u)
                 grp_v = node_group_map.get(v)
-                # Alleen tekenen als ze bij dezelfde groep horen (interne verbinding)
+                # Alleen tekenen als ze bij dezelfde groep horen
                 if grp_u and grp_v and grp_u == grp_v:
                     p1 = road_web.loc[u].geometry.centroid
                     p2 = road_web.loc[v].geometry.centroid
                     lines_internal.append([[p1.y, p1.x], [p2.y, p2.x]])
 
-        # AANGEPAST: Duidelijkere lijnen (Oranje-Rood)
+        # 1. Teken de lijnen (Oranje-Rood, komt bovenop de wegen)
         if lines_internal:
             folium.PolyLine(
                 lines_internal, 
-                color="#FF4500",  # Oranje-Rood (valt goed op, vloekt niet met groen/geel)
-                weight=2,         # Iets dunner zodat je de weg eronder nog ziet
-                opacity=1.0       # Volledig dekkend voor scherpte
+                color="#FF4500",  # Oranje-Rood
+                weight=2.5,       # Iets dikker
+                opacity=1.0
             ).add_to(m)
             
-        # AANGEPAST: Duidelijkere bolletjes (Donkerpaars met wit randje)
+        # 2. Teken de bolletjes (Zwart met witte rand - Bullseye)
         for node_id in G_debug.nodes():
              if node_id in road_gdf.index:
                  pt = road_gdf.loc[node_id].geometry.centroid
                  folium.CircleMarker(
                      [pt.y, pt.x], 
-                     radius=4,            # Iets groter dan voorheen (was 2)
-                     color="white",       # Wit randje voor contrast
-                     weight=1,            # Dun randje
-                     fill_color="#4B0082",# Indigo/Donkerpaars vulling
-                     fill_opacity=1
+                     radius=6,            # Groter (was 4)
+                     color="white",       # Witte rand
+                     weight=2,            # Dikkere rand (was 1)
+                     fill=True,
+                     fill_color="black",  # Zwarte kern (hard contrast)
+                     fill_opacity=1.0,
+                     z_index_offset=1000  # Probeer ze bovenop te dwingen (werkt soms bij markers)
                  ).add_to(m)
 
     # 6. Teken de kaart daadwerkelijk op het scherm.
