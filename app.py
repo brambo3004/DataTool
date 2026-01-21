@@ -1154,26 +1154,31 @@ with col_map:
                 opacity=1.0
             ).add_to(m)
             
-        # 2. Teken de bolletjes (MET FIX VOOR COORDINATEN)
+		# 2. Teken de bolletjes (MET FIX VOOR DATATYPES)
         count_nodes = 0
         for node_id in G_debug.nodes():
-             # BELANGRIJK: Check in road_web (GPS), niet road_gdf (Meters)
+             # Check of de node in de index voorkomt
              if node_id in road_web.index:
-                 pt = road_web.loc[node_id].geometry.centroid # <--- HIER ZAT DE FOUT
-                 
-                 folium.CircleMarker(
-                     [pt.y, pt.x], 
-                     radius=5,            
-                     color="white",       # Witte rand
-                     weight=1.5,
-                     fill=True,
-                     fill_color="black",  # Zwarte kern
-                     fill_opacity=1.0
-                 ).add_to(m)
-                 count_nodes += 1
+                 # Haal de geometrie op
+                 geom = road_web.loc[node_id].geometry
+                 # Veiligheid: sommig geometry kan 'None' zijn of leeg
+                 if geom is not None and not geom.is_empty:
+                     pt = geom.centroid
+                     
+                     # Gebruik expliciete float() conversie
+                     folium.CircleMarker(
+                         [float(pt.y), float(pt.x)], 
+                         radius=6,            
+                         color="black",       # Zwarte rand voor contrast
+                         weight=2,
+                         fill=True,
+                         fill_color="white",  # Witte kern (of andersom)
+                         fill_opacity=1.0
+                     ).add_to(m)
+                     count_nodes += 1
         
-        # Feedback voor de gebruiker om zeker te weten dat de code draait
-        st.caption(f"Debug info: {len(lines_internal)} interne verbindingen en {count_nodes} knooppunten getekend.")
+        # Feedback om te zien of er überhaupt iets gebeurt
+        st.caption(f"Debug status: {count_nodes} nodes getekend van de {len(G_debug.nodes())} in graaf.")
 
     # 6. Teken de kaart daadwerkelijk op het scherm.
     st_folium(m, width=None, height=600, returned_objects=["last_object_clicked"], key="folium_map")
