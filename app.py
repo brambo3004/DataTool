@@ -1123,8 +1123,13 @@ with col_map:
     st.write("### 🛠️ Debug Tools")
     show_network = st.toggle("🕸️ Toon Netwerk & Verbindingen", value=False)
     
-    if show_network and 'graph_current' in st.session_state:
+	if show_network and 'graph_current' in st.session_state:
         G_debug = st.session_state['graph_current']
+        
+        # DEBUG CHECK: Print direct hoeveel nodes er in de graaf zitten
+        total_nodes = len(G_debug.nodes())
+        st.info(f"Debug start: Graaf bevat {total_nodes} nodes. Bezig met tekenen...")
+
         node_group_map = {}
         
         # Mapping maken voor de lijntjes
@@ -1141,9 +1146,13 @@ with col_map:
                 grp_v = node_group_map.get(v)
                 # Alleen tekenen als ze bij dezelfde groep horen
                 if grp_u and grp_v and grp_u == grp_v:
-                    p1 = road_web.loc[u].geometry.centroid
-                    p2 = road_web.loc[v].geometry.centroid
-                    lines_internal.append([[p1.y, p1.x], [p2.y, p2.x]])
+                    # Let op: geometry kan soms null zijn, dus veilig ophalen
+                    g_u = road_web.loc[u].geometry
+                    g_v = road_web.loc[v].geometry
+                    if g_u and g_v:
+                        p1 = g_u.centroid
+                        p2 = g_v.centroid
+                        lines_internal.append([[p1.y, p1.x], [p2.y, p2.x]])
 
         # 1. Teken de lijnen
         if lines_internal:
@@ -1154,31 +1163,44 @@ with col_map:
                 opacity=1.0
             ).add_to(m)
             
-		# 2. Teken de bolletjes (MET FIX VOOR DATATYPES)
+        # 2. Teken de bolletjes (NU MET BLAUWE PIN + HARDE FLOAT CONVERSIE)
         count_nodes = 0
+        limit_nodes = 500 # Veiligheid: teken niet meer dan 500 pinnen om vastlopen te voorkomen
+        
         for node_id in G_debug.nodes():
+             if count_nodes >= limit_nodes:
+                 st.warning(f"Limiet bereikt: alleen de eerste {limit_nodes} punten worden getoond.")
+                 break
+                 
              # Check of de node in de index voorkomt
              if node_id in road_web.index:
-                 # Haal de geometrie op
                  geom = road_web.loc[node_id].geometry
-                 # Veiligheid: sommig geometry kan 'None' zijn of leeg
+                 
+                 # Veiligheidscheck: is de geometry geldig?
                  if geom is not None and not geom.is_empty:
-                     pt = geom.centroid
-                     
-                     # Gebruik expliciete float() conversie
-                     folium.CircleMarker(
-                         [float(pt.y), float(pt.x)], 
-                         radius=6,            
-                         color="black",       # Zwarte rand voor contrast
-                         weight=2,
-                         fill=True,
-                         fill_color="white",  # Witte kern (of andersom)
-                         fill_opacity=1.0
-                     ).add_to(m)
-                     count_nodes += 1
+                     try:
+                         # Forceer centroïde berekening
+                         pt = geom.centroid
+                         
+                         # Forceer conversie naar Python floats (belangrijk voor JSON serialisatie)
+                         lat = float(pt.y)
+                         lon = float(pt.x)
+                         
+                         # Gebruik de standaard blauwe Marker (is altijd zichtbaar)
+                         folium.Marker(
+                             [lat, lon],
+                             tooltip=f"ID: {node_id}",
+                             icon=folium.Icon(color="blue", icon="info-sign")
+                         ).add_to(m)
+                         
+                         count_nodes += 1
+                     except Exception as e:
+                         # Als er 1 punt faalt, print de fout maar ga door met de rest
+                         print(f"Fout bij tekenen node {node_id}: {e}")
+                         continue
         
-        # Feedback om te zien of er überhaupt iets gebeurt
-        st.caption(f"Debug status: {count_nodes} nodes getekend van de {len(G_debug.nodes())} in graaf.")
+        # Feedback voor de gebruiker
+        st.success(f"Klaar: {len(lines_internal)} lijnen en {count_nodes} blauwe pinnen getekend.")
 
     # 6. Teken de kaart daadwerkelijk op het scherm.
     st_folium(m, width=None, height=600, returned_objects=["last_object_clicked"], key="folium_map")
