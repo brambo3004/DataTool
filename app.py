@@ -1123,7 +1123,6 @@ with col_map:
     show_network = st.toggle("🕸️ Toon Netwerk & Verbindingen", value=False)
     
     if show_network and 'graph_current' in st.session_state:
-        # (Technische code om lijntjes van het netwerk te tekenen...)
         G_debug = st.session_state['graph_current']
         node_group_map = {}
         if st.session_state.get('computed_groups'):
@@ -1136,18 +1135,33 @@ with col_map:
             if u in road_web.index and v in road_web.index:
                 grp_u = node_group_map.get(u)
                 grp_v = node_group_map.get(v)
+                # Alleen tekenen als ze bij dezelfde groep horen (interne verbinding)
                 if grp_u and grp_v and grp_u == grp_v:
                     p1 = road_web.loc[u].geometry.centroid
                     p2 = road_web.loc[v].geometry.centroid
                     lines_internal.append([[p1.y, p1.x], [p2.y, p2.x]])
 
+        # AANGEPAST: Duidelijkere lijnen (Oranje-Rood)
         if lines_internal:
-            folium.PolyLine(lines_internal, color="#00FF00", weight=3, opacity=0.8).add_to(m)
+            folium.PolyLine(
+                lines_internal, 
+                color="#FF4500",  # Oranje-Rood (valt goed op, vloekt niet met groen/geel)
+                weight=2,         # Iets dunner zodat je de weg eronder nog ziet
+                opacity=1.0       # Volledig dekkend voor scherpte
+            ).add_to(m)
             
+        # AANGEPAST: Duidelijkere bolletjes (Donkerpaars met wit randje)
         for node_id in G_debug.nodes():
              if node_id in road_gdf.index:
                  pt = road_gdf.loc[node_id].geometry.centroid
-                 folium.CircleMarker([pt.y, pt.x], radius=2, color="blue", fill=True, fillOpacity=1).add_to(m)
+                 folium.CircleMarker(
+                     [pt.y, pt.x], 
+                     radius=4,            # Iets groter dan voorheen (was 2)
+                     color="white",       # Wit randje voor contrast
+                     weight=1,            # Dun randje
+                     fill_color="#4B0082",# Indigo/Donkerpaars vulling
+                     fill_opacity=1
+                 ).add_to(m)
 
     # 6. Teken de kaart daadwerkelijk op het scherm.
     st_folium(m, width=None, height=600, returned_objects=["last_object_clicked"], key="folium_map")
