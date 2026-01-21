@@ -1119,88 +1119,71 @@ with col_map:
                 folium.Marker([g.y, g.x], icon=folium.DivIcon(icon_size=(40,20), icon_anchor=(10,10), html=icon_html)).add_to(m)
                 folium.CircleMarker([g.y, g.x], radius=2, color='red', fill=True).add_to(m)
 
-# 5. Debug Tools (optioneel, om het netwerk te zien).
+	# 5. Debug Tools (ROBUUSTE VERSIE)
     st.write("### 🛠️ Debug Tools")
+    
+    # We maken een leeg vakje voor statusmeldingen
+    status_box = st.empty()
+    
     show_network = st.toggle("🕸️ Toon Netwerk & Verbindingen", value=False)
     
-	if show_network and 'graph_current' in st.session_state:
-        G_debug = st.session_state['graph_current']
+    # We schrijven direct de status, zodat u ZIET of de knop werkt
+    if show_network:
+        status_box.info("⏳ Bezig met laden van netwerk...")
         
-        # DEBUG CHECK: Print direct hoeveel nodes er in de graaf zitten
-        total_nodes = len(G_debug.nodes())
-        st.info(f"Debug start: Graaf bevat {total_nodes} nodes. Bezig met tekenen...")
-
-        node_group_map = {}
-        
-        # Mapping maken voor de lijntjes
-        if st.session_state.get('computed_groups'):
-            for grp_id, grp_data in st.session_state['computed_groups'].items():
-                for node_id in grp_data['ids']:
-                    node_group_map[node_id] = grp_id
-        
-        lines_internal = []
-        # Verzamel lijnen
-        for u, v in G_debug.edges():
-            if u in road_web.index and v in road_web.index:
-                grp_u = node_group_map.get(u)
-                grp_v = node_group_map.get(v)
-                # Alleen tekenen als ze bij dezelfde groep horen
-                if grp_u and grp_v and grp_u == grp_v:
-                    # Let op: geometry kan soms null zijn, dus veilig ophalen
-                    g_u = road_web.loc[u].geometry
-                    g_v = road_web.loc[v].geometry
-                    if g_u and g_v:
-                        p1 = g_u.centroid
-                        p2 = g_v.centroid
-                        lines_internal.append([[p1.y, p1.x], [p2.y, p2.x]])
-
-        # 1. Teken de lijnen
-        if lines_internal:
-            folium.PolyLine(
-                lines_internal, 
-                color="#FF4500",  # Oranje-Rood
-                weight=2.5, 
-                opacity=1.0
-            ).add_to(m)
+        if 'graph_current' in st.session_state:
+            G_debug = st.session_state['graph_current']
             
-        # 2. Teken de bolletjes (NU MET BLAUWE PIN + HARDE FLOAT CONVERSIE)
-        count_nodes = 0
-        limit_nodes = 500 # Veiligheid: teken niet meer dan 500 pinnen om vastlopen te voorkomen
-        
-        for node_id in G_debug.nodes():
-             if count_nodes >= limit_nodes:
-                 st.warning(f"Limiet bereikt: alleen de eerste {limit_nodes} punten worden getoond.")
-                 break
-                 
-             # Check of de node in de index voorkomt
-             if node_id in road_web.index:
-                 geom = road_web.loc[node_id].geometry
-                 
-                 # Veiligheidscheck: is de geometry geldig?
-                 if geom is not None and not geom.is_empty:
-                     try:
-                         # Forceer centroïde berekening
-                         pt = geom.centroid
-                         
-                         # Forceer conversie naar Python floats (belangrijk voor JSON serialisatie)
-                         lat = float(pt.y)
-                         lon = float(pt.x)
-                         
-                         # Gebruik de standaard blauwe Marker (is altijd zichtbaar)
-                         folium.Marker(
-                             [lat, lon],
-                             tooltip=f"ID: {node_id}",
-                             icon=folium.Icon(color="blue", icon="info-sign")
-                         ).add_to(m)
-                         
-                         count_nodes += 1
-                     except Exception as e:
-                         # Als er 1 punt faalt, print de fout maar ga door met de rest
-                         print(f"Fout bij tekenen node {node_id}: {e}")
-                         continue
-        
-        # Feedback voor de gebruiker
-        st.success(f"Klaar: {len(lines_internal)} lijnen en {count_nodes} blauwe pinnen getekend.")
+            # A. LIJNEN TEKENEN
+            node_group_map = {}
+            if st.session_state.get('computed_groups'):
+                for grp_id, grp_data in st.session_state['computed_groups'].items():
+                    for node_id in grp_data['ids']:
+                        node_group_map[node_id] = grp_id
+            
+            lines_internal = []
+            for u, v in G_debug.edges():
+                if u in road_web.index and v in road_web.index:
+                    # Alleen tekenen als ze bij dezelfde groep horen
+                    grp_u = node_group_map.get(u)
+                    grp_v = node_group_map.get(v)
+                    if grp_u and grp_v and grp_u == grp_v:
+                        gu = road_web.loc[u].geometry
+                        gv = road_web.loc[v].geometry
+                        if gu and gv:
+                            p1 = gu.centroid
+                            p2 = gv.centroid
+                            lines_internal.append([[p1.y, p1.x], [p2.y, p2.x]])
+
+            if lines_internal:
+                folium.PolyLine(lines_internal, color="#FF4500", weight=3, opacity=1.0).add_to(m)
+
+            # B. BLAUWE PINNEN TEKENEN (Standaard Markers)
+            count_nodes = 0
+            # We zetten een limiet voor de veiligheid, maar wel ruim (1000)
+            for i, node_id in enumerate(G_debug.nodes()):
+                if i > 1000: break 
+                
+                if node_id in road_web.index:
+                    geom = road_web.loc[node_id].geometry
+                    if geom and not geom.is_empty:
+                        # Haal coordinaat op en dwing naar float
+                        pt = geom.centroid
+                        lat, lon = float(pt.y), float(pt.x)
+                        
+                        # Simpelste marker die er bestaat (standaard blauwe pin)
+                        folium.Marker(
+                            [lat, lon],
+                            tooltip=f"ID: {node_id}"
+                        ).add_to(m)
+                        count_nodes += 1
+            
+            # Update de status tekst als het klaar is
+            status_box.success(f"✅ Zichtbaar: {count_nodes} blauwe pinnen en {len(lines_internal)} verbindingen.")
+        else:
+            status_box.error("❌ Fout: 'graph_current' niet gevonden in sessie.")
+    else:
+        status_box.write("Schakel in om het netwerk te zien.")
 
     # 6. Teken de kaart daadwerkelijk op het scherm.
     st_folium(m, width=None, height=600, returned_objects=["last_object_clicked"], key="folium_map")
