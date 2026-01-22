@@ -1108,28 +1108,47 @@ with col_map:
             if g_id not in st.session_state['processed_groups'] and g_id not in st.session_state['ignored_groups']:
                 suggested_ids.update(g_data['ids'])
 
+    # A. VOORBEREIDING: Welke ID's hebben een probleem (Oranje)?
+    # We draaien de check op de achtergrond om de ID's te verzamelen.
+    error_ids = set()
+    # We halen de violations op (deze functie is snel genoeg)
+    current_violations = check_rules(road_gdf, st.session_state.get('graph_current'))
+    for v in current_violations:
+        # Alleen toevoegen als de gebruiker ze niet genegeerd heeft
+        if v['id'] not in st.session_state['ignored_errors']:
+            error_ids.add(v['id'])
+
+    # B. DE STIJL FUNCTIE MET DE JUISTE HIERARCHIE
     def style_fn(feature):
         oid = feature['properties']['sys_id']
         props = feature['properties']
         
-        # Is dit object geselecteerd (via Fout of Advies)?
+        # 1. SELECTIE (Lichtblauw/Cyaan)
+        # Wint altijd van de rest.
         if oid == st.session_state.get('selected_error_id'):
-            return {'fillColor': '#00FFFF', 'color': 'black', 'weight': 3, 'fillOpacity': 0.8}
+            return {'fillColor': '#00FFFF', 'color': 'black', 'weight': 3, 'fillOpacity': 0.9}
             
         if st.session_state.get('selected_group_id'):
             active_grp = st.session_state['computed_groups'].get(st.session_state['selected_group_id'])
             if active_grp and oid in active_grp['ids']:
-                return {'fillColor': '#00FFFF', 'color': 'black', 'weight': 3, 'fillOpacity': 0.8}
-                
-        # Is er een advies voor?
+                return {'fillColor': '#00FFFF', 'color': 'black', 'weight': 3, 'fillOpacity': 0.9}
+
+        # 2. DATA KWALITEIT ISSUE (Oranje) - NIEUW!
+        # Als het niet geselecteerd is, maar wel een fout heeft:
+        if oid in error_ids:
+             return {'fillColor': '#FFA500', 'color': '#cc8400', 'weight': 2, 'fillOpacity': 0.7}
+
+        # 3. ADVIES / SUGGESTIE (Geel)
+        # Als er een advies klaarstaat (en geen fout is):
         if oid in suggested_ids:
              return {'fillColor': '#FFFF00', 'color': 'black', 'weight': 1, 'fillOpacity': 0.6}
              
-        # Heeft het al een project?
+        # 4. BESTAAND PROJECT (Groen)
+        # Heeft al een projectnaam en is door alle bovenstaande checks gekomen (dus goed):
         if props.get('Onderhoudsproject'):
             return {'fillColor': '#00CC00', 'color': 'gray', 'weight': 0.5, 'fillOpacity': 0.5}
             
-        # Rest: Grijs
+        # 5. REST / NEUTRAAL (Grijs)
         return {'fillColor': '#808080', 'color': 'gray', 'weight': 0.5, 'fillOpacity': 0.3}
 
     # Welke kolommen willen we in de popup zien?
