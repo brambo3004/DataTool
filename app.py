@@ -1078,7 +1078,7 @@ with col_map:
                 lines_coords, 
                 color="red",      # Rode lijnen
                 weight=2, 
-                opacity=0.7
+                opacity=1.0
             ).add_to(m)
             
         # B. BLAUWE BOLLEN (De Nodes) -> DIT IS HET NIEUWE STUKJE
@@ -1094,7 +1094,7 @@ with col_map:
                         color="blue",         # Blauwe rand
                         fill=True,
                         fill_color="blue",    # Blauwe vulling
-                        fill_opacity=0.8,
+                        fill_opacity=1.0,
                         tooltip=f"Node ID: {node_id}" # Handig voor inspectie
                     ).add_to(m)
         
