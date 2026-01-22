@@ -81,6 +81,7 @@ BACKBONE_TYPES = ['rijstrook', 'parallelweg', 'landbouwpad', 'busbaan', 'fietspa
 SUBTHEMA_EXCEPTIONS = [
     'fietsstalling', 
     'geleideconstructie',
+    'molgoot',
     'parkeerplaats', 
     'rotonderand', 
     'verkeerseiland of middengeleider'
