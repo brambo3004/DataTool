@@ -854,8 +854,11 @@ with col_inspector:
                             # Knop om in te zoomen (Oogje)
                             if st.button("👁️", key=key_show, help="Toon op kaart"):
                                 st.session_state['selected_error_id'] = vid
-                                obj_geom = road_gdf.loc[vid].geometry
-                                st.session_state['zoom_bounds'] = obj_geom.bounds
+                                
+                                # Eerst omzetten naar GPS
+                                geom_web = road_gdf.loc[[vid]].to_crs(epsg=4326).geometry.iloc[0]
+                                
+                                st.session_state['zoom_bounds'] = geom_web.bounds
                                 st.rerun()
                         
                         with c3:
@@ -971,7 +974,11 @@ with col_inspector:
                             btn_label = "📍 Geselecteerd" if is_sel else "👁️ Selecteer"
                             if st.button(btn_label, key=f"vis_{g_id}", disabled=is_sel):
                                 st.session_state['selected_group_id'] = g_id
-                                grp_geom = road_gdf.loc[g_data['ids']].unary_union
+                                
+                                # Eerst omzetten naar GPS (EPSG:4326) voor de juiste zoom-kader
+                                subset_gdf = road_gdf.loc[g_data['ids']].to_crs(epsg=4326) 
+                                grp_geom = subset_gdf.unary_union
+                                
                                 st.session_state['zoom_bounds'] = grp_geom.bounds
                                 st.rerun()
                                 
