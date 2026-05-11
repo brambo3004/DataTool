@@ -343,12 +343,7 @@ with col_inspector:
                             if st.button(label, key=f"vis_{group_id}", disabled=is_selected):
                                 st.session_state["selected_group_id"] = group_id
                                 subset_gdf = road_gdf.loc[group_data["ids"]].to_crs(epsg=4326)
-                                try:
-                                    merged_geometry = subset_gdf.geometry.union_all()
-                                except AttributeError:
-                                    merged_geometry = subset_gdf.geometry.unary_union
-
-                                st.session_state["zoom_bounds"] = merged_geometry.bounds
+                                st.session_state["zoom_bounds"] = subset_gdf.unary_union.bounds
                                 st.rerun()
 
                         with c_ignore:

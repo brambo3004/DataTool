@@ -18,8 +18,8 @@ from .config import (
     HIERARCHY_CONFIG,
     ROAD_DIRECTIONS,
     SEGMENTATION_ATTRIBUTES,
+    SUBTHEMA_EXCEPTIONS,
 )
-from .domain import is_maintenance_project_exempt
 from .utils import clean_display_value
 
 
@@ -55,14 +55,7 @@ def _axis_tie_breaker(gdf: gpd.GeoDataFrame, group_ids: list[int], direction_cod
     if group_nodes.empty:
         return 0.0
 
-    # GeoPandas heeft `union_all()` als moderne vervanger van `unary_union`.
-    # De fallback houdt de code bruikbaar op oudere GeoPandas-versies.
-    try:
-        merged_geometry = group_nodes.geometry.union_all()
-    except AttributeError:
-        merged_geometry = group_nodes.geometry.unary_union
-
-    center = merged_geometry.centroid
+    center = group_nodes.geometry.unary_union.centroid
 
     if direction_code == "WTE":      # West -> Oost
         return float(center.x)
@@ -93,6 +86,7 @@ def generate_grouped_proposals(gdf: gpd.GeoDataFrame, graph: nx.Graph) -> dict[s
     groups: dict[str, dict[str, Any]] = {}
     node_to_group: dict[int, str] = {}
     processed_ids: set[int] = set()
+    exceptions_clean = {value.lower() for value in SUBTHEMA_EXCEPTIONS}
 
     for layer in HIERARCHY_CONFIG:
         rank = layer["rank"]
@@ -105,7 +99,6 @@ def generate_grouped_proposals(gdf: gpd.GeoDataFrame, graph: nx.Graph) -> dict[s
             if node in gdf.index
             and gdf.loc[node, "subthema_clean"] in target_types
             and node not in processed_ids
-            and not is_maintenance_project_exempt(gdf.loc[node])
         ]
 
         if not candidates:
@@ -168,7 +161,7 @@ def generate_grouped_proposals(gdf: gpd.GeoDataFrame, graph: nx.Graph) -> dict[s
 
                     neighbor_sub = gdf.loc[neighbor, "subthema_clean"]
 
-                    if is_maintenance_project_exempt(gdf.loc[neighbor]):
+                    if neighbor_sub in exceptions_clean:
                         continue
 
                     # Een groep mag geen andere primaire ruggengraat opslokken.

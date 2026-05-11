@@ -30,31 +30,15 @@ HIERARCHY_RANK = {
     "fietspad": 3,
 }
 
-# Objecten met deze subthema's krijgen volgens het werkproces géén
-# onderhoudsproject. Let op: "geleideconstructie" stond in de oude app, maar
-# staat niet in het werkproces als uitzondering. Voeg die alleen terug toe als
-# dat inhoudelijk alsnog wordt bevestigd.
+# Let op: dit is bewust dezelfde lijst als in de bestaande app.
+# In het werkprocesdocument staat een bredere uitzonderingenlijst.
+# Die inhoudelijke correctie pakken we na de structurele refactor op.
 SUBTHEMA_EXCEPTIONS = [
-    "carpoolplaats",
     "fietsstalling",
+    "geleideconstructie",
     "parkeerplaats",
-    "perron",
-    "picknickplaats",
     "rotonderand",
-    "wegas koppeling dielplak",
-    "opstelplaats",
     "verkeerseiland of middengeleider",
-    "verharding derden",
-]
-
-# Sommige uitzonderingen zijn in iASSET niet altijd zuiver als subthema vastgelegd,
-# maar als tekstwaarde in een ander paspoortveld. Deze herkenningswoorden worden
-# daarom rijbreed gezocht. We houden de lijst bewust specifiek om vals-positieve
-# matches te voorkomen.
-MAINTENANCE_PROJECT_EXEMPTION_MARKERS = [
-    "oorspronkelijke bgt-data",
-    "oorspronkelijke bgt data",
-    "oorspronkelijke bgt",
 ]
 
 BACKBONE_TYPES = ["rijstrook", "parallelweg", "landbouwpad", "busbaan", "fietspad"]
