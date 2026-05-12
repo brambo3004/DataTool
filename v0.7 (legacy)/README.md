@@ -1,4 +1,4 @@
-# iASSET Advisor - refactor v0.8
+# iASSET Advisor - refactor v0.7
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
@@ -7,7 +7,7 @@ Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudb
 Eerst structuur, daarna bugs en nieuwe functionaliteit.
 
 De huidige functionaliteit blijft zoveel mogelijk gelijk:
-- iASSET CSV- en Excelbestanden inlezen via vaste bestandenmap óf upload;
+- iASSET CSV's inlezen;
 - WKT-geometrie omzetten naar GeoDataFrame;
 - wegnummer selecteren;
 - ruimtelijk netwerk bouwen;
@@ -51,24 +51,7 @@ De huidige functionaliteit blijft zoveel mogelijk gelijk:
 
 ## Installatie
 
-De app kan op twee manieren brondata lezen.
-
-### Optie A: actuele export uploaden in de app
-
-Start de app en gebruik in de zijbalk het onderdeel **Databron**. Upload daar één gecombineerd iASSET-exportbestand, of meerdere deelbestanden.
-
-Ondersteund:
-
-```text
-.csv
-.xlsx
-.xls
-.xlsm
-```
-
-### Optie B: vaste bronbestanden naast `app.py`
-
-Laat de upload leeg als je de vaste bestandenmap wilt gebruiken. Dan verwacht de app voorlopig nog:
+Plaats de twee iASSET-exportbestanden naast `app.py`:
 
 ```text
 N-allemaal-niet-rijstrook.csv
@@ -97,21 +80,6 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-
-
-## Wijzigingen in v0.8
-
-Deze versie maakt de importlaag flexibeler:
-
-- nieuw onderdeel **Databron** in de zijbalk;
-- actuele iASSET-export kan direct in de app worden geüpload;
-- upload ondersteunt CSV en Excel;
-- meerdere bestanden kunnen tegelijk worden geüpload en samengevoegd;
-- de vaste CSV-bestanden naast `app.py` blijven werken als fallback;
-- bij Excelbestanden met meerdere tabbladen kiest de app het tabblad met de meeste iASSET-kolommen, met extra voorkeur voor `gps coordinaten`;
-- autosave is nu databron-afhankelijk, zodat wijzigingen uit export A niet per ongeluk op export B worden toegepast;
-- uploadsets krijgen een korte hash op basis van bestandsnaam, grootte en inhoud;
-- tests toegevoegd voor CSV-upload, Excel-upload en dataset-hashing.
 
 ## Wijzigingen in v0.7
 

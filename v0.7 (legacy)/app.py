@@ -9,7 +9,6 @@ De GIS-, regel-, advies-, kaart- en exportlogica staat in `iasset_tool/`.
 from __future__ import annotations
 
 import io
-from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -31,22 +30,17 @@ from iasset_tool.map_view import build_road_map
 from iasset_tool.overview_map import available_overview_attributes, build_overview_map, render_overview_map_html
 from iasset_tool.pdok import get_pdok_hectopunten_visual_only
 from iasset_tool.rules import check_rules
-from iasset_tool.state import (
-    init_session_state,
-    reset_after_data_source_change,
-    reset_after_road_change,
-    reset_selection,
-)
-from iasset_tool.utils import clean_display_value, make_short_hash, sanitize_filename
+from iasset_tool.state import init_session_state, reset_after_road_change, reset_selection
+from iasset_tool.utils import clean_display_value, sanitize_filename
 
 
 st.set_page_config(layout="wide", page_title="iASSET Tool - Smart Advisor")
 
 
 @st.cache_data(show_spinner=False)
-def cached_load_default_data() -> LoadResult:
+def cached_load_data() -> LoadResult:
     """
-    Laad de vaste bronbestanden één keer per Streamlit-cache.
+    Laad brondata één keer per Streamlit-cache.
 
     Let op: de werkdata in session_state wordt daarna gemuteerd.
     We muteren dus niet rechtstreeks het gecachete object.
@@ -54,69 +48,9 @@ def cached_load_default_data() -> LoadResult:
     return load_iasset_data()
 
 
-@st.cache_data(show_spinner=False)
-def cached_load_uploaded_data(file_payloads: tuple[tuple[str, bytes], ...]) -> LoadResult:
-    """
-    Laad geüploade bronbestanden uit bytes.
-
-    De upload staat in het geheugen van de Streamlit-sessie. We slaan hem hier
-    niet automatisch als bronbestand op schijf op.
-    """
-    return load_iasset_data(input_files=file_payloads)
-
-
-def build_data_source_key(file_payloads: tuple[tuple[str, bytes], ...]) -> str:
-    """
-    Maak een stabiele sleutel voor de actieve databron.
-
-    Voor de vaste bestanden gebruiken we een vaste sleutel. Voor uploads maken
-    we een hash op basis van bestandsnaam, bestandsgrootte en inhoud.
-    """
-    if not file_payloads:
-        return "local_files"
-
-    hash_parts: list[str | bytes] = []
-    for file_name, content in file_payloads:
-        hash_parts.extend([file_name, str(len(content)), content])
-
-    return f"upload_{make_short_hash(hash_parts)}"
-
-
-def build_data_source_label(file_payloads: tuple[tuple[str, bytes], ...]) -> str:
-    """Maak een leesbare naam voor de actieve databron."""
-    if not file_payloads:
-        return "Vaste bestandenmap naast app.py"
-
-    names = [name for name, _ in file_payloads]
-    if len(names) == 1:
-        return f"Upload: {names[0]}"
-
-    return "Upload: " + ", ".join(names[:3]) + (" ..." if len(names) > 3 else "")
-
-
-def autosave_path_for_source(source_key: str) -> Path:
-    """
-    Bepaal het autosave-bestand voor de actieve databron.
-
-    Waarom per databron?
-    ``sys_id`` is alleen stabiel binnen één ingelezen export. Een autosave van
-    export A automatisch toepassen op export B kan dus verkeerde objecten raken.
-    """
-    if source_key == "local_files":
-        return Path(AUTOSAVE_FILE)
-
-    return Path(".autosave") / f"autosave_log_{sanitize_filename(source_key)}.csv"
-
-
-def current_autosave_file() -> Path:
-    """Geef het autosave-pad voor de huidige sessie terug."""
-    source_key = st.session_state.get("active_data_source_key", "local_files")
-    return autosave_path_for_source(str(source_key))
-
-
 def persist_change_log() -> None:
-    """Schrijf het huidige wijzigingslogboek naar de autosave van deze databron."""
-    save_autosave(st.session_state["change_log"], current_autosave_file())
+    """Schrijf het huidige wijzigingslogboek naar autosave."""
+    save_autosave(st.session_state["change_log"], AUTOSAVE_FILE)
 
 
 def register_change(object_id: int, field: str, old_value, new_value) -> None:
@@ -149,21 +83,14 @@ def load_data_into_session() -> None:
     """
     Laad data en speel autosave-wijzigingen opnieuw af.
     """
-    source_key = st.session_state.get("active_data_source_key", "local_files")
-    if source_key == "local_files":
-        result = cached_load_default_data()
-    else:
-        file_payloads = tuple(st.session_state.get("active_upload_payloads") or ())
-        result = cached_load_uploaded_data(file_payloads)
-
-    st.session_state["autosave_file"] = str(current_autosave_file())
+    result = cached_load_data()
 
     # Belangrijk: we maken een copy, zodat session_state losstaat van de cache.
     st.session_state["data_complete"] = result.gdf.copy()
     st.session_state["invalid_geometry_rows"] = result.invalid_geometry_rows
     st.session_state["load_warnings"] = result.warnings
 
-    autosave_log = load_autosave(current_autosave_file())
+    autosave_log = load_autosave(AUTOSAVE_FILE)
     st.session_state["change_log"] = autosave_log
 
     restored = 0
@@ -178,65 +105,6 @@ def load_data_into_session() -> None:
 
     if restored:
         st.toast(f"🔄 {restored} wijzigingen hersteld uit autosave.", icon="💾")
-
-
-# --- Databron kiezen -------------------------------------------------------
-
-st.sidebar.title("iASSET Advisor")
-
-with st.sidebar.expander("Databron", expanded="data_complete" not in st.session_state):
-    uploaded_files = st.file_uploader(
-        "Upload actuele iASSET-export",
-        type=["csv", "xlsx", "xls", "xlsm"],
-        accept_multiple_files=True,
-        help=(
-            "Upload één gecombineerd exportbestand, of meerdere deelbestanden. "
-            "Laat dit leeg om de vaste CSV-bestanden naast app.py te gebruiken."
-        ),
-    )
-
-    candidate_payloads: tuple[tuple[str, bytes], ...] = tuple(
-        (uploaded_file.name, uploaded_file.getvalue()) for uploaded_file in uploaded_files
-    ) if uploaded_files else tuple()
-
-    candidate_source_key = build_data_source_key(candidate_payloads)
-    candidate_source_label = build_data_source_label(candidate_payloads)
-
-    if "active_data_source_key" not in st.session_state:
-        st.session_state["active_data_source_key"] = candidate_source_key
-        st.session_state["active_upload_payloads"] = candidate_payloads
-        st.session_state["active_data_source_label"] = candidate_source_label
-
-    active_source_key = st.session_state.get("active_data_source_key", "local_files")
-    active_source_label = st.session_state.get("active_data_source_label", "Vaste bestandenmap naast app.py")
-
-    st.caption(f"Actieve databron: {active_source_label}")
-
-    if candidate_source_key != active_source_key:
-        st.warning("Er is een andere databron gekozen dan de dataset die nu actief is.")
-
-        if st.session_state.get("change_log"):
-            st.warning(
-                "Er staan nog wijzigingen in het logboek. Exporteer die eerst, "
-                "of laad de nieuwe databron bewust om het werkgeheugen te vervangen."
-            )
-
-        if st.button("Gebruik deze databron"):
-            reset_after_data_source_change(st.session_state)
-            st.session_state["active_data_source_key"] = candidate_source_key
-            st.session_state["active_upload_payloads"] = candidate_payloads
-            st.session_state["active_data_source_label"] = candidate_source_label
-            st.rerun()
-
-    if st.button("Dataset opnieuw laden", help="Leest de actieve bron opnieuw in en wist tijdelijke selecties."):
-        # De cache kan nog de vorige inhoud bevatten; daarom maken we hem leeg
-        # wanneer de gebruiker bewust opnieuw wil laden.
-        st.cache_data.clear()
-        reset_after_data_source_change(st.session_state)
-        st.session_state["active_data_source_key"] = candidate_source_key
-        st.session_state["active_upload_payloads"] = candidate_payloads
-        st.session_state["active_data_source_label"] = candidate_source_label
-        st.rerun()
 
 
 # --- Applicatie-initialisatie ---------------------------------------------
@@ -261,6 +129,8 @@ if "sys_id" not in raw_gdf.columns:
 
 
 # --- Sidebar ---------------------------------------------------------------
+
+st.sidebar.title("iASSET Advisor")
 
 with st.sidebar.expander("Datastatus", expanded=False):
     warnings = st.session_state.get("load_warnings", [])

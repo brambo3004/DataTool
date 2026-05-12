@@ -3,15 +3,6 @@
 Deze lijst bewaart de functionele en technische verbeterpunten die we nog niet
 volledig hebben uitgewerkt.
 
-## Klaar in v0.8
-
-1. **Databron uploaden**
-   - iASSET-export kan direct in de app worden geüpload.
-   - Upload ondersteunt CSV en Excel.
-   - Meerdere bestanden kunnen tegelijk worden geüpload en samengevoegd.
-   - Vaste bestanden naast `app.py` blijven beschikbaar als fallback.
-   - Autosave is databron-afhankelijk gemaakt om oude wijzigingslogs niet op een andere export toe te passen.
-
 ## Klaar in v0.7
 
 1. **Overzicht-tabblad: doorlopende kleurenschaal**
@@ -69,22 +60,24 @@ volledig hebben uitgewerkt.
 
 ## Eerstvolgende punten
 
-1. **v0.8 lokaal valideren**
-   - Start zonder upload en controleer of de vaste CSV's nog werken.
-   - Upload één actuele CSV-export en controleer of de app herlaadt.
-   - Upload twee deelbestanden en controleer of ze worden samengevoegd.
-   - Upload een Excelbestand en controleer of het juiste tabblad wordt gebruikt.
-   - Controleer of oude autosave-wijzigingen niet op een andere export worden toegepast.
-   - Controleer Overzicht, Data Kwaliteit en Project Adviseur op de geüploade dataset.
+1. **v0.7 lokaal valideren**
+   - Controleer of Overzicht alleen rijstroken toont.
+   - Controleer `Geselecteerde weg` versus `Alle wegen`.
+   - Controleer `Jaar deklaag`, `Jaar aanleg`, `Besteknummer`, `Onderhoudsproject`.
+   - Controleer of de legenda nu geleidelijk van blauw naar rood loopt.
+   - Controleer of `Soort verharding_N` werkt bij exports met `verhardingssoort`.
+   - Controleer popup/tooltip op echte data.
+   - Download een HTML-export en open die buiten Streamlit.
+   - Controleer prestaties bij alle wegen en bij langere wegen zoals N359.
 
-2. **Kolomherkenning verder centraliseren**
-   - Aliassen voor belangrijke iASSET-kolommen uitbreiden.
-   - Inleesrapport verbeteren met aantallen per bronbestand en tabblad.
-   - Duidelijker melden welke kolommen ontbreken.
+2. **Data-inleeslaag uitbreiden**
+   - CSV én Excel ondersteunen.
+   - Herkenning van kolomnamen centraliseren.
+   - Inleesrapport verbeteren.
 
-3. **Autosave verder robuuster maken**
-   - Opslag per gebruiker/weg/project/sessie.
-   - Keuze toevoegen om oude autosave bewust te herstellen of te verwijderen.
+3. **Autosave robuuster maken**
+   - Opslag per weg/project/sessie.
+   - Geen globale `autosave_log.csv` meer voor alles.
 
 4. **Kaartlegenda en inspectie verbeteren**
    - Legenda voor statuskleuren in Data Kwaliteit en Project Adviseur.

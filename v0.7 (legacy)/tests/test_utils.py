@@ -1,6 +1,6 @@
 import warnings
 
-from iasset_tool.utils import clean_display_value, make_short_hash, normalize_text, parse_date_info, parse_hm_sort, sanitize_filename
+from iasset_tool.utils import clean_display_value, normalize_text, parse_date_info, parse_hm_sort, sanitize_filename
 
 
 def test_clean_display_value_removes_trailing_dot_zero_for_numbers():
@@ -33,11 +33,3 @@ def test_parse_date_info_accepts_compact_date():
 
 def test_sanitize_filename_removes_unsafe_characters():
     assert sanitize_filename("Jaar deklaag: N359/HRB") == "Jaar_deklaag_N359_HRB"
-
-
-def test_make_short_hash_is_stable_for_same_parts():
-    assert make_short_hash(["bestand.csv", b"abc"]) == make_short_hash(["bestand.csv", b"abc"])
-
-
-def test_make_short_hash_changes_when_content_changes():
-    assert make_short_hash(["bestand.csv", b"abc"]) != make_short_hash(["bestand.csv", b"abcd"])

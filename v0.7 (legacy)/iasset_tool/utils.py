@@ -7,10 +7,9 @@ automatisch te testen.
 
 from __future__ import annotations
 
-import hashlib
 import math
 from datetime import datetime
-from typing import Any, Iterable
+from typing import Any
 
 import pandas as pd
 
@@ -91,26 +90,6 @@ def sanitize_filename(value: Any, fallback: str = "bestand") -> str:
         result = result.replace("__", "_")
 
     return result or fallback
-
-
-def make_short_hash(parts: Iterable[bytes | str], length: int = 12) -> str:
-    """
-    Maak een korte, stabiele hash voor een set bronbestanden.
-
-    Dit gebruiken we om uploadsets en bijbehorende autosave-bestanden uit elkaar
-    te houden. De hash is niet bedoeld als beveiliging, maar als praktische
-    dataset-vingerafdruk.
-    """
-    digest = hashlib.sha256()
-
-    for part in parts:
-        if isinstance(part, str):
-            digest.update(part.encode("utf-8", errors="replace"))
-        else:
-            digest.update(part)
-        digest.update(b"\0")
-
-    return digest.hexdigest()[:length]
 
 
 def parse_hm_sort(value: Any, fallback: float = 99999.9) -> float:

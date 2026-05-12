@@ -68,7 +68,6 @@ def save_autosave(change_log: list[dict[str, Any]], autosave_path: str | Path) -
     Bij een leeg logboek wordt het oude autosave-bestand verwijderd.
     """
     path = Path(autosave_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
 
     if change_log:
         pd.DataFrame(change_log).to_csv(path, index=False, sep=";", encoding="utf-8-sig")

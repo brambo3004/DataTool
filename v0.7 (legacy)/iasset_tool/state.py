@@ -44,32 +44,3 @@ def reset_after_road_change(session_state: MutableMapping, selected_road: str) -
     session_state["zoom_bounds"] = None
     session_state["selected_error_id"] = None
     session_state["selected_group_id"] = None
-
-
-def reset_after_data_source_change(session_state: MutableMapping) -> None:
-    """
-    Reset alle dataset-afhankelijke status.
-
-    Dit gebruiken we wanneer de gebruiker een nieuwe iASSET-export uploadt.
-    Bestaande selecties, adviesgroepen en logboekregels horen niet automatisch
-    bij een andere bronexport.
-    """
-    keys_to_remove = [
-        "data_complete",
-        "invalid_geometry_rows",
-        "load_warnings",
-        "graph_current",
-        "last_road",
-        "computed_groups",
-        "zoom_bounds",
-        "selected_error_id",
-        "selected_group_id",
-        "processed_groups",
-        "ignored_groups",
-        "ignored_errors",
-        "change_log",
-        "folium_map",
-    ]
-
-    for key in keys_to_remove:
-        session_state.pop(key, None)

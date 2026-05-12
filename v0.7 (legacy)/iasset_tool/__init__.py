@@ -6,4 +6,4 @@ gebruikt deze functies, maar de functies zelf kennen Streamlit zo weinig mogelij
 Dat maakt testen en later hergebruik eenvoudiger.
 """
 
-__version__ = "0.8.0"
+__version__ = "0.7.0"
