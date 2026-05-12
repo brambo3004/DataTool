@@ -6,7 +6,6 @@ from iasset_tool.overview_map import (
     available_overview_attributes,
     build_overview_map,
     build_value_color_mapping,
-    render_overview_map_html,
     resolve_overview_attribute,
 )
 
@@ -24,7 +23,6 @@ def make_test_gdf():
             "Onderhoudsproject": ["N359-HRB-01.0-02.0", "", "N359-FP-01.0-02.0"],
             "Wegvaknum": ["221", "222", "223"],
             "nummer": ["R1", "R2", "F1"],
-            "Wegnummer": ["N359", "N398", "N359"],
         },
         geometry=[
             LineString([(160000, 560000), (160050, 560050)]),
@@ -69,26 +67,3 @@ def test_build_overview_map_returns_empty_result_without_rijstroken():
 
     assert result.row_count == 0
     assert result.selected_column is None
-
-
-def test_build_overview_map_can_show_multiple_roads():
-    gdf = make_test_gdf()
-
-    result = build_overview_map(gdf, "Jaar deklaag")
-
-    assert result.row_count == 2
-
-
-def test_render_overview_map_html_contains_export_panel():
-    gdf = make_test_gdf()
-    result = build_overview_map(gdf, "Jaar deklaag")
-
-    html = render_overview_map_html(
-        result,
-        title="iASSET Overzicht - alle wegen",
-        subtitle="Visualisatie: Jaar deklaag",
-    )
-
-    assert "<title>iASSET Overzicht - alle wegen</title>" in html
-    assert "Visualisatie: Jaar deklaag" in html
-    assert "Alleen-lezen export uit de iASSET Advisor" in html

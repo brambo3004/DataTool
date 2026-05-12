@@ -3,23 +3,6 @@
 Deze lijst bewaart de functionele en technische verbeterpunten die we nog niet
 volledig hebben uitgewerkt.
 
-## Klaar in v0.6
-
-1. **Overzicht-tabblad: alle wegen**
-   - Overzicht kan nu schakelen tussen `Geselecteerde weg` en `Alle wegen`.
-   - Bij `Alle wegen` worden alle rijstrookobjecten uit de ingeladen dataset getoond.
-   - Data Kwaliteit en Project Adviseur blijven per geselecteerde weg werken.
-
-2. **Overzicht-tabblad: HTML-export**
-   - De actuele Overzicht-instelling kan als interactieve HTML-kaart worden gedownload.
-   - De export bevat kaart, legenda, tooltip/popup en de gekozen kleurvisualisatie.
-   - Eerste exportvorm is HTML, omdat Folium/Leaflet dit natively ondersteunt.
-   - PDF-export blijft op de lijst als aparte keuze: printkaart of screenshot van actuele browserweergave.
-
-3. **Consolewaarschuwing datumparser opgelost**
-   - Compacte iASSET-tijdstempels zoals `20260512095736` worden expliciet geparsed.
-   - Daardoor wordt de pandas-waarschuwing over `dayfirst=True` voorkomen.
-
 ## Klaar in v0.5
 
 1. **Overzicht-tabblad toegevoegd**
@@ -51,14 +34,12 @@ volledig hebben uitgewerkt.
 
 ## Eerstvolgende punten
 
-1. **v0.6 lokaal valideren**
+1. **v0.5 lokaal valideren**
    - Controleer of Overzicht alleen rijstroken toont.
-   - Controleer `Geselecteerde weg` versus `Alle wegen`.
    - Controleer `Jaar deklaag`, `Jaar aanleg`, `Besteknummer`, `Onderhoudsproject`.
    - Controleer of `Soort verharding_N` werkt bij exports met `verhardingssoort`.
    - Controleer popup/tooltip op echte data.
-   - Download een HTML-export en open die buiten Streamlit.
-   - Controleer prestaties bij alle wegen en bij langere wegen zoals N359.
+   - Controleer prestaties bij langere wegen zoals N359.
 
 2. **Data-inleeslaag uitbreiden**
    - CSV én Excel ondersteunen.
@@ -87,5 +68,3 @@ volledig hebben uitgewerkt.
 - Wegas/hectometrering gebruiken voor robuustere sortering.
 - Fietspadclassificatie verder verbeteren met echte wegas/hectometrering of betrouwbare wegvak-koppeling.
 - Meergebruikersopslag onderzoeken: SQLite of PostgreSQL/PostGIS.
-
-- PDF-export van Overzicht onderzoeken: statische printkaart of screenshot van actuele browserweergave.

@@ -1,3 +1,4 @@
+\
 """
 Algemene hulpfuncties.
 
@@ -8,7 +9,6 @@ automatisch te testen.
 from __future__ import annotations
 
 import math
-from datetime import datetime
 from typing import Any
 
 import pandas as pd
@@ -67,31 +67,6 @@ def normalize_text(value: Any) -> str:
     return str(value).strip().lower()
 
 
-def sanitize_filename(value: Any, fallback: str = "bestand") -> str:
-    """
-    Maak een veilige bestandsnaam zonder padtekens.
-
-    Dit gebruiken we voor downloads. Een wegnummer of attribuutlabel mag niet
-    per ongeluk slashes, dubbele punten of andere onhandige tekens in de
-    bestandsnaam zetten.
-    """
-    text = clean_display_value(value) or fallback
-    safe = []
-    for char in text:
-        if char.isalnum() or char in {"-", "_"}:
-            safe.append(char)
-        elif char.isspace():
-            safe.append("_")
-        else:
-            safe.append("_")
-
-    result = "".join(safe).strip("_")
-    while "__" in result:
-        result = result.replace("__", "_")
-
-    return result or fallback
-
-
 def parse_hm_sort(value: Any, fallback: float = 99999.9) -> float:
     """
     Zet een metrering/hectometrering om naar een sorteerbaar getal.
@@ -118,18 +93,8 @@ def parse_date_info(value: Any) -> tuple[int, int]:
     """
     Haal jaar en maand uit een datumachtige waarde.
 
-    De iASSET-export kan jaartallen, datums of compacte tijdstempels bevatten.
-    Voorbeelden die we expliciet ondersteunen:
-
-    - ``2026`` -> (2026, 0)
-    - ``20260512`` -> (2026, 5)
-    - ``20260512095736`` -> (2026, 5)
-
-    Waarom expliciet parsen?
-    Pandas geeft een waarschuwing wanneer een compacte tijdstempel zoals
-    ``20260512095736`` met ``dayfirst=True`` wordt geïnterpreteerd. Door bekende
-    iASSET-formaten eerst met een vast format te proberen, blijft de console
-    schoon en voorspelbaar.
+    De iASSET-export kan jaartallen, datums of lege waarden bevatten.
+    We geven altijd een tuple terug: (jaar, maand). Bij onbekend wordt dit (0, 0).
     """
     if is_empty_value(value):
         return 0, 0
@@ -138,21 +103,6 @@ def parse_date_info(value: Any) -> tuple[int, int]:
 
     if len(text) == 4 and text.isdigit():
         return int(text), 0
-
-    # iASSET kan registratietijdstippen als compacte cijferreeks exporteren.
-    # Deze formats zijn jaargedreven; dayfirst is hier dus niet van toepassing.
-    compact_formats = {
-        8: "%Y%m%d",
-        12: "%Y%m%d%H%M",
-        14: "%Y%m%d%H%M%S",
-    }
-    if text.isdigit() and len(text) in compact_formats:
-        try:
-            parsed_compact = datetime.strptime(text, compact_formats[len(text)])
-            return parsed_compact.year, parsed_compact.month
-        except ValueError:
-            # Valt door naar de generieke parser/fallback.
-            pass
 
     parsed = pd.to_datetime(text, errors="coerce", dayfirst=True)
     if pd.notna(parsed):

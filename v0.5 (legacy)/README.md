@@ -1,4 +1,5 @@
-# iASSET Advisor - refactor v0.6
+\
+# iASSET Advisor - refactor v0.5
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
@@ -164,22 +165,3 @@ Deze versie voegt het nieuwe tabblad **Overzicht** toe:
 
 Belangrijk uitgangspunt in v0.5:
 dit tabblad is bedoeld voor snelle visuele inspectie van bestaande rijstrookdata. Het is bewust geen mutatiescherm.
-
-
-## Wijzigingen in v0.6
-
-Deze versie werkt het tabblad **Overzicht** verder uit:
-
-- Overzicht kan nu kiezen tussen:
-  - `Geselecteerde weg`;
-  - `Alle wegen`;
-- bij `Alle wegen` worden alle rijstrookobjecten uit de ingeladen dataset gevisualiseerd;
-- de gewone sidebar-keuze `Kies Wegnummer` blijft bestaan voor `Data Kwaliteit` en `Project Adviseur`;
-- de actuele Overzicht-kaart kan als interactieve HTML-kaart worden geëxporteerd;
-- de HTML-export gebruikt hetzelfde bereik en hetzelfde visualisatieattribuut als het Overzicht-tabblad;
-- de export bevat de Folium/Leaflet-kaart, kleurlaag, legenda en popups;
-- `parse_date_info()` herkent compacte iASSET-tijdstempels zoals `20260512095736` nu expliciet, waardoor de pandas-waarschuwing over `dayfirst=True` verdwijnt;
-- tests toegevoegd voor compacte datum/tijdstempels, bestandsnaamopschoning, alle-wegen-overzicht en HTML-export.
-
-Belangrijk uitgangspunt in v0.6:
-HTML is de eerste exportvorm, omdat Folium zelf HTML/JavaScript genereert. PDF-export blijft een later verbeterpunt; daarvoor moeten we bepalen of we een statische printkaart of een screenshot van de actuele browserweergave willen.

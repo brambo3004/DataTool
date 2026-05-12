@@ -1,3 +1,4 @@
+\
 """
 Streamlit-front-end voor de iASSET Advisor.
 
@@ -27,11 +28,11 @@ from iasset_tool.config import AUTOSAVE_FILE
 from iasset_tool.data_loader import LoadResult, load_iasset_data
 from iasset_tool.geometry import build_graph_from_geometry
 from iasset_tool.map_view import build_road_map
-from iasset_tool.overview_map import available_overview_attributes, build_overview_map, render_overview_map_html
+from iasset_tool.overview_map import available_overview_attributes, build_overview_map
 from iasset_tool.pdok import get_pdok_hectopunten_visual_only
 from iasset_tool.rules import check_rules
 from iasset_tool.state import init_session_state, reset_after_road_change, reset_selection
-from iasset_tool.utils import clean_display_value, sanitize_filename
+from iasset_tool.utils import clean_display_value
 
 
 st.set_page_config(layout="wide", page_title="iASSET Tool - Smart Advisor")
@@ -170,9 +171,6 @@ if "graph_current" not in st.session_state or st.session_state.get("last_road") 
 graph_road = st.session_state["graph_current"]
 
 overview_attribute = None
-overview_scope = "Geselecteerde weg"
-overview_gdf = road_gdf
-overview_label = selected_road
 
 
 # --- Layout ----------------------------------------------------------------
@@ -449,20 +447,10 @@ with col_inspector:
             "Alleen-lezen visualisatie van rijstroken. In dit tabblad worden geen iASSET-waarden aangepast."
         )
 
-        overview_scope = st.radio(
-            "Kaartbereik:",
-            ["Geselecteerde weg", "Alle wegen"],
-            horizontal=True,
-            key="overview_scope",
-        )
-
-        overview_gdf = raw_gdf if overview_scope == "Alle wegen" else road_gdf
-        overview_label = "alle wegen" if overview_scope == "Alle wegen" else selected_road
-
-        overview_attributes = available_overview_attributes(overview_gdf)
+        overview_attributes = available_overview_attributes(road_gdf)
 
         if not overview_attributes:
-            st.warning(f"Geen bruikbare visualisatiekolommen gevonden voor {overview_label}.")
+            st.warning("Geen bruikbare visualisatiekolommen gevonden voor deze weg.")
         else:
             default_index = 0
             if "Jaar deklaag" in overview_attributes:
@@ -472,40 +460,36 @@ with col_inspector:
                 "Visualiseer op:",
                 overview_attributes,
                 index=default_index,
-                key=f"overview_attr_{sanitize_filename(overview_scope)}_{selected_road}",
+                key=f"overview_attr_{selected_road}",
             )
 
             rijstrook_count = 0
-            if "subthema_clean" in overview_gdf.columns:
-                rijstrook_count = int((overview_gdf["subthema_clean"].astype(str).str.lower().str.strip() == "rijstrook").sum())
+            if "subthema_clean" in road_gdf.columns:
+                rijstrook_count = int((road_gdf["subthema_clean"] == "rijstrook").sum())
 
             st.info(
-                f"Deze kaart toont alleen rijstroken. Bereik: {overview_label}. "
-                f"Aantal rijstrookobjecten: {rijstrook_count}."
+                f"Deze kaart toont alleen rijstroken. Aantal rijstrookobjecten op {selected_road}: {rijstrook_count}."
             )
-            st.caption(
-                "De legenda staat linksonder in de kaart. Klik op een object voor de beschikbare paspoortdata. "
-                "De HTML-export gebruikt hetzelfde bereik en hetzelfde attribuut."
-            )
+            st.caption("De legenda staat linksonder in de kaart. Klik op een object voor de beschikbare paspoortdata.")
 
 
 # --- Linkerkolom: kaart ----------------------------------------------------
 
 with col_map:
     if mode == "🗺️ Overzicht":
-        st.subheader(f"Overzicht: {overview_label}")
+        st.subheader(f"Overzicht: {selected_road}")
 
-        if overview_gdf.empty:
-            st.warning(f"Geen data gevonden voor {overview_label}.")
+        if road_gdf.empty:
+            st.warning("Geen data gevonden voor deze weg.")
             st.stop()
 
         if overview_attribute is None:
             st.warning("Kies eerst een attribuut om te visualiseren.")
         else:
-            overview_map_result = build_overview_map(overview_gdf, overview_attribute)
+            overview_map_result = build_overview_map(road_gdf, overview_attribute)
 
             if overview_map_result.row_count == 0:
-                st.warning(f"Geen rijstrookobjecten gevonden voor {overview_label}.")
+                st.warning(f"Geen rijstrookobjecten gevonden voor {selected_road}.")
             elif overview_map_result.selected_column is None:
                 st.warning(f"Attribuut '{overview_attribute}' is niet beschikbaar in de data.")
             else:
@@ -515,33 +499,12 @@ with col_map:
                     f"Legenda-items: {len(overview_map_result.legend_items)}."
                 )
 
-                export_title = f"iASSET Overzicht - {overview_label}"
-                export_subtitle = (
-                    f"Visualisatie: {overview_attribute} | "
-                    f"Rijstrookobjecten: {overview_map_result.row_count}"
-                )
-                export_html = render_overview_map_html(
-                    overview_map_result,
-                    title=export_title,
-                    subtitle=export_subtitle,
-                )
-
-                file_scope = "alle_wegen" if overview_scope == "Alle wegen" else selected_road
-                file_attr = sanitize_filename(overview_attribute)
-                st.download_button(
-                    "⬇️ Download Overzichtkaart als HTML",
-                    data=export_html.encode("utf-8"),
-                    file_name=f"iASSET_Overzicht_{sanitize_filename(file_scope)}_{file_attr}.html",
-                    mime="text/html",
-                    help="Exporteert de huidige Overzicht-instelling als interactieve Leaflet/Folium-kaart.",
-                )
-
             st_folium(
                 overview_map_result.folium_map,
                 width=None,
                 height=720,
                 returned_objects=[],
-                key=f"overview_map_{sanitize_filename(overview_scope)}_{selected_road}_{overview_attribute}",
+                key=f"overview_map_{selected_road}_{overview_attribute}",
             )
 
     else:

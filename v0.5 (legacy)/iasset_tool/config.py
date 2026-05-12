@@ -1,3 +1,4 @@
+\
 """
 Centrale configuratie voor de iASSET Advisor.
 

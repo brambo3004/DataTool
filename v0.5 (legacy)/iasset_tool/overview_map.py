@@ -9,7 +9,6 @@ attribuut en past geen iASSET-data aan.
 from __future__ import annotations
 
 import html
-import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -416,63 +415,3 @@ def build_overview_map(
         legend_items=legend_items,
         selected_column=selected_column,
     )
-
-
-def render_overview_map_html(
-    result: OverviewMapResult,
-    title: str,
-    subtitle: str = "",
-) -> str:
-    """
-    Render de actuele Overzicht-kaart als downloadbare HTML.
-
-    Waarom HTML als eerste exportvorm?
-    Een Folium-kaart is zelf al Leaflet/HTML/JavaScript. Daardoor kunnen we de
-    kaart betrouwbaar exporteren zonder screenshot-tooling of browserdriver.
-    De download bevat de gekozen visualisatie, legenda, popups en kaartlaag.
-    """
-    safe_title = html.escape(clean_display_value(title) or "iASSET Overzicht")
-    safe_subtitle = html.escape(clean_display_value(subtitle))
-
-    html_doc = result.folium_map.get_root().render()
-
-    title_tag = f"<title>{safe_title}</title>"
-    if re.search(r"<title>.*?</title>", html_doc, flags=re.IGNORECASE | re.DOTALL):
-        html_doc = re.sub(
-            r"<title>.*?</title>",
-            title_tag,
-            html_doc,
-            count=1,
-            flags=re.IGNORECASE | re.DOTALL,
-        )
-    else:
-        html_doc = html_doc.replace("<head>", f"<head>\n    {title_tag}", 1)
-
-    subtitle_html = f"<div style='font-size:12px;color:#444;margin-top:2px;'>{safe_subtitle}</div>" if safe_subtitle else ""
-
-    export_panel = f"""
-    <div style="
-        position: fixed;
-        top: 18px;
-        right: 18px;
-        z-index: 9999;
-        background: white;
-        padding: 10px 12px;
-        border-radius: 5px;
-        box-shadow: 0 0 15px rgba(0,0,0,0.2);
-        max-width: 360px;
-        font-family: sans-serif;
-        font-size: 13px;
-    ">
-        <b>{safe_title}</b>
-        {subtitle_html}
-        <div style="font-size:11px;color:#666;margin-top:4px;">
-            Alleen-lezen export uit de iASSET Advisor.
-        </div>
-    </div>
-    """
-
-    if "</body>" in html_doc:
-        return html_doc.replace("</body>", f"{export_panel}\n</body>", 1)
-
-    return html_doc + export_panel
