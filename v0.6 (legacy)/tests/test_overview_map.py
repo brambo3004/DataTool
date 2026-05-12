@@ -92,18 +92,3 @@ def test_render_overview_map_html_contains_export_panel():
     assert "<title>iASSET Overzicht - alle wegen</title>" in html
     assert "Visualisatie: Jaar deklaag" in html
     assert "Alleen-lezen export uit de iASSET Advisor" in html
-
-def test_value_color_mapping_uses_gradual_color_ramp():
-    mapping, legend_items = build_value_color_mapping(["2023", "2018", UNKNOWN_LABEL, "2020"])
-
-    assert mapping["2018"] == "#2c7bb6"
-    assert mapping["2020"] == "#ffff8c"
-    assert mapping["2023"] == "#d7191c"
-    assert mapping[UNKNOWN_LABEL] == "#bdbdbd"
-    assert all(not item.color.startswith("hsl(") for item in legend_items)
-
-
-def test_single_known_value_gets_middle_ramp_color():
-    mapping, _ = build_value_color_mapping(["2023", "2023"])
-
-    assert mapping["2023"] == "#ffff8c"

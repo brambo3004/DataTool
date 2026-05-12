@@ -3,15 +3,6 @@
 Deze lijst bewaart de functionele en technische verbeterpunten die we nog niet
 volledig hebben uitgewerkt.
 
-## Klaar in v0.7
-
-1. **Overzicht-tabblad: doorlopende kleurenschaal**
-   - De legenda gebruikt geen willekeurige/cyclische categoriekleuren meer.
-   - Waarden worden in gesorteerde volgorde op één kleurenspectrum geplaatst.
-   - Lage/vroege waarden zijn blauw; hoge/recente waarden zijn rood.
-   - `Onbekend` blijft grijs, zodat ontbrekende data herkenbaar blijft.
-   - Dezelfde kleurmapping wordt gebruikt in de kaart én in de HTML-export.
-
 ## Klaar in v0.6
 
 1. **Overzicht-tabblad: alle wegen**
@@ -60,11 +51,10 @@ volledig hebben uitgewerkt.
 
 ## Eerstvolgende punten
 
-1. **v0.7 lokaal valideren**
+1. **v0.6 lokaal valideren**
    - Controleer of Overzicht alleen rijstroken toont.
    - Controleer `Geselecteerde weg` versus `Alle wegen`.
    - Controleer `Jaar deklaag`, `Jaar aanleg`, `Besteknummer`, `Onderhoudsproject`.
-   - Controleer of de legenda nu geleidelijk van blauw naar rood loopt.
    - Controleer of `Soort verharding_N` werkt bij exports met `verhardingssoort`.
    - Controleer popup/tooltip op echte data.
    - Download een HTML-export en open die buiten Streamlit.

@@ -1,4 +1,4 @@
-# iASSET Advisor - refactor v0.7
+# iASSET Advisor - refactor v0.6
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
@@ -79,19 +79,6 @@ Optioneel voor ontwikkelaars:
 pip install -r requirements-dev.txt
 pytest
 ```
-
-
-## Wijzigingen in v0.7
-
-Deze versie bevat een kleine verbetering voor het Overzicht-tabblad:
-
-- de kleuren in de legenda zijn geen willekeurige/cyclische categoriekleuren meer;
-- alle echte waarden worden op een doorlopende kleurenschaal geplaatst;
-- lage of vroege waarden beginnen blauw;
-- middelste waarden lopen via turquoise/geel;
-- hoge of recente waarden eindigen rood;
-- `Onbekend` blijft bewust grijs en telt niet mee in de schaal;
-- dezelfde kleurmapping wordt gebruikt voor legenda, kaartobjecten en HTML-export.
 
 ## Wijzigingen in v0.2
 

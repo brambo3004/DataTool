@@ -172,110 +172,40 @@ def _sort_legend_values(values: list[str]) -> list[str]:
     return sorted(unique_values, key=lambda value: (value == UNKNOWN_LABEL, value.lower()))
 
 
-# Doorlopende kleurenschaal voor het Overzicht-tabblad.
-# Lage/vroege waarden starten koel blauw, hoge/recente waarden eindigen warm rood.
-# Dit voorkomt de "allegaartje"-legenda die ontstaat bij willekeurige categoriekleuren.
-COLOR_RAMP_STOPS: tuple[tuple[float, str], ...] = (
-    (0.00, "#2c7bb6"),  # blauw
-    (0.20, "#00a6ca"),  # blauwgroen
-    (0.35, "#00ccbc"),  # turquoise
-    (0.50, "#ffff8c"),  # geel
-    (0.65, "#f9d057"),  # geeloranje
-    (0.80, "#f29e2e"),  # oranje
-    (1.00, "#d7191c"),  # rood
-)
-
-
-def _hex_to_rgb(color: str) -> tuple[int, int, int]:
-    """Zet een hexkleur om naar RGB-componenten."""
-    color = color.lstrip("#")
-    return int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16)
-
-
-def _rgb_to_hex(rgb: tuple[int, int, int]) -> str:
-    """Zet RGB-componenten om naar een hexkleur."""
-    return "#" + "".join(f"{max(0, min(255, value)):02x}" for value in rgb)
-
-
-def _interpolate_color(left: str, right: str, fraction: float) -> str:
-    """
-    Interpoleer lineair tussen twee hexkleuren.
-
-    `fraction=0` geeft de linkerkleur, `fraction=1` de rechterkleur.
-    """
-    left_rgb = _hex_to_rgb(left)
-    right_rgb = _hex_to_rgb(right)
-
-    rgb = tuple(
-        round(left_rgb[i] + (right_rgb[i] - left_rgb[i]) * fraction)
-        for i in range(3)
-    )
-    return _rgb_to_hex(rgb)
-
-
-def _color_from_ramp(ratio: float) -> str:
-    """
-    Geef een kleur uit de doorlopende kleurenschaal.
-
-    De ratio ligt tussen 0 en 1. Waarden buiten dat bereik worden afgeknipt.
-    """
-    ratio = max(0.0, min(1.0, ratio))
-
-    for stop_index in range(1, len(COLOR_RAMP_STOPS)):
-        left_pos, left_color = COLOR_RAMP_STOPS[stop_index - 1]
-        right_pos, right_color = COLOR_RAMP_STOPS[stop_index]
-
-        if ratio <= right_pos:
-            span = right_pos - left_pos
-            if span <= 0:
-                return right_color
-
-            fraction = (ratio - left_pos) / span
-            return _interpolate_color(left_color, right_color, fraction)
-
-    return COLOR_RAMP_STOPS[-1][1]
-
-
 def _color_for_index(index: int, total: int) -> str:
     """
-    Geef een kleur terug op basis van de positie in de gesorteerde legenda.
+    Geef een stabiele kleur terug voor een legendawaarde.
 
-    Waarom deze aanpak?
-    Voor jaren en wegvaknummers wil je een visuele volgorde: oud/laag aan de
-    koele kant van het spectrum en nieuw/hoog aan de warme kant. Voor tekstuele
-    attributen gebruiken we dezelfde schaal op alfabetische volgorde; dat is
-    niet inhoudelijk ordinaal, maar geeft wel een rustige legenda zonder
-    willekeurige kleurensprongen.
+    We gebruiken een vaste HSL-spreiding. Daardoor zijn veel verschillende
+    waarden beter te onderscheiden dan met een korte vaste kleurenlijst.
     """
     if total <= 1:
-        return _color_from_ramp(0.5)
+        hue = 205
+    else:
+        # Golden-angle spreiding voorkomt dat opeenvolgende categorieën te veel
+        # op elkaar lijken.
+        hue = (205 + index * 137.508) % 360
 
-    ratio = index / (total - 1)
-    return _color_from_ramp(ratio)
+    saturation = 68
+    lightness = 54
+    return f"hsl({hue:.1f}, {saturation}%, {lightness}%)"
 
 
 def build_value_color_mapping(values: list[str]) -> tuple[dict[str, str], list[LegendItem]]:
     """
     Bouw kleurmapping en legenda-items voor de opgegeven attribuutwaarden.
-
-    `Onbekend` krijgt bewust geen plek in de kleurenschaal, maar blijft grijs.
-    Daardoor loopt de schaal altijd van de laagste/beginnende echte waarde naar
-    de hoogste/eindigende echte waarde.
     """
     sorted_values = _sort_legend_values(values)
-    known_values = [value for value in sorted_values if value != UNKNOWN_LABEL]
-    total_known = len(known_values)
+    total = len(sorted_values)
 
     color_by_value: dict[str, str] = {}
     legend_items: list[LegendItem] = []
 
-    known_index = 0
-    for value in sorted_values:
+    for index, value in enumerate(sorted_values):
         if value == UNKNOWN_LABEL:
             color = "#bdbdbd"
         else:
-            color = _color_for_index(known_index, total_known)
-            known_index += 1
+            color = _color_for_index(index, total)
 
         color_by_value[value] = color
         legend_items.append(LegendItem(label=value, color=color))
