@@ -1,5 +1,5 @@
 \
-# iASSET Advisor - refactor v0.3
+# iASSET Advisor - refactor v0.2
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
@@ -91,20 +91,3 @@ Deze versie bevat de eerste inhoudelijke bugfix na de structurele refactor:
 - tests toegevoegd voor `domain.py`, `rules.py` en `advisor.py`.
 
 Let op: `geleideconstructie` stond in de oude app als uitzondering, maar staat niet in het werkprocesdocument. Daarom is die in v0.2 niet opgenomen als uitzondering. Voeg deze alleen opnieuw toe aan `SUBTHEMA_EXCEPTIONS` als dat inhoudelijk wordt bevestigd.
-
-
-## Wijzigingen in v0.3
-
-Deze versie bevat de tweede inhoudelijke verbetering na de structurele refactor:
-
-- Project Adviseur bouwt nu eerst alle primaire ruggengraatgroepen op;
-- secundaire objecten worden pas daarna toegewezen;
-- directe koppeling aan meerdere primaire objecttypen volgt de hiërarchie: rijstrook > parallelweg/landbouwpad/busbaan > fietspad;
-- indirecte secundaire ketens worden verdeeld op basis van kortste graafafstand naar een primaire ruggengraat;
-- bij gelijke afstand wint de hiërarchie;
-- bij volledig gelijke kandidaten gebruikt de app een stabiele ruimtelijke fallback;
-- groepen bevatten nu ook `primary_ids` en `secondary_ids`, zodat we later beter kunnen debuggen waarom een object in een adviesgroep zit;
-- extra tests toegevoegd voor secundaire toewijzing.
-
-Belangrijk uitgangspunt in v0.3:
-de hiërarchie geldt hard bij gelijke topologische afstand. Voor indirecte ketens gaat kortste afstand vóór rang, zodat een ver weg gelegen rijstrook niet automatisch een object wegtrekt bij een direct aangrenzend fietspad.
