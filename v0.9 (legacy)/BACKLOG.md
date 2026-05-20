@@ -1,14 +1,5 @@
 # Takenlijst iASSET Advisor
 
-## Klaar in v0.9.1
-
-1. **Performance-hotfix naar aanleiding van lokale screenshots**
-   - De performance-tabel toont nu de timing van de huidige Streamlit-run in plaats van opgetelde timings uit eerdere interacties.
-   - De Project Adviseur gebruikt een multi-source BFS voor secundaire objecttoewijzing.
-   - Fietspadclassificatie gebruikt een context met primaire objectindex, marker-cache en oriëntatie-cache.
-   - Data Kwaliteit gebruikt snellere lookup-tabellen in de topologische controles.
-   - Excel-import leest bij meerdere tabbladen eerst previews en daarna alleen het winnende tabblad volledig.
-
 ## Klaar in v0.9
 
 1. **Performance-baseline en caching**

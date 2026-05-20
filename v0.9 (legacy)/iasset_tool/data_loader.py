@@ -497,12 +497,6 @@ def read_excel_safely(input_file: FileInput | Any) -> tuple[pd.DataFrame, list[s
     ``rds coordinaten``. Als een werkboek meerdere tabbladen heeft, kiezen we het
     tabblad met de meeste verwachte iASSET-kolommen. Een kopregel hoeft niet per
     se op rij 1 te staan.
-
-    Performance:
-    We lezen niet langer meteen alle tabbladen volledig in. Eerst scannen we per
-    tabblad alleen de eerste regels om het beste iASSET-tabblad te vinden; pas
-    daarna lezen we dat ene tabblad volledig. Grote Excel-exports met veel
-    tabbladen laden daardoor merkbaar sneller.
     """
     resolved = _resolve_input_file(input_file)
     warnings: list[str] = []
@@ -516,50 +510,40 @@ def read_excel_safely(input_file: FileInput | Any) -> tuple[pd.DataFrame, list[s
         return pd.DataFrame(), warnings
 
     try:
-        excel_file = pd.ExcelFile(_open_for_pandas(resolved))
+        raw_sheets = pd.read_excel(
+            _open_for_pandas(resolved),
+            sheet_name=None,
+            header=None,
+            dtype=str,
+            keep_default_na=False,
+        )
     except Exception as exc:
         warnings.append(f"Kon Excelbestand {resolved.name} niet lezen: {exc}")
         return pd.DataFrame(), warnings
 
-    sheet_names = list(excel_file.sheet_names)
-    if not sheet_names:
+    if not raw_sheets:
         warnings.append(f"Excelbestand {resolved.name} bevat geen leesbare tabbladen.")
         return pd.DataFrame(), warnings
 
     best_sheet_name: str | None = None
-    best_preview_df = pd.DataFrame()
+    best_sheet_df = pd.DataFrame()
     best_score = -1
     best_header_row = -1
 
-    preview_rows = 50
-
-    for sheet_name in sheet_names:
-        try:
-            raw_preview = pd.read_excel(
-                excel_file,
-                sheet_name=sheet_name,
-                header=None,
-                dtype=str,
-                keep_default_na=False,
-                nrows=preview_rows,
-            )
-        except Exception as exc:
-            warnings.append(f"Excelbestand {resolved.name}: tabblad '{sheet_name}' kon niet worden gescand ({exc}).")
+    for sheet_name, raw_df in raw_sheets.items():
+        candidate_df, score, header_row = _excel_sheet_from_raw(raw_df)
+        if candidate_df.empty and len(candidate_df.columns) == 0:
             continue
 
-        candidate_preview, score, header_row = _excel_sheet_from_raw(raw_preview)
-        if candidate_preview.empty and len(candidate_preview.columns) == 0:
-            continue
-
-        # Bij gelijke herkenningsscore wint het tabblad met meer echte datarijen
-        # in de preview en daarna met meer kolommen. De volledige inhoud lezen we
-        # pas nadat het winnende tabblad bekend is.
-        score_tuple = (score, len(candidate_preview), len(candidate_preview.columns))
-        best_tuple = (best_score, len(best_preview_df), len(best_preview_df.columns))
+        # Bij gelijke herkenningsscore wint het tabblad met echte datarijen.
+        # Dit voorkomt dat een leeg thematabblad met veel kolommen boven het
+        # gevulde tabblad "Verhardingen" wordt gekozen.
+        score_tuple = (score, len(candidate_df), len(candidate_df.columns))
+        best_tuple = (best_score, len(best_sheet_df), len(best_sheet_df.columns))
 
         if score_tuple > best_tuple:
             best_sheet_name = str(sheet_name)
-            best_preview_df = candidate_preview
+            best_sheet_df = candidate_df
             best_score = score
             best_header_row = header_row
 
@@ -569,26 +553,7 @@ def read_excel_safely(input_file: FileInput | Any) -> tuple[pd.DataFrame, list[s
         )
         return pd.DataFrame(), warnings
 
-    try:
-        raw_selected = pd.read_excel(
-            excel_file,
-            sheet_name=best_sheet_name,
-            header=None,
-            dtype=str,
-            keep_default_na=False,
-        )
-    except Exception as exc:
-        warnings.append(f"Kon tabblad '{best_sheet_name}' uit Excelbestand {resolved.name} niet volledig lezen: {exc}")
-        return pd.DataFrame(), warnings
-
-    best_sheet_df, best_score, best_header_row = _excel_sheet_from_raw(raw_selected)
-    if best_sheet_df.empty and len(best_sheet_df.columns) == 0:
-        warnings.append(
-            f"Excelbestand {resolved.name}: tabblad '{best_sheet_name}' bevat na volledige import geen bruikbare data."
-        )
-        return pd.DataFrame(), warnings
-
-    if len(sheet_names) > 1:
+    if len(raw_sheets) > 1:
         warnings.append(f"Excelbestand {resolved.name}: tabblad '{best_sheet_name}' gebruikt voor import.")
 
     if best_header_row > 0:
@@ -598,7 +563,6 @@ def read_excel_safely(input_file: FileInput | Any) -> tuple[pd.DataFrame, list[s
         )
 
     return best_sheet_df, warnings
-
 
 
 def _prepare_imported_table(df: pd.DataFrame, source_name: str) -> tuple[pd.DataFrame, list[str]]:

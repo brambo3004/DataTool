@@ -173,32 +173,22 @@ def check_rules(gdf: gpd.GeoDataFrame, graph: nx.Graph | None = None) -> list[di
     if graph is None:
         return violations
 
-    # Precompute rijwaarden die in de graf-loop vaak worden geraadpleegd.
-    # Dit voorkomt duizenden relatief dure gdf.loc-aanroepen op grotere wegen.
-    index_set = set(gdf.index)
-    sub_clean_by_id = gdf["subthema_clean"].to_dict()
-    subthema_by_id = gdf["subthema"].to_dict() if "subthema" in gdf.columns else {}
-    project_by_id = {
-        idx: "" if is_project_value_empty(value) else str(value).strip()
-        for idx, value in gdf["Onderhoudsproject"].items()
-    }
-    exempt_by_id = {idx: bool(value) for idx, value in is_exempt.items()}
-
     for node_id in graph.nodes:
-        if node_id not in index_set:
+        if node_id not in gdf.index:
             continue
 
-        sub = sub_clean_by_id.get(node_id, "")
+        row = gdf.loc[node_id]
+        sub = row.get("subthema_clean", "")
 
-        if sub in backbone_clean or exempt_by_id.get(node_id, False):
+        if sub in backbone_clean or is_maintenance_project_exempt(row):
             continue
 
         connected_to_backbone = False
         for neighbor in graph.neighbors(node_id):
-            if neighbor not in index_set:
+            if neighbor not in gdf.index:
                 continue
-
-            if sub_clean_by_id.get(neighbor, "") in backbone_clean:
+            neighbor_sub = gdf.loc[neighbor].get("subthema_clean", "")
+            if neighbor_sub in backbone_clean:
                 connected_to_backbone = True
                 break
 
@@ -209,37 +199,32 @@ def check_rules(gdf: gpd.GeoDataFrame, graph: nx.Graph | None = None) -> list[di
                     category=CATEGORY_TOPOLOGY,
                     rule_code="FLOATING_SECONDARY",
                     object_id=node_id,
-                    subthema=subthema_by_id.get(node_id, ""),
+                    subthema=row.get("subthema", ""),
                     message="Zwevend secundair object: grenst nergens aan een hoofdroute (Rijbaan/Fiets/etc).",
                 )
             )
 
     # Uitgezonderde objecten met projectnaam hebben hierboven al een gerichte
     # melding gekregen. We slaan ze hier over om dubbele, verwarrende meldingen te voorkomen.
-    project_ids = [
-        idx
-        for idx, project_name in project_by_id.items()
-        if project_name and not exempt_by_id.get(idx, False)
-    ]
+    has_project_mask = ~project_empty & ~is_exempt
 
-    for idx in project_ids:
+    for idx, row in gdf[has_project_mask].iterrows():
         if idx not in graph:
             continue
 
-        project_name = project_by_id.get(idx, "")
-        my_sub = sub_clean_by_id.get(idx, "")
+        project_name = row.get("Onderhoudsproject", "")
+        project_name = "" if is_project_value_empty(project_name) else str(project_name).strip()
+        my_sub = row.get("subthema_clean", "")
 
-        try:
-            neighbors = list(graph.neighbors(idx))
-        except Exception:
-            neighbors = []
-
+        neighbors = list(graph.neighbors(idx))
         match_found = False
+
         for neighbor in neighbors:
-            if neighbor not in index_set:
+            if neighbor not in gdf.index:
                 continue
 
-            if project_by_id.get(neighbor, "") == project_name:
+            neighbor_project = gdf.loc[neighbor].get("Onderhoudsproject", "")
+            if not is_project_value_empty(neighbor_project) and str(neighbor_project).strip() == project_name:
                 match_found = True
                 break
 
@@ -250,7 +235,7 @@ def check_rules(gdf: gpd.GeoDataFrame, graph: nx.Graph | None = None) -> list[di
                     category=CATEGORY_PROJECT_CONSISTENCY,
                     rule_code="ISOLATED_PROJECT",
                     object_id=idx,
-                    subthema=subthema_by_id.get(idx, ""),
+                    subthema=row.get("subthema", ""),
                     message=f"Geïsoleerd t.o.v. project '{project_name}'. Geen directe buren met dit project.",
                     missing_cols=["Onderhoudsproject"],
                 )
@@ -261,12 +246,16 @@ def check_rules(gdf: gpd.GeoDataFrame, graph: nx.Graph | None = None) -> list[di
             connected_to_project_backbone = False
 
             for neighbor in neighbors:
-                if neighbor not in index_set:
+                if neighbor not in gdf.index:
                     continue
 
+                neighbor_sub = gdf.loc[neighbor].get("subthema_clean", "")
+                neighbor_project = gdf.loc[neighbor].get("Onderhoudsproject", "")
+
                 if (
-                    project_by_id.get(neighbor, "") == project_name
-                    and sub_clean_by_id.get(neighbor, "") in backbone_clean
+                    not is_project_value_empty(neighbor_project)
+                    and str(neighbor_project).strip() == project_name
+                    and neighbor_sub in backbone_clean
                 ):
                     connected_to_project_backbone = True
                     break
@@ -278,7 +267,7 @@ def check_rules(gdf: gpd.GeoDataFrame, graph: nx.Graph | None = None) -> list[di
                         category=CATEGORY_PROJECT_CONSISTENCY,
                         rule_code="NO_DIRECT_PROJECT_BACKBONE",
                         object_id=idx,
-                        subthema=subthema_by_id.get(idx, ""),
+                        subthema=row.get("subthema", ""),
                         message=(
                             f"Verbonden met '{project_name}', maar raakt niet direct "
                             "de hoofdrijbaan/fietspad van dit project."

@@ -57,26 +57,6 @@ class FietspadClassification:
     primary_angle_deg: float | None = None
 
 
-@dataclass
-class FietspadClassificationContext:
-    """
-    Herbruikbare indexen voor fietspadclassificatie binnen één weg.
-
-    Waarom deze context?
-    In v0.9 werd voor elk fietspad opnieuw door alle objecten en alle primaire
-    objecten gelopen. Bij grotere wegen maakt dat de Project Adviseur traag.
-    Deze context bouwt de lijst met primaire objecten, kruispunt-/rotondemarkers,
-    een ruimtelijke index en oriëntatiecache één keer op.
-    """
-
-    primary_nodes: list[int]
-    primary_gdf: gpd.GeoDataFrame
-    primary_sindex: Any | None
-    marker_nodes: set[int]
-    row_text_cache: dict[int, str]
-    orientation_cache: dict[int, tuple[float | None, float, str]]
-
-
 # --- Instelbare drempelwaarden --------------------------------------------
 
 PRIMARY_REFERENCE_TYPES = {"rijstrook", "parallelweg", "landbouwpad", "busbaan"}
@@ -319,150 +299,41 @@ def _contains_marker(text: str) -> bool:
     return any(marker in text for marker in ROUNDABOUT_OR_INTERSECTION_MARKERS)
 
 
-
-def _safe_int_node_id(node_id: Any) -> int | Any:
-    """Zet een indexwaarde om naar int als dat veilig kan."""
-    try:
-        return int(node_id)
-    except (TypeError, ValueError):
-        return node_id
-
-
-def _build_classification_context(gdf: gpd.GeoDataFrame) -> FietspadClassificationContext:
-    """
-    Bouw herbruikbare indexen voor alle fietspaden in één GeoDataFrame.
-
-    De ruimtelijke index beperkt afstandsberekeningen tot objecten in de buurt
-    van het fietspad. Zonder deze index moest elk fietspad alle primaire objecten
-    nalopen; dat schaalt slecht op grotere iASSET-exports.
-    """
-    row_text_cache: dict[int, str] = {}
-    primary_nodes: list[int] = []
-    marker_nodes: set[int] = set()
-
-    if gdf is None or gdf.empty:
-        return FietspadClassificationContext(
-            primary_nodes=[],
-            primary_gdf=gpd.GeoDataFrame(geometry=[], crs="EPSG:28992"),
-            primary_sindex=None,
-            marker_nodes=set(),
-            row_text_cache={},
-            orientation_cache={},
-        )
-
-    for idx, row in gdf.iterrows():
-        node_id = _safe_int_node_id(idx)
-        text = _row_text(row)
-        row_text_cache[node_id] = text
-
-        subthema = clean_display_value(row.get("subthema_clean", "")).lower()
-        if subthema in PRIMARY_REFERENCE_TYPES:
-            primary_nodes.append(node_id)
-
-        if _contains_marker(text):
-            marker_nodes.add(node_id)
-
-    if primary_nodes:
-        primary_gdf = gdf.loc[primary_nodes]
-    else:
-        primary_gdf = gpd.GeoDataFrame(geometry=[], crs=getattr(gdf, "crs", "EPSG:28992"))
-
-    try:
-        primary_sindex = primary_gdf.sindex if not primary_gdf.empty else None
-    except Exception:
-        primary_sindex = None
-
-    return FietspadClassificationContext(
-        primary_nodes=primary_nodes,
-        primary_gdf=primary_gdf,
-        primary_sindex=primary_sindex,
-        marker_nodes=marker_nodes,
-        row_text_cache=row_text_cache,
-        orientation_cache={},
-    )
-
-
-def _orientation_for_node(
-    gdf: gpd.GeoDataFrame,
-    node_id: int,
-    context: FietspadClassificationContext | None,
-) -> tuple[float | None, float, str]:
-    """Bepaal de geometrische hoofdrichting met cache per node."""
-    if context is None:
-        return geometry_orientation_deg(gdf.loc[node_id].geometry)
-
-    if node_id not in context.orientation_cache:
-        context.orientation_cache[node_id] = geometry_orientation_deg(gdf.loc[node_id].geometry)
-
-    return context.orientation_cache[node_id]
-
-
 def _nearby_marker_present(
     gdf: gpd.GeoDataFrame,
     graph: nx.Graph | None,
     node_id: int,
     max_marker_distance_m: float = MAX_MARKER_DISTANCE_M,
-    context: FietspadClassificationContext | None = None,
 ) -> bool:
     """
     Kijk of er rondom het fietspad rotonde-/kruispuntobjecten liggen.
 
-    We combineren graafburen en geometrische nabijheid. In de snelle route
-    controleren we alleen vooraf bekende marker-objecten, in plaats van voor elk
-    fietspad de afstand tot alle objecten te berekenen.
+    We combineren graafburen en geometrische nabijheid. De graaf vangt objecten
+    die via BGT-vlakken aansluiten; de afstand vangt objecten die net niet raken.
     """
     if node_id not in gdf.index or "geometry" not in gdf.columns:
         return False
 
     candidates: set[int] = set()
-    marker_nodes = context.marker_nodes if context is not None else None
-    row_text_cache = context.row_text_cache if context is not None else {}
 
     if graph is not None and node_id in graph:
         try:
             lengths = nx.single_source_shortest_path_length(graph, node_id, cutoff=2)
-            graph_candidates = {int(n) for n, distance in lengths.items() if distance > 0}
-            if marker_nodes is not None:
-                candidates.update(graph_candidates.intersection(marker_nodes))
-            else:
-                candidates.update(graph_candidates)
+            candidates.update(n for n, distance in lengths.items() if distance > 0)
         except Exception:
             pass
 
     try:
         geom = gdf.loc[node_id].geometry
         if geom is not None and not geom.is_empty:
-            if marker_nodes is not None:
-                distance_candidates = marker_nodes
-            else:
-                # Fallback voor losse aanroepen buiten classify_fietspaden().
-                distance_candidates = set(gdf.index)
-
-            for candidate_id in distance_candidates:
-                if candidate_id == node_id or candidate_id not in gdf.index:
-                    continue
-
-                candidate_geom = gdf.loc[candidate_id].geometry
-                if candidate_geom is None or candidate_geom.is_empty:
-                    continue
-
-                try:
-                    if float(geom.distance(candidate_geom)) <= max_marker_distance_m:
-                        candidates.add(int(candidate_id))
-                except Exception:
-                    continue
+            distances = gdf.geometry.distance(geom)
+            close_ids = distances[distances <= max_marker_distance_m].index
+            candidates.update(int(idx) for idx in close_ids if idx != node_id)
     except Exception:
         pass
 
     for candidate_id in candidates:
-        if candidate_id not in gdf.index:
-            continue
-
-        text = row_text_cache.get(candidate_id)
-        if text is None:
-            text = _row_text(gdf.loc[candidate_id])
-
-        if _contains_marker(text):
+        if candidate_id in gdf.index and _contains_marker(_row_text(gdf.loc[candidate_id])):
             return True
 
     return False
@@ -473,29 +344,20 @@ def _candidate_primary_nodes(
     graph: nx.Graph | None,
     node_id: int,
     max_reference_distance_m: float = MAX_REFERENCE_DISTANCE_M,
-    context: FietspadClassificationContext | None = None,
 ) -> list[tuple[int, float, int | None]]:
     """
     Zoek mogelijke hoofdrijbaan-/parallelwegreferenties voor een fietspad.
 
     Retourneert tuples: (node_id, geometrische afstand in meters, graafstand).
-
-    Performance:
-    Bij normale app-aanroepen gebruikt deze functie de ruimtelijke index uit
-    ``FietspadClassificationContext``. Daardoor worden alleen primaire objecten
-    binnen de zoekbuffer exact doorgemeten.
     """
     if node_id not in gdf.index or "geometry" not in gdf.columns:
         return []
 
-    if context is not None:
-        primary_nodes = context.primary_nodes
-    else:
-        primary_nodes = [
-            _safe_int_node_id(idx)
-            for idx, row in gdf.iterrows()
-            if clean_display_value(row.get("subthema_clean", "")).lower() in PRIMARY_REFERENCE_TYPES
-        ]
+    primary_nodes = [
+        int(idx)
+        for idx, row in gdf.iterrows()
+        if clean_display_value(row.get("subthema_clean", "")).lower() in PRIMARY_REFERENCE_TYPES
+    ]
 
     if not primary_nodes:
         return []
@@ -517,29 +379,9 @@ def _candidate_primary_nodes(
         except Exception:
             graph_distances = {}
 
-    candidate_ids: set[int] = set(graph_distances)
-
-    if context is not None and context.primary_sindex is not None and not context.primary_gdf.empty:
-        try:
-            search_geometry = start_geom.buffer(max_reference_distance_m).envelope
-            positions = context.primary_sindex.query(search_geometry, predicate="intersects")
-            for position in positions:
-                try:
-                    candidate_ids.add(int(context.primary_gdf.index[int(position)]))
-                except Exception:
-                    continue
-        except Exception:
-            # Fallback: liever correct dan crashen.
-            candidate_ids.update(primary_nodes)
-    else:
-        candidate_ids.update(primary_nodes)
-
     candidates: dict[int, tuple[float, int | None]] = {}
 
-    for primary_id in candidate_ids:
-        if primary_id not in gdf.index:
-            continue
-
+    for primary_id in primary_nodes:
         try:
             distance = float(start_geom.distance(gdf.loc[primary_id].geometry))
         except Exception:
@@ -571,7 +413,6 @@ def classify_single_fietspad(
     gdf: gpd.GeoDataFrame,
     node_id: int,
     graph: nx.Graph | None = None,
-    context: FietspadClassificationContext | None = None,
 ) -> FietspadClassification:
     """
     Classificeer één fietspadobject.
@@ -599,13 +440,12 @@ def classify_single_fietspad(
         )
 
     geometry = row.geometry
-    fietspad_angle, fietspad_score, fietspad_orientation_reason = _orientation_for_node(gdf, node_id, context)
-    row_text = context.row_text_cache.get(node_id) if context is not None else _row_text(row)
-    row_has_marker = _contains_marker(row_text or "")
-    nearby_has_marker = _nearby_marker_present(gdf, graph, node_id, context=context)
+    fietspad_angle, fietspad_score, fietspad_orientation_reason = geometry_orientation_deg(geometry)
+    row_has_marker = _contains_marker(_row_text(row))
+    nearby_has_marker = _nearby_marker_present(gdf, graph, node_id)
     compact_or_loop = _geometry_is_compact_or_loop_like(geometry, fietspad_score)
 
-    candidates = _candidate_primary_nodes(gdf, graph, node_id, context=context)
+    candidates = _candidate_primary_nodes(gdf, graph, node_id)
     if not candidates:
         return FietspadClassification(
             node_id=node_id,
@@ -618,7 +458,7 @@ def classify_single_fietspad(
     primary_id, distance_m, _graph_distance = candidates[0]
     primary_row = gdf.loc[primary_id]
     primary_subthema = clean_display_value(primary_row.get("subthema_clean", "")).lower()
-    primary_angle, primary_score, primary_orientation_reason = _orientation_for_node(gdf, primary_id, context)
+    primary_angle, primary_score, primary_orientation_reason = geometry_orientation_deg(primary_row.geometry)
 
     if row_has_marker or nearby_has_marker:
         # Een duidelijke rotonde-/kruispuntcontext is sterker dan een lokale
@@ -745,27 +585,21 @@ def classify_fietspaden(
     Classificeer alle fietspaden in een GeoDataFrame.
 
     Retourneert een dictionary met node-id als sleutel.
-
-    De context wordt één keer per weg opgebouwd. Dat voorkomt dat ieder fietspad
-    opnieuw alle primaire objecten, markerteksten en geometrische richtingen moet
-    bepalen.
     """
     if gdf is None or gdf.empty or "subthema_clean" not in gdf.columns:
         return {}
 
-    context = _build_classification_context(gdf)
     classifications: dict[int, FietspadClassification] = {}
 
     for node_id, row in gdf.iterrows():
         if clean_display_value(row.get("subthema_clean", "")).lower() != "fietspad":
             continue
 
-        int_node_id = _safe_int_node_id(node_id)
-        classifications[int_node_id] = classify_single_fietspad(
-            gdf,
-            int_node_id,
-            graph,
-            context=context,
-        )
+        try:
+            int_node_id = int(node_id)
+        except (TypeError, ValueError):
+            int_node_id = node_id
+
+        classifications[int_node_id] = classify_single_fietspad(gdf, int_node_id, graph)
 
     return classifications

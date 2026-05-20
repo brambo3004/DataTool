@@ -46,12 +46,6 @@ from iasset_tool.utils import clean_display_value, make_short_hash, sanitize_fil
 
 st.set_page_config(layout="wide", page_title="iASSET Tool - Smart Advisor")
 
-# Meet alleen de huidige Streamlit-run.
-# In v0.9 bleef de performance-log over meerdere interacties staan. Daardoor
-# leek het totaal in de zijbalk soms veel hoger dan de wachttijd van de actie
-# die je net uitvoerde.
-st.session_state["performance_log"] = {}
-
 
 @st.cache_data(show_spinner=False)
 def cached_load_default_data() -> LoadResult:
@@ -429,7 +423,7 @@ with st.sidebar.expander("Performance", expanded=False):
         st.caption("Nog geen meetpunten beschikbaar.")
     else:
         st.dataframe(df_performance, use_container_width=True, hide_index=True)
-        st.caption(f"Totaal gemeten in deze run: {df_performance['Seconden'].sum():.3f} seconden.")
+        st.caption(f"Totaal gemeten: {df_performance['Seconden'].sum():.3f} seconden.")
 
 all_roads = sorted(
     {

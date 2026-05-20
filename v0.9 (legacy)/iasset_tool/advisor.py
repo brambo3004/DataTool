@@ -393,96 +393,38 @@ def _assign_secondary_objects(
     """
     Wijs secundaire objecten toe nadat alle primaire groepen bekend zijn.
 
-    Performance:
-    v0.9 zocht per secundair object met een losse BFS naar de beste ruggengraat.
-    Bij grotere wegen betekent dat veel herhaald netwerkwerk. Deze versie doet
-    één multi-source BFS vanaf alle primaire ruggengraatknopen tegelijk. De
-    sorteerregel blijft hetzelfde: kortste afstand wint, daarna de hiërarchie
-    rijstrook > parallelweg/busbaan/landbouwpad > fietspad, daarna een stabiele
-    ruimtelijke fallback.
+    Deze werkwijze voorkomt dat de uitkomst afhankelijk wordt van de volgorde
+    waarin groepen door de code worden afgelopen.
     """
     backbone_types = _all_backbone_types()
 
     # Bewaar een onveranderlijke kaart van primaire knopen naar groepen.
+    # Secundaire objecten die al eerder zijn toegewezen mogen namelijk niet als
+    # nieuwe 'bron' fungeren voor andere secundaire objecten; anders ontstaat
+    # alsnog volgorde-afhankelijk gedrag.
     primary_node_to_group = dict(node_to_group)
 
-    if not primary_node_to_group:
-        return
-
-    secondary_nodes = {
+    secondary_nodes = sorted(
         node
         for node in graph.nodes
         if node in gdf.index
         and node not in node_to_group
         and _is_assignable_secondary(gdf, node, backbone_types, fietspad_classes)
-    }
+    )
 
-    if not secondary_nodes:
-        return
-
-    group_order: dict[str, tuple[int, float, float, str]] = {}
-    for group_id, group in groups.items():
-        stable_hm, stable_x = _group_axis_order(gdf, group.get("primary_ids", group.get("ids", [])))
-        group_order[group_id] = (
-            int(group.get("rank", 99)),
-            stable_hm,
-            stable_x,
-            group_id,
+    for node in secondary_nodes:
+        best_group_id = _find_best_group_for_secondary(
+            gdf,
+            graph,
+            node,
+            primary_node_to_group,
+            groups,
+            backbone_types,
+            fietspad_classes,
         )
 
-    best_candidate_by_node: dict[int, tuple[int, int, float, float, str]] = {}
-    queue: deque[tuple[int, int, str]] = deque()
-
-    for primary_node, group_id in primary_node_to_group.items():
-        if primary_node in graph:
-            queue.append((primary_node, 0, group_id))
-
-    while queue:
-        current_node, distance, group_id = queue.popleft()
-        rank, stable_hm, stable_x, stable_group_id = group_order.get(group_id, (99, 99999.9, 0.0, group_id))
-
-        try:
-            neighbors = graph.neighbors(current_node)
-        except Exception:
+        if best_group_id is None:
             continue
-
-        for neighbor in neighbors:
-            if neighbor not in secondary_nodes:
-                continue
-
-            candidate = (
-                distance + 1,
-                rank,
-                stable_hm,
-                stable_x,
-                stable_group_id,
-            )
-
-            previous = best_candidate_by_node.get(neighbor)
-            if previous is not None and previous <= candidate:
-                continue
-
-            best_candidate_by_node[neighbor] = candidate
-            queue.append((neighbor, distance + 1, group_id))
-
-    for node in sorted(secondary_nodes):
-        best_candidate = best_candidate_by_node.get(node)
-
-        if best_candidate is None:
-            # Fallback voor fietspaden die door de classifier aan het hoofdproject
-            # zijn gekoppeld, maar door kleine topologische gaten geen graafpad
-            # hebben naar de primaire ruggengraat.
-            classification = fietspad_classes.get(int(node))
-            if (
-                classification is not None
-                and classification.role == FietspadProjectRole.ATTACHED_TO_MAIN_PROJECT
-                and classification.nearest_primary_id in primary_node_to_group
-            ):
-                best_group_id = primary_node_to_group[classification.nearest_primary_id]
-            else:
-                continue
-        else:
-            best_group_id = best_candidate[4]
 
         groups[best_group_id]["ids"].append(node)
         groups[best_group_id].setdefault("secondary_ids", []).append(node)

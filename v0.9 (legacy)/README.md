@@ -1,4 +1,4 @@
-# iASSET Advisor - refactor v0.9.1
+# iASSET Advisor - refactor v0.9
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
@@ -100,17 +100,6 @@ pytest
 ```
 
 
-
-
-## Nieuw in v0.9.1
-
-Deze hotfix is gemaakt naar aanleiding van lokale performance-metingen op een grotere wegselectie.
-
-- De performance-zijbalk meet nu alleen de huidige Streamlit-run, zodat oude wachttijden niet blijven meetellen in het totaal.
-- De Project Adviseur wijst secundaire objecten toe met één multi-source BFS in plaats van een losse netwerkzoektocht per secundair object.
-- Fietspadclassificatie gebruikt herbruikbare caches en een ruimtelijke index voor primaire objecten, zodat niet elk fietspad alle primaire objecten hoeft door te meten.
-- Data Kwaliteit gebruikt in de ruimtelijke controles vooraf gemaakte lookup-tabellen in plaats van duizenden losse `gdf.loc`-aanroepen.
-- Excel-import scant eerst de kopregels van tabbladen en leest daarna alleen het gekozen tabblad volledig in.
 
 ## Nieuw in v0.9
 
