@@ -27,16 +27,10 @@ from iasset_tool.changes import (
     save_autosave,
     summarize_export_profile,
 )
-from iasset_tool.config import AUTOSAVE_FILE, DEFAULT_EXPORT_PROFILE, HIERARCHY_RANK, ISSUE_CATEGORIES, SEGMENTATION_ATTRIBUTES
+from iasset_tool.config import AUTOSAVE_FILE, DEFAULT_EXPORT_PROFILE, ISSUE_CATEGORIES
 from iasset_tool.data_loader import LoadResult, load_iasset_data
 from iasset_tool.geometry import build_graph_from_geometry
 from iasset_tool.map_view import build_road_map
-from iasset_tool.object_editor import (
-    editable_fields_for_profile,
-    missing_profile_columns,
-    object_preview_dataframe,
-    search_objects,
-)
 from iasset_tool.overview_map import available_overview_attributes, build_overview_map, render_overview_map_html
 from iasset_tool.pdok import get_pdok_hectopunten_visual_only
 from iasset_tool.performance import measure_step, performance_dataframe
@@ -47,7 +41,7 @@ from iasset_tool.state import (
     reset_after_road_change,
     reset_selection,
 )
-from iasset_tool.utils import clean_display_value, make_short_hash, normalize_text, parse_hm_sort, sanitize_filename
+from iasset_tool.utils import clean_display_value, make_short_hash, sanitize_filename
 
 
 st.set_page_config(layout="wide", page_title="iASSET Tool - Smart Advisor")
@@ -253,53 +247,17 @@ def register_change(object_id: int, field: str, old_value, new_value) -> None:
     Pas wijziging toe op data én logboek.
 
     Deze wrapper houdt de UI-code kort en zorgt dat autosave altijd meeloopt.
-    Afgeleide kolommen zoals ``subthema_clean`` en ``hm_sort`` worden hier ook
-    bijgewerkt, zodat een paspoortmutatie direct doorwerkt in regels, sortering
-    en advieslogica.
     """
     raw_gdf = st.session_state["data_complete"]
     applied = apply_change_to_data(raw_gdf, object_id, field, new_value)
-
-    if applied and object_id in raw_gdf.index:
-        if field == "subthema":
-            subthema_clean = normalize_text(new_value)
-            raw_gdf.at[object_id, "subthema_clean"] = subthema_clean
-            raw_gdf.at[object_id, "Rank"] = HIERARCHY_RANK.get(subthema_clean, 4)
-
-        if field == "Metrering":
-            raw_gdf.at[object_id, "hm_sort"] = parse_hm_sort(new_value)
 
     status = "Succes" if applied else "Niet toegepast"
     add_log_entry(st.session_state["change_log"], object_id, field, old_value, new_value, status=status)
 
     # Een wijziging kan Data Kwaliteit of kaartkleuring beïnvloeden.
-    # Daarom gooien we afgeleide caches weg; de brondata zelf blijft uiteraard
-    # in session_state staan.
+    # Daarom gooien we alleen de afgeleide regelcache weg; de brondata zelf blijft
+    # uiteraard in session_state staan.
     st.session_state["quality_issues_cache"] = {}
-
-    fields_affecting_groups = {
-        "Onderhoudsproject",
-        "subthema",
-        "verhardingssoort",
-        "Soort verharding_N",
-        "Soort deklaag specifiek",
-        "Soort conservering",
-        "Jaar aanleg",
-        "Jaar deklaag",
-        "Jaar conservering",
-        "Jaar herstrating",
-        "Besteknummer",
-        *SEGMENTATION_ATTRIBUTES,
-    }
-
-    if field in fields_affecting_groups:
-        st.session_state["computed_groups"] = None
-
-    # Als de wegselectie of het subthema verandert, moet het wegafhankelijke
-    # netwerk opnieuw worden opgebouwd bij de volgende rerun.
-    if field in {"Wegnummer", "subthema"}:
-        st.session_state.pop("graph_current", None)
-        st.session_state.pop("last_road", None)
 
     persist_change_log()
 
@@ -519,7 +477,7 @@ with col_inspector:
 
     mode = st.radio(
         "Modus:",
-        ["🔍 Data Kwaliteit", "🏗️ Project Adviseur", "🧾 Objectinspecteur", "🗺️ Overzicht"],
+        ["🔍 Data Kwaliteit", "🏗️ Project Adviseur", "🗺️ Overzicht"],
         horizontal=True,
         on_change=lambda: reset_selection(st.session_state),
     )
@@ -825,190 +783,6 @@ with col_inspector:
                         st.rerun()
 
 
-    elif mode == "🧾 Objectinspecteur":
-        st.markdown("### 🧾 Objectinspecteur")
-        st.caption(
-            "Selecteer één object, controleer de paspoortdata en pas alleen velden aan "
-            "die binnen een gekozen iASSET-exportprofiel passen."
-        )
-
-        search_query = st.text_input(
-            "Zoek object",
-            value="",
-            placeholder="Zoek op objectnummer, naam, onderhoudsproject, metrering, besteknummer...",
-            key=f"object_search_{selected_road}",
-        )
-
-        changed_only = st.checkbox(
-            "Toon alleen objecten met open wijzigingen",
-            value=False,
-            help="Handig om snel terug te vinden welke objecten al in het wijzigingslogboek staan.",
-        )
-
-        object_results = search_objects(
-            road_gdf,
-            search_query,
-            changed_only=changed_only,
-            change_log=st.session_state.get("change_log", []),
-            max_results=300,
-        )
-
-        if not object_results:
-            st.info("Geen objecten gevonden met deze zoek/filterinstelling.")
-            st.session_state["selected_object_id"] = None
-        else:
-            current_selected_id = st.session_state.get("selected_object_id")
-            default_index = 0
-            for result_index, result in enumerate(object_results):
-                if result.object_id == current_selected_id:
-                    default_index = result_index
-                    break
-
-            selected_result = st.selectbox(
-                "Object",
-                object_results,
-                index=default_index,
-                format_func=lambda result: result.label,
-                help="De lijst toont maximaal 300 resultaten. Gebruik de zoektekst om te verfijnen.",
-            )
-
-            selected_object_id = selected_result.object_id
-            st.session_state["selected_object_id"] = selected_object_id
-            st.session_state["selected_error_id"] = None
-            st.session_state["selected_group_id"] = None
-
-            selected_row = raw_gdf.loc[selected_object_id]
-
-            c_zoom, c_clear = st.columns([1, 1])
-            with c_zoom:
-                if st.button("👁️ Toon op kaart", key=f"zoom_object_{selected_object_id}"):
-                    geom_web = raw_gdf.loc[[selected_object_id]].to_crs(epsg=4326).geometry.iloc[0]
-                    st.session_state["zoom_bounds"] = geom_web.bounds
-                    st.rerun()
-
-            with c_clear:
-                if st.button("Zoom resetten", key=f"reset_object_zoom_{selected_object_id}"):
-                    st.session_state["zoom_bounds"] = None
-                    st.rerun()
-
-            st.divider()
-
-            st.markdown("#### Huidige paspoortkern")
-            preview_fields = [
-                "nummer",
-                "subthema",
-                "naam",
-                "Wegnummer",
-                "Wegvaknum",
-                "Metrering",
-                "Situering",
-                "verhardingssoort",
-                "Soort deklaag specifiek",
-                "Jaar aanleg",
-                "Jaar deklaag",
-                "Besteknummer",
-                "Onderhoudsproject",
-            ]
-            st.dataframe(
-                object_preview_dataframe(raw_gdf, selected_object_id, preview_fields),
-                use_container_width=True,
-                hide_index=True,
-            )
-
-            st.markdown("#### Paspoortdata aanpassen")
-            st.caption(
-                "Geometrie en bron-id's zijn bewust niet bewerkbaar. De app bereidt "
-                "paspoortmutaties voor; iASSET blijft de bronregistratie."
-            )
-
-            edit_profiles = available_export_profiles()
-            default_edit_profile_index = (
-                edit_profiles.index(DEFAULT_EXPORT_PROFILE)
-                if DEFAULT_EXPORT_PROFILE in edit_profiles
-                else 0
-            )
-            selected_edit_profile = st.selectbox(
-                "Mutatie-/exportprofiel voor dit formulier",
-                edit_profiles,
-                index=default_edit_profile_index,
-                key="object_editor_profile",
-                help=(
-                    "De aangeboden velden volgen het gekozen exportprofiel. "
-                    "Daarmee blijft duidelijk welke kolommenset later samen naar iASSET gaat."
-                ),
-            )
-
-            show_extra_available_fields = st.checkbox(
-                "Toon ook andere aanwezige belangrijke paspoort-/liggingvelden",
-                value=False,
-                help=(
-                    "Gebruik dit vooral voor inspectie of voorbereiding. Voor iASSET-import "
-                    "blijft het gekozen exportprofiel onderaan bij de export leidend."
-                ),
-            )
-
-            editable_fields = editable_fields_for_profile(
-                raw_gdf,
-                selected_edit_profile,
-                include_location_fallback=show_extra_available_fields,
-            )
-            unavailable_profile_columns = missing_profile_columns(raw_gdf, selected_edit_profile)
-
-            if unavailable_profile_columns:
-                st.warning(
-                    "Deze kolommen uit het gekozen profiel ontbreken in de actieve export en "
-                    "kunnen daarom niet worden aangepast of geëxporteerd: "
-                    + ", ".join(unavailable_profile_columns),
-                    icon="⚠️",
-                )
-
-            if not editable_fields:
-                st.info("Geen bewerkbare velden beschikbaar binnen dit profiel voor deze dataset.")
-            else:
-                with st.form(key=f"object_edit_form_{selected_object_id}_{selected_edit_profile}"):
-                    input_values = {}
-
-                    for field in editable_fields:
-                        current_value = clean_display_value(selected_row.get(field, ""))
-                        input_values[field] = st.text_input(
-                            field,
-                            value=current_value,
-                            key=f"object_edit_{selected_object_id}_{selected_edit_profile}_{field}",
-                        )
-
-                    submitted = st.form_submit_button("💾 Wijzigingen opslaan")
-
-                if submitted:
-                    saved_count = 0
-
-                    for field, new_value in input_values.items():
-                        old_value = raw_gdf.at[selected_object_id, field] if field in raw_gdf.columns else ""
-                        if clean_display_value(old_value) == clean_display_value(new_value):
-                            continue
-
-                        register_change(selected_object_id, field, old_value, new_value)
-                        saved_count += 1
-
-                    if saved_count:
-                        st.success(f"{saved_count} veld(en) opgeslagen in het wijzigingslogboek.")
-                    else:
-                        st.info("Geen gewijzigde waarden gevonden.")
-
-                    st.rerun()
-
-            with st.expander("Ruwe beschikbare objectdata", expanded=False):
-                object_columns = [
-                    column
-                    for column in raw_gdf.columns
-                    if column != "geometry" and not str(column).startswith("_")
-                ]
-                st.dataframe(
-                    object_preview_dataframe(raw_gdf, selected_object_id, object_columns),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-
-
     elif mode == "🗺️ Overzicht":
         st.markdown("### 🗺️ Overzicht")
         st.caption(
@@ -1152,7 +926,6 @@ with col_map:
             zoom_bounds=st.session_state.get("zoom_bounds"),
             selected_error_id=st.session_state.get("selected_error_id"),
             selected_group_id=st.session_state.get("selected_group_id"),
-            selected_object_id=st.session_state.get("selected_object_id"),
             computed_groups=st.session_state.get("computed_groups"),
             processed_groups=st.session_state.get("processed_groups"),
             ignored_groups=st.session_state.get("ignored_groups"),

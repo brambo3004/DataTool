@@ -1,4 +1,4 @@
-# iASSET Advisor - refactor v0.10
+# iASSET Advisor - refactor v0.9.1
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
@@ -36,7 +36,6 @@ De huidige functionaliteit blijft zoveel mogelijk gelijk:
 │   ├── performance.py
 │   ├── map_view.py
 │   ├── overview_map.py
-│   ├── object_editor.py
 │   ├── changes.py
 │   └── state.py
 ├── tests/
@@ -46,7 +45,6 @@ De huidige functionaliteit blijft zoveel mogelijk gelijk:
 │   ├── test_domain.py
 │   ├── test_fietspad.py
 │   ├── test_overview_map.py
-│   ├── test_object_editor.py
 │   ├── test_rules.py
 │   └── test_utils.py
 └── legacy/
@@ -102,22 +100,6 @@ pytest
 ```
 
 
-
-
-## Nieuw in v0.10
-
-Deze versie voegt de eerste objectinspecteur en individuele paspoortmutaties toe.
-
-- Nieuw tabblad **Objectinspecteur** naast Data Kwaliteit, Project Adviseur en Overzicht.
-- Objecten zoeken op onder andere objectnummer, naam, onderhoudsproject, besteknummer, metrering en liggingvelden.
-- Eén object selecteren en op de kaart markeren/naar toe zoomen.
-- Huidige paspoortkern tonen als compacte inspectietabel.
-- Individuele velden aanpassen via een gekozen iASSET-mutatie-/exportprofiel.
-- Geometrie en bron-id's blijven bewust niet bewerkbaar; de app blijft een mutatievoorbereidingstool.
-- Ontbrekende profielkolommen worden gemeld, zodat duidelijk is wat niet kan worden geëxporteerd.
-- Wijzigingen worden celgewijs gelogd, maar de uiteindelijke export blijft profielgestuurd met één vaste kolommenset voor alle objecten.
-- Afgeleide velden zoals `subthema_clean`, `Rank` en `hm_sort` worden bijgewerkt wanneer relevante paspoortvelden worden aangepast.
-- Tests toegevoegd voor de objectinspecteur, zoekfunctie, profielvelden en objectpreview.
 
 
 ## Nieuw in v0.9.1

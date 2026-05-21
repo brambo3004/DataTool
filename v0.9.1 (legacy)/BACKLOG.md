@@ -1,18 +1,5 @@
 # Takenlijst iASSET Advisor
 
-## Klaar in v0.10
-
-1. **Objectinspecteur en individuele paspoortmutaties**
-   - Nieuw tabblad Objectinspecteur toegevoegd.
-   - Objecten kunnen worden gezocht op herkenbare paspoort- en liggingvelden.
-   - Eén object kan worden geselecteerd, gemarkeerd en op de kaart ingezoomd.
-   - De paspoortkern wordt als inspectietabel getoond.
-   - Bewerkvelden worden bepaald op basis van het gekozen iASSET-exportprofiel.
-   - Geometrie, bron-id's en afgeleide adviesvelden blijven niet-bewerkbaar.
-   - Ontbrekende profielkolommen worden expliciet gemeld.
-   - Wijzigingen worden celgewijs gelogd en blijven exporteerbaar via de bestaande exportprofielen.
-   - Afgeleide kolommen voor subthema/rang/metrering worden bijgewerkt na mutatie.
-
 ## Klaar in v0.9.1
 
 1. **Performance-hotfix naar aanleiding van lokale screenshots**

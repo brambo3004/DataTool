@@ -159,7 +159,6 @@ def build_road_map(
     zoom_bounds: tuple | None = None,
     selected_error_id: int | None = None,
     selected_group_id: str | None = None,
-    selected_object_id: int | None = None,
     computed_groups: dict | None = None,
     processed_groups: Iterable[str] | None = None,
     ignored_groups: Iterable[str] | None = None,
@@ -188,7 +187,7 @@ def build_road_map(
         props = feature["properties"]
 
         # Selectie wint altijd van andere stijlen.
-        if object_id == selected_error_id or object_id == selected_object_id or object_id in selected_group_object_ids:
+        if object_id == selected_error_id or object_id in selected_group_object_ids:
             return {"fillColor": "#00FFFF", "color": "black", "weight": 3, "fillOpacity": 0.9}
 
         if object_id in error_id_set:

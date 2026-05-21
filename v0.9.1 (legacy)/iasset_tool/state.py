@@ -19,7 +19,6 @@ def init_session_state(session_state: MutableMapping) -> None:
         "change_log": list,
         "selected_group_id": lambda: None,
         "selected_error_id": lambda: None,
-        "selected_object_id": lambda: None,
         "zoom_bounds": lambda: None,
         "computed_groups": lambda: None,
         "quality_issues_cache": dict,
@@ -36,7 +35,6 @@ def reset_selection(session_state: MutableMapping) -> None:
     """Reset selectie en kaartzoom."""
     session_state["selected_error_id"] = None
     session_state["selected_group_id"] = None
-    session_state["selected_object_id"] = None
     session_state["zoom_bounds"] = None
     if "folium_map" in session_state:
         session_state["folium_map"] = None
@@ -49,7 +47,6 @@ def reset_after_road_change(session_state: MutableMapping, selected_road: str) -
     session_state["zoom_bounds"] = None
     session_state["selected_error_id"] = None
     session_state["selected_group_id"] = None
-    session_state["selected_object_id"] = None
 
 
 def reset_after_data_source_change(session_state: MutableMapping) -> None:
@@ -70,7 +67,6 @@ def reset_after_data_source_change(session_state: MutableMapping) -> None:
         "zoom_bounds",
         "selected_error_id",
         "selected_group_id",
-        "selected_object_id",
         "processed_groups",
         "ignored_groups",
         "ignored_errors",
