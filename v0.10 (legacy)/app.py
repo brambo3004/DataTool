@@ -8,7 +8,6 @@ De GIS-, regel-, advies-, kaart- en exportlogica staat in `iasset_tool/`.
 
 from __future__ import annotations
 
-import inspect
 import io
 from pathlib import Path
 
@@ -58,39 +57,6 @@ st.set_page_config(layout="wide", page_title="iASSET Tool - Smart Advisor")
 # leek het totaal in de zijbalk soms veel hoger dan de wachttijd van de actie
 # die je net uitvoerde.
 st.session_state["performance_log"] = {}
-
-
-def call_with_supported_kwargs(function, *args, **kwargs):
-    """
-    Roep een functie aan met alleen de keyword-argumenten die zij ondersteunt.
-
-    Waarom: bij Streamlit Cloud of lokale mappen kan soms nog een ouder
-    modulebestand blijven staan terwijl `app.py` al nieuwer is. Dan kan een
-    kaartfunctie crashen op een nieuw argument, bijvoorbeeld `selected_object_id`.
-    Deze hulpfunctie maakt de dunne Streamlit-schil tolerant: ondersteunde
-    argumenten worden gebruikt, onbekende argumenten worden veilig genegeerd.
-    """
-    try:
-        signature = inspect.signature(function)
-    except (TypeError, ValueError):
-        return function(*args, **kwargs)
-
-    parameters = signature.parameters
-    accepts_extra_kwargs = any(
-        parameter.kind == inspect.Parameter.VAR_KEYWORD
-        for parameter in parameters.values()
-    )
-
-    if accepts_extra_kwargs:
-        supported_kwargs = kwargs
-    else:
-        supported_kwargs = {
-            key: value
-            for key, value in kwargs.items()
-            if key in parameters
-        }
-
-    return function(*args, **supported_kwargs)
 
 
 @st.cache_data(show_spinner=False)
@@ -1180,7 +1146,6 @@ with col_map:
         map_result = measure_step(
             get_performance_log(),
             "Kaart opbouwen",
-            call_with_supported_kwargs,
             build_road_map,
             road_gdf,
             graph_road,

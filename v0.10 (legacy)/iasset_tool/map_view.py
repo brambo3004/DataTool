@@ -8,11 +8,10 @@ met `st_folium`.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Iterable
 
 import folium
 import geopandas as gpd
-import pandas as pd
 import networkx as nx
 
 from .config import SEGMENTATION_ATTRIBUTES
@@ -27,45 +26,12 @@ class MapBuildResult:
     network_edge_count: int = 0
 
 
-def _valid_bounds(bounds: Any) -> tuple[float, float, float, float] | None:
-    """
-    Zet een bounds-object veilig om naar vier floats.
-
-    Streamlit-state kan tuples, lijsten of numpy-arrays bevatten. Door hier
-    expliciet te valideren voorkomen we dat de kaart crasht op een lege of
-    corrupte selectie.
-    """
-    if bounds is None:
-        return None
-
-    try:
-        values = tuple(float(value) for value in bounds)
-    except (TypeError, ValueError):
-        return None
-
-    if len(values) != 4:
-        return None
-
-    minx, miny, maxx, maxy = values
-    if any(pd.isna(value) for value in values):
-        return None
-
-    if minx == maxx and miny == maxy:
-        # Een puntobject heeft geen echte omvang. Geef het een klein venster,
-        # zodat `fit_bounds` toch bruikbaar blijft.
-        delta = 0.0002
-        return minx - delta, miny - delta, maxx + delta, maxy + delta
-
-    return minx, miny, maxx, maxy
-
-
 def _base_map(road_web: gpd.GeoDataFrame, zoom_bounds: tuple | None) -> folium.Map:
     """
     Maak de basiskaart met of zonder zoom naar selectie.
     """
-    selected_bounds = _valid_bounds(zoom_bounds)
-    if selected_bounds is not None:
-        minx, miny, maxx, maxy = selected_bounds
+    if zoom_bounds:
+        minx, miny, maxx, maxy = zoom_bounds
         center_lat = (miny + maxy) / 2
         center_lon = (minx + maxx) / 2
 
@@ -73,13 +39,7 @@ def _base_map(road_web: gpd.GeoDataFrame, zoom_bounds: tuple | None) -> folium.M
         m.fit_bounds([[miny, minx], [maxy, maxx]])
         return m
 
-    fallback_bounds = _valid_bounds(road_web.total_bounds)
-    if fallback_bounds is None:
-        # Uiterste noodfallback: midden van Fryslân. In normale werking komt de
-        # app hier niet, omdat de loader lege geometrieën al overslaat.
-        return folium.Map(location=[53.1, 5.8], zoom_start=10, tiles="CartoDB positron")
-
-    minx, miny, maxx, maxy = fallback_bounds
+    minx, miny, maxx, maxy = road_web.total_bounds
     center_lat = (miny + maxy) / 2
     center_lon = (minx + maxx) / 2
     return folium.Map(location=[center_lat, center_lon], zoom_start=14, tiles="CartoDB positron")
@@ -180,11 +140,7 @@ def _add_hectometer_layer(m: folium.Map, pdok_hm: gpd.GeoDataFrame | None) -> No
             continue
 
         geom = row.geometry.centroid
-        try:
-            value = float(row.get("hm_val", 0)) / 10
-        except (TypeError, ValueError):
-            value = 0.0
-
+        value = float(row.get("hm_val", 0)) / 10
         icon_html = (
             '<div style="font-size: 9pt; font-weight: bold; color:black; '
             f'text-shadow: 1px 1px 0 #fff;">{value:.1f}</div>'
@@ -194,49 +150,6 @@ def _add_hectometer_layer(m: folium.Map, pdok_hm: gpd.GeoDataFrame | None) -> No
             [geom.y, geom.x],
             icon=folium.DivIcon(icon_size=(30, 15), icon_anchor=(15, 7), html=icon_html),
         ).add_to(m)
-
-
-def _safe_property_value(value: Any) -> Any:
-    """
-    Maak attribuutwaarden veilig voor Folium/GeoJSON.
-
-    iASSET-exports bevatten soms `pd.NA`, NaN of andere niet-JSON-waarden.
-    Zonder opschoning kan Folium dan een TypeError geven tijdens kaartopbouw.
-    """
-    try:
-        if pd.isna(value):
-            return None
-    except (TypeError, ValueError):
-        pass
-
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-
-    return clean_display_value(value)
-
-
-def _prepare_geojson_layer(road_web: gpd.GeoDataFrame, cols_to_select: list[str]) -> gpd.GeoDataFrame:
-    """
-    Maak een lichte, veilige kaartlaag voor Folium.
-
-    We sturen alleen noodzakelijke attributen naar de browser en schonen
-    ontbrekende waarden op. De geometrie blijft onaangetast.
-    """
-    layer = road_web[cols_to_select].copy()
-
-    for column in layer.columns:
-        if column == layer.geometry.name:
-            continue
-
-        if column == "sys_id":
-            # `sys_id` wordt door de style-functie gebruikt en moet numeriek
-            # blijven waar dat kan.
-            layer[column] = pd.to_numeric(layer[column], errors="coerce").astype("Int64")
-            continue
-
-        layer[column] = layer[column].map(_safe_property_value)
-
-    return layer
 
 
 def build_road_map(
@@ -253,14 +166,9 @@ def build_road_map(
     error_ids: Iterable[int] | None = None,
     show_network: bool = False,
     pdok_hm: gpd.GeoDataFrame | None = None,
-    **_ignored_options: Any,
 ) -> MapBuildResult:
     """
     Bouw de volledige kaart voor één geselecteerde weg.
-
-    Extra keyword-argumenten worden bewust genegeerd. Daardoor blijft de
-    kaartfunctie robuust als `app.py` en deze module bij een lokale update even
-    niet exact dezelfde versie hebben.
     """
     road_web = road_gdf.to_crs(epsg=4326)
     m = _base_map(road_web, zoom_bounds)
@@ -309,7 +217,7 @@ def build_road_map(
     tooltip = folium.GeoJsonTooltip(fields=tooltip_fields, style="font-size: 11px;") if tooltip_fields else None
 
     folium.GeoJson(
-        _prepare_geojson_layer(road_web, cols_to_select),
+        road_web[cols_to_select],
         style_function=style_fn,
         tooltip=tooltip,
     ).add_to(m)
