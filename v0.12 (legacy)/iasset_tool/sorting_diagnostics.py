@@ -503,7 +503,6 @@ def build_sort_diagnostics(
     )
     empty_groups = pd.DataFrame(
         columns=[
-            "volgorde_nr",
             "groep",
             "laag",
             "dominant_subthema",
@@ -517,12 +516,6 @@ def build_sort_diagnostics(
             "sort_quality",
             "hm_min",
             "hm_max",
-            "hm_overlap_vorige",
-            "route_terugval_vorige",
-            "routepositie_onderscheidend",
-            "overlap_cluster_id",
-            "overlap_sort_applied",
-            "overlap_cluster_size",
             "route_start_m",
             "route_mid_m",
             "route_end_m",
@@ -668,7 +661,7 @@ def build_sort_diagnostics(
     group_rows: list[dict[str, Any]] = []
     groups = groups or {}
 
-    for volgorde_nr, (group_id, group_data) in enumerate(groups.items(), start=1):
+    for group_id, group_data in groups.items():
         ids = [object_id for object_id in group_data.get("ids", []) if object_id in working.index]
         primary_ids = [object_id for object_id in group_data.get("primary_ids", []) if object_id in working.index]
 
@@ -743,7 +736,6 @@ def build_sort_diagnostics(
 
         group_rows.append(
             {
-                "volgorde_nr": group_data.get("volgorde_nr", volgorde_nr),
                 "groep": group_id,
                 "laag": layer_label,
                 "dominant_subthema": dominant_subthema,
@@ -757,14 +749,6 @@ def build_sort_diagnostics(
                 "sort_quality": sort_quality,
                 "hm_min": round(float(valid_hm.min()), 3) if not valid_hm.empty else None,
                 "hm_max": round(float(valid_hm.max()), 3) if not valid_hm.empty else None,
-                # Deze diagnosevelden worden na het opbouwen van alle groepen
-                # gevuld, omdat ze afhangen van de vorige groep in de zichtbare volgorde.
-                "hm_overlap_vorige": False,
-                "route_terugval_vorige": False,
-                "routepositie_onderscheidend": True,
-                "overlap_cluster_id": clean_display_value(group_data.get("overlap_cluster_id", "")),
-                "overlap_sort_applied": bool(group_data.get("overlap_sort_applied", False)),
-                "overlap_cluster_size": int(group_data.get("overlap_cluster_size", 1) or 1),
                 "route_start_m": round(float(route_start), 2) if route_start is not None else None,
                 "route_mid_m": round(float(route_mid), 2) if route_mid is not None else None,
                 "route_end_m": round(float(route_end), 2) if route_end is not None else None,
@@ -776,79 +760,9 @@ def build_sort_diagnostics(
 
     group_df = pd.DataFrame(group_rows, columns=empty_groups.columns)
     if not group_df.empty:
-        # Bewaar bewust de volgorde waarin de Project Adviseur de groepen aanlevert.
-        # Groepsnummers zoals GRP_RIJBAAN_1 kunnen historisch/technisch zijn; de
-        # kolom volgorde_nr is de veilige zichtbare volgorde voor de gebruiker.
-        group_df = group_df.sort_values(by=["volgorde_nr"], na_position="last").reset_index(drop=True)
-
-        # Diagnoseer per laag of de huidige volgorde opvallende sprongen bevat.
-        # Dit verandert de sortering niet; het maakt alleen zichtbaar waar v0.13
-        # eventueel een overlapcluster-sortering moet gebruiken.
-        route_duplicate_keys: set[tuple[Any, Any, Any]] = set()
-        for (rank_value, hm_value), part in group_df.groupby(["rank", "hm_min"], dropna=False):
-            rounded_routes = part["route_mid_m"].round(2)
-            duplicated = rounded_routes.duplicated(keep=False)
-            for index in part.index[duplicated]:
-                route_duplicate_keys.add((group_df.at[index, "rank"], group_df.at[index, "hm_min"], group_df.at[index, "route_mid_m"]))
-
-        previous_by_rank: dict[Any, pd.Series] = {}
-        for index, row in group_df.iterrows():
-            rank_value = row.get("rank", "")
-            previous = previous_by_rank.get(rank_value)
-            warnings = [text for text in str(row.get("waarschuwing", "")).split("; ") if text]
-
-            route_key = (row.get("rank"), row.get("hm_min"), row.get("route_mid_m"))
-            route_is_distinguishing = route_key not in route_duplicate_keys
-            group_df.at[index, "routepositie_onderscheidend"] = bool(route_is_distinguishing)
-
-            if row.get("tie_breaker_source") in {"lokale_route_as", "lokale_route_as_overlapcluster"} and not route_is_distinguishing:
-                if row.get("tie_breaker_source") == "lokale_route_as":
-                    group_df.at[index, "tie_breaker_source"] = "lokale_route_as_niet_onderscheidend"
-                warnings.append("WAARSCHUWING: lokale routepositie is gelijk aan een andere groep met dezelfde hm_min")
-            elif row.get("tie_breaker_source") in {"globale_as_fallback", "globale_richting_fallback"}:
-                group_df.at[index, "tie_breaker_source"] = "globale_richting_fallback"
-            elif not row.get("tie_breaker_source"):
-                group_df.at[index, "tie_breaker_source"] = "stabiele_fallback"
-
-            if bool(row.get("overlap_sort_applied", False)):
-                warnings.append(
-                    "INFO: v0.13 sorteert deze overlapcluster op lokale routepositie in plaats van alleen hm_min"
-                )
-
-            if previous is not None:
-                hm_min = row.get("hm_min")
-                hm_max = row.get("hm_max")
-                prev_hm_min = previous.get("hm_min")
-                prev_hm_max = previous.get("hm_max")
-                if pd.notna(hm_min) and pd.notna(hm_max) and pd.notna(prev_hm_min) and pd.notna(prev_hm_max):
-                    # Alleen echte overlap of exact dezelfde start-hectometrering is
-                    # verdacht. Twee groepen die netjes aansluiten op hetzelfde
-                    # eind-/beginpunt (bijv. 0.4-0.8 na 0.2-0.4) zijn normaal.
-                    hm_overlap = (
-                        float(hm_min) < float(prev_hm_max) - 0.0001
-                        or abs(float(hm_min) - float(prev_hm_min)) <= 0.0001
-                    )
-                    group_df.at[index, "hm_overlap_vorige"] = bool(hm_overlap)
-                    if hm_overlap:
-                        warnings.append(
-                            "INFO: hm-bereik overlapt met vorige groep in dezelfde laag; "
-                            "controleer of routepositie in v0.13 moet bepalen"
-                        )
-
-                route_mid = row.get("route_mid_m")
-                prev_route_mid = previous.get("route_mid_m")
-                if pd.notna(route_mid) and pd.notna(prev_route_mid):
-                    route_terugval = float(route_mid) + 0.01 < float(prev_route_mid)
-                    group_df.at[index, "route_terugval_vorige"] = bool(route_terugval)
-                    if route_terugval:
-                        warnings.append(
-                            "WAARSCHUWING: routepositie ligt vóór de vorige groep; "
-                            "huidige hm-volgorde en lokale route-as spreken elkaar tegen"
-                        )
-                        if group_df.at[index, "sort_quality"] == "hoog":
-                            group_df.at[index, "sort_quality"] = "middel"
-
-            group_df.at[index, "waarschuwing"] = "; ".join(dict.fromkeys(warnings))
-            previous_by_rank[rank_value] = group_df.loc[index]
+        group_df = group_df.sort_values(
+            by=["rank", "hm_min", "route_mid_m", "groep"],
+            na_position="last",
+        ).reset_index(drop=True)
 
     return object_df, group_df, axis_result

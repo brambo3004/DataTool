@@ -520,9 +520,6 @@ def build_sort_diagnostics(
             "hm_overlap_vorige",
             "route_terugval_vorige",
             "routepositie_onderscheidend",
-            "overlap_cluster_id",
-            "overlap_sort_applied",
-            "overlap_cluster_size",
             "route_start_m",
             "route_mid_m",
             "route_end_m",
@@ -743,7 +740,7 @@ def build_sort_diagnostics(
 
         group_rows.append(
             {
-                "volgorde_nr": group_data.get("volgorde_nr", volgorde_nr),
+                "volgorde_nr": volgorde_nr,
                 "groep": group_id,
                 "laag": layer_label,
                 "dominant_subthema": dominant_subthema,
@@ -762,9 +759,6 @@ def build_sort_diagnostics(
                 "hm_overlap_vorige": False,
                 "route_terugval_vorige": False,
                 "routepositie_onderscheidend": True,
-                "overlap_cluster_id": clean_display_value(group_data.get("overlap_cluster_id", "")),
-                "overlap_sort_applied": bool(group_data.get("overlap_sort_applied", False)),
-                "overlap_cluster_size": int(group_data.get("overlap_cluster_size", 1) or 1),
                 "route_start_m": round(float(route_start), 2) if route_start is not None else None,
                 "route_mid_m": round(float(route_mid), 2) if route_mid is not None else None,
                 "route_end_m": round(float(route_end), 2) if route_end is not None else None,
@@ -801,19 +795,13 @@ def build_sort_diagnostics(
             route_is_distinguishing = route_key not in route_duplicate_keys
             group_df.at[index, "routepositie_onderscheidend"] = bool(route_is_distinguishing)
 
-            if row.get("tie_breaker_source") in {"lokale_route_as", "lokale_route_as_overlapcluster"} and not route_is_distinguishing:
-                if row.get("tie_breaker_source") == "lokale_route_as":
-                    group_df.at[index, "tie_breaker_source"] = "lokale_route_as_niet_onderscheidend"
+            if row.get("tie_breaker_source") == "lokale_route_as" and not route_is_distinguishing:
+                group_df.at[index, "tie_breaker_source"] = "lokale_route_as_niet_onderscheidend"
                 warnings.append("WAARSCHUWING: lokale routepositie is gelijk aan een andere groep met dezelfde hm_min")
             elif row.get("tie_breaker_source") in {"globale_as_fallback", "globale_richting_fallback"}:
                 group_df.at[index, "tie_breaker_source"] = "globale_richting_fallback"
             elif not row.get("tie_breaker_source"):
                 group_df.at[index, "tie_breaker_source"] = "stabiele_fallback"
-
-            if bool(row.get("overlap_sort_applied", False)):
-                warnings.append(
-                    "INFO: v0.13 sorteert deze overlapcluster op lokale routepositie in plaats van alleen hm_min"
-                )
 
             if previous is not None:
                 hm_min = row.get("hm_min")

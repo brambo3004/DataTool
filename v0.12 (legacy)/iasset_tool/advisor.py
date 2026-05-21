@@ -7,12 +7,11 @@ De Streamlit UI bepaalt alleen hoe de gebruiker zo'n groep bekijkt en accepteert
 
 from __future__ import annotations
 
-from collections import defaultdict, deque
+from collections import deque
 from typing import Any
 
 import geopandas as gpd
 import networkx as nx
-import pandas as pd
 
 from .config import (
     FRIENDLY_LABELS,
@@ -169,165 +168,6 @@ def _route_tie_breaker_is_usable(route_mid: float | None) -> bool:
     tweede tie-breaker in de sort-key staan.
     """
     return route_mid is not None
-
-
-
-def _hm_range_for_group(gdf: gpd.GeoDataFrame, group_ids: list[int]) -> tuple[float, float]:
-    """
-    Bepaal het geldige hectometerbereik van een adviesgroep.
-
-    We gebruiken dit vanaf v0.13 om overlappende groepen te herkennen. Lege of
-    corrupte hm-waarden krijgen een hoge fallback, zodat de app blijft draaien
-    bij wisselende iASSET-exports.
-    """
-    if not group_ids or "hm_sort" not in gdf.columns:
-        return 99999.9, 99999.9
-
-    values = pd.to_numeric(gdf.loc[group_ids, "hm_sort"], errors="coerce")
-    valid_values = values[values < 90000.0].dropna()
-    if valid_values.empty:
-        return 99999.9, 99999.9
-
-    return float(valid_values.min()), float(valid_values.max())
-
-
-def _safe_route_value(value: Any) -> float | None:
-    """Zet een routepositie om naar float of None."""
-    if value is None:
-        return None
-    try:
-        number = float(value)
-    except (TypeError, ValueError, OverflowError):
-        return None
-    return number
-
-
-def _overlap_cluster_route_key(group_data: dict[str, Any]) -> tuple[float, float, float, float]:
-    """
-    Sorteersleutel binnen een overlappend hm-cluster.
-
-    Binnen overlappende hectometerbereiken is ``hm_min`` te grof: een lang
-    segment met een lage begin-hectometrering kan ruimtelijk later liggen dan
-    een korte knip binnen dezelfde omgeving. Daarom gebruiken we dan de positie
-    langs de lokale route-as, bij voorkeur het beginpunt van de groep.
-    """
-    route_start = _safe_route_value(group_data.get("route_start_m"))
-    route_mid = _safe_route_value(group_data.get("route_mid_m"))
-    hm_min = float(group_data.get("hm_min_sort", group_data.get("sort_value", 99999.9)) or 99999.9)
-    fallback = float(group_data.get("fallback_tie_breaker_dist", group_data.get("axis_tie_breaker_dist", 0.0)) or 0.0)
-
-    route_start_sort = route_start if route_start is not None else float("inf")
-    route_mid_sort = route_mid if route_mid is not None else float("inf")
-    return (route_start_sort, route_mid_sort, hm_min, fallback)
-
-
-def _regular_group_sort_key(item: tuple[str, dict[str, Any]]) -> tuple[int, float, float, float]:
-    """Sorteersleutel voor niet-overlappende groepen."""
-    _, group_data = item
-    return (
-        int(group_data.get("rank", 99)),
-        float(group_data.get("hm_min_sort", group_data.get("sort_value", 99999.9)) or 99999.9),
-        float(group_data.get("tie_breaker_dist", 0.0) or 0.0),
-        float(group_data.get("fallback_tie_breaker_dist", 0.0) or 0.0),
-    )
-
-
-def _sort_groups_with_overlap_clusters(
-    group_items: list[tuple[str, dict[str, Any]]],
-) -> list[tuple[str, dict[str, Any]]]:
-    """
-    Sorteer adviesgroepen met speciale behandeling voor overlappende hm-bereiken.
-
-    v0.12 gebruikte de lokale route-as alleen als tie-breaker bij exact dezelfde
-    ``hm_min``. De N354 liet zien dat groepen ook overlappende hm-bereiken kunnen
-    hebben, bijvoorbeeld een lang segment dat over een korte extra knip heen valt.
-    In zo'n overlapcluster bepaalt de lokale routepositie daarom de volgorde.
-    """
-    if not group_items:
-        return []
-
-    result: list[tuple[str, dict[str, Any]]] = []
-    items_by_rank: dict[int, list[tuple[str, dict[str, Any]]]] = defaultdict(list)
-
-    for item in group_items:
-        _, group_data = item
-        items_by_rank[int(group_data.get("rank", 99))].append(item)
-
-    for rank in sorted(items_by_rank):
-        rank_items = sorted(
-            items_by_rank[rank],
-            key=lambda item: (
-                float(item[1].get("hm_min_sort", 99999.9) or 99999.9),
-                float(item[1].get("hm_max_sort", 99999.9) or 99999.9),
-                float(item[1].get("tie_breaker_dist", 0.0) or 0.0),
-                item[0],
-            ),
-        )
-
-        cluster: list[tuple[str, dict[str, Any]]] = []
-        cluster_hm_max = float("-inf")
-        cluster_number = 0
-
-        def flush_cluster() -> None:
-            nonlocal cluster, cluster_hm_max, cluster_number
-            if not cluster:
-                return
-
-            cluster_number += 1
-            has_overlap = len(cluster) > 1
-            if has_overlap:
-                sorted_cluster = sorted(cluster, key=lambda item: _overlap_cluster_route_key(item[1]))
-                cluster_id = f"R{rank}-{cluster_number}"
-
-                for _, data in sorted_cluster:
-                    data["overlap_cluster_id"] = cluster_id
-                    data["overlap_sort_applied"] = True
-                    data["overlap_cluster_size"] = len(sorted_cluster)
-
-                    route_key = _overlap_cluster_route_key(data)
-                    if route_key[0] != float("inf") or route_key[1] != float("inf"):
-                        data["sort_mode"] = "hm_overlap_route"
-                        data["tie_breaker_source"] = "lokale_route_as_overlapcluster"
-                        # Bewaar de gebruikte routewaarde ook in de algemene
-                        # tie-breaker, zodat debugtabellen dezelfde richting tonen.
-                        data["tie_breaker_dist"] = route_key[0] if route_key[0] != float("inf") else route_key[1]
-                    else:
-                        data["tie_breaker_source"] = "globale_richting_fallback"
-            else:
-                sorted_cluster = sorted(cluster, key=_regular_group_sort_key)
-                for _, data in sorted_cluster:
-                    data["overlap_cluster_id"] = ""
-                    data["overlap_sort_applied"] = False
-                    data["overlap_cluster_size"] = 1
-
-            result.extend(sorted_cluster)
-            cluster = []
-            cluster_hm_max = float("-inf")
-
-        for item in rank_items:
-            _, data = item
-            hm_min = float(data.get("hm_min_sort", data.get("sort_value", 99999.9)) or 99999.9)
-            hm_max = float(data.get("hm_max_sort", hm_min) or hm_min)
-
-            same_hm_start_as_cluster = any(
-                abs(
-                    hm_min
-                    - float(existing_data.get("hm_min_sort", existing_data.get("sort_value", 99999.9)) or 99999.9)
-                )
-                <= 0.0001
-                for _, existing_data in cluster
-            )
-            overlaps_cluster = hm_min < cluster_hm_max - 0.0001
-
-            if cluster and not (overlaps_cluster or same_hm_start_as_cluster):
-                flush_cluster()
-
-            cluster.append(item)
-            cluster_hm_max = max(cluster_hm_max, hm_max)
-
-        flush_cluster()
-
-    return result
 
 
 def _all_backbone_types() -> set[str]:
@@ -802,10 +642,7 @@ def generate_grouped_proposals(gdf: gpd.GeoDataFrame, graph: nx.Graph) -> dict[s
         group_data["axis_tie_breaker_dist"] = global_tie_breaker_value
         group_data["axis_source"] = axis_result.source
 
-        hm_ids = group_data.get("primary_ids") or group_data["ids"]
-        min_hm, max_hm = _hm_range_for_group(gdf, hm_ids)
-        group_data["hm_min_sort"] = min_hm
-        group_data["hm_max_sort"] = max_hm
+        min_hm = group_nodes["hm_sort"].min() if "hm_sort" in group_nodes.columns else 99999.9
 
         if min_hm < 90000.0:
             group_data["sort_value"] = float(min_hm)
@@ -817,26 +654,32 @@ def generate_grouped_proposals(gdf: gpd.GeoDataFrame, graph: nx.Graph) -> dict[s
             else:
                 group_data["tie_breaker_dist"] = global_tie_breaker_value
                 group_data["fallback_tie_breaker_dist"] = 0.0
-                group_data["tie_breaker_source"] = "globale_richting_fallback"
+                group_data["tie_breaker_source"] = "globale_as_fallback"
                 group_data["sort_mode"] = "hm"
         else:
             group_data["sort_value"] = global_tie_breaker_value
             group_data["tie_breaker_dist"] = 0.0
             group_data["fallback_tie_breaker_dist"] = 0.0
-            group_data["tie_breaker_source"] = "globale_richting_fallback"
+            group_data["tie_breaker_source"] = "globale_as_fallback"
             group_data["sort_mode"] = "axis"
 
-    sorted_groups = _sort_groups_with_overlap_clusters(list(groups.items()))
+    sorted_groups = sorted(
+        groups.items(),
+        key=lambda item: (
+            item[1]["rank"],
+            item[1]["sort_value"],
+            item[1]["tie_breaker_dist"],
+            item[1].get("fallback_tie_breaker_dist", 0.0),
+        ),
+    )
 
     final_groups: dict[str, dict[str, Any]] = {}
     counters: dict[str, int] = {}
 
-    for volgorde_nr, (_, data) in enumerate(sorted_groups, start=1):
+    for _, data in sorted_groups:
         prefix = data["prefix"]
         counters[prefix] = counters.get(prefix, 0) + 1
         new_id = f"{prefix}_{counters[prefix]}"
-        data["volgorde_nr"] = volgorde_nr
-        data["advies_volgorde"] = volgorde_nr
         final_groups[new_id] = data
 
     return final_groups

@@ -2,7 +2,7 @@ import geopandas as gpd
 import networkx as nx
 from shapely.geometry import Point
 
-from iasset_tool.advisor import generate_grouped_proposals, _sort_groups_with_overlap_clusters
+from iasset_tool.advisor import generate_grouped_proposals
 from iasset_tool.utils import normalize_text
 
 
@@ -159,50 +159,5 @@ def test_project_advisor_uses_local_route_axis_as_tie_breaker_with_same_metrerin
     ordered_primary_ids = [group["primary_ids"][0] for group in groups.values()]
 
     assert ordered_primary_ids[:2] == [0, 1]
-    assert list(groups.values())[0]["sort_mode"] in {"hm_route", "hm_overlap_route"}
-    assert list(groups.values())[0]["tie_breaker_source"] in {"lokale_route_as", "lokale_route_as_overlapcluster"}
-
-
-def test_overlap_cluster_uses_route_position_before_hm_min_order():
-    """
-    Bij overlappende hm-bereiken mag de laagste hm_min niet blind winnen.
-
-    Dit test de kern van v0.13: binnen een overlapcluster sorteert de app op de
-    lokale routepositie. Daardoor komt een korte knip die ruimtelijk eerder ligt
-    vóór een lang segment dat op hm_min eerder lijkt te beginnen.
-    """
-    items = [
-        (
-            "lange_groep",
-            {
-                "rank": 1,
-                "hm_min_sort": 11.3,
-                "hm_max_sort": 13.6,
-                "route_start_m": 23665.0,
-                "route_mid_m": 23908.0,
-                "sort_value": 11.3,
-                "tie_breaker_dist": 23908.0,
-                "fallback_tie_breaker_dist": 0.0,
-            },
-        ),
-        (
-            "korte_knip",
-            {
-                "rank": 1,
-                "hm_min_sort": 11.5,
-                "hm_max_sort": 11.5,
-                "route_start_m": 22127.0,
-                "route_mid_m": 22129.0,
-                "sort_value": 11.5,
-                "tie_breaker_dist": 22129.0,
-                "fallback_tie_breaker_dist": 0.0,
-            },
-        ),
-    ]
-
-    sorted_items = _sort_groups_with_overlap_clusters(items)
-
-    assert [group_id for group_id, _ in sorted_items] == ["korte_knip", "lange_groep"]
-    assert sorted_items[0][1]["sort_mode"] == "hm_overlap_route"
-    assert sorted_items[0][1]["tie_breaker_source"] == "lokale_route_as_overlapcluster"
-    assert sorted_items[0][1]["overlap_sort_applied"] is True
+    assert list(groups.values())[0]["sort_mode"] == "hm_route"
+    assert list(groups.values())[0]["tie_breaker_source"] == "lokale_route_as"

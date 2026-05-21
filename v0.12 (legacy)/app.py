@@ -689,7 +689,6 @@ with col_inspector:
             sorted_items = sorted(
                 active_groups.items(),
                 key=lambda item: (
-                    item[1].get("volgorde_nr", item[1].get("advies_volgorde", 999999)),
                     item[1].get("rank", 99),
                     item[1].get("sort_value", 0),
                     item[1].get("tie_breaker_dist", 0),
@@ -717,20 +716,12 @@ with col_inspector:
                         if is_selected:
                             st.markdown("**:blue-background[GESELECTEERD]**")
 
-                        volgorde_nr = group_data.get("volgorde_nr") or group_data.get("advies_volgorde")
-                        volgorde_label = f"{volgorde_nr}. " if volgorde_nr else ""
-                        st.markdown(f"**{volgorde_label}{icon} {group_data['subthema'].title()}** ({count} obj)")
+                        st.markdown(f"**{icon} {group_data['subthema'].title()}** ({count} obj)")
                         st.caption(group_data["reason"])
 
                         tie_breaker_source = group_data.get("tie_breaker_source", "")
                         if tie_breaker_source == "lokale_route_as":
                             st.caption("Volgorde: hectometrering + lokale route-as.")
-                        elif tie_breaker_source == "lokale_route_as_overlapcluster":
-                            cluster_label = group_data.get("overlap_cluster_id", "")
-                            st.caption(
-                                "Volgorde: overlappend hm-bereik, lokale route-as bepaalt de positie"
-                                + (f" ({cluster_label})." if cluster_label else ".")
-                            )
 
                         assignment_note = group_data.get("assignment_note", "")
                         if assignment_note and assignment_note != "Primaire ruggengraatgroep; secundaire objecten apart toegewezen.":
