@@ -18,14 +18,13 @@ from .domain import (
     is_project_value_empty,
     maintenance_project_exemption_reason,
 )
-from .utils import clean_display_value, is_empty_value, normalize_text, parse_hm_sort
+from .utils import normalize_text
 
 
 CATEGORY_MISSING_PROJECT = "Onderhoudsprojectplicht"
 CATEGORY_WRONG_PROJECT = "Onterecht onderhoudsproject"
 CATEGORY_TOPOLOGY = "Topologie"
 CATEGORY_PROJECT_CONSISTENCY = "Projectconsistentie"
-CATEGORY_LOCATION_DATA = "Liggingdata"
 
 
 def _clean_list(values: list[str]) -> set[str]:
@@ -148,34 +147,7 @@ def check_rules(gdf: gpd.GeoDataFrame, graph: nx.Graph | None = None) -> list[di
             )
         )
 
-    # 2. Liggingcontrole: metrering is gevuld, maar niet als getal te lezen.
-    # We melden bewust alleen niet-lege ongeldige waarden. Lege liggingvelden
-    # kunnen later als aparte volledigheidsregel worden toegevoegd, maar zouden
-    # in sommige exports nu te veel ruis geven.
-    if "Metrering" in gdf.columns:
-        for idx, row in gdf.iterrows():
-            raw_metrering = row.get("Metrering", "")
-            if is_empty_value(raw_metrering):
-                continue
-
-            parsed_hm = parse_hm_sort(raw_metrering)
-            if parsed_hm >= 90000:
-                violations.append(
-                    make_violation(
-                        severity="warning",
-                        category=CATEGORY_LOCATION_DATA,
-                        rule_code="INVALID_METRERING",
-                        object_id=idx,
-                        subthema=row.get("subthema", ""),
-                        message=(
-                            "Metrering is gevuld, maar kan niet als hectometrering worden gelezen: "
-                            f"'{clean_display_value(raw_metrering)}'"
-                        ),
-                        missing_cols=["Metrering"],
-                    )
-                )
-
-    # 3. Administratieve controle: object is uitgezonderd, maar heeft tóch een project.
+    # 2. Administratieve controle: object is uitgezonderd, maar heeft tóch een project.
     # Dit sluit aan op het werkprocesfilter 'objecten die onterecht een onderhoudsproject hebben'.
     wrong_project_mask = is_exempt & ~project_empty
 
@@ -197,7 +169,7 @@ def check_rules(gdf: gpd.GeoDataFrame, graph: nx.Graph | None = None) -> list[di
             )
         )
 
-    # 4. Ruimtelijke controles.
+    # 3. Ruimtelijke controles.
     if graph is None:
         return violations
 

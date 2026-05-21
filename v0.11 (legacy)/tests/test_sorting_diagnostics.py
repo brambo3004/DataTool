@@ -91,29 +91,3 @@ def test_sort_diagnostics_handles_missing_wegvak_and_metrering_columns():
     assert group_df.empty
     assert "mist metrering" in object_df.loc[0, "sort_warning"]
     assert axis_result.source in {"primaire_objecten", "onvoldoende_ankerpunten"}
-
-
-def test_sort_diagnostics_marks_duplicate_bucket_as_info_when_route_position_distinguishes():
-    gdf = _gdf(
-        [
-            {"Wegvaknum": "7", "Metrering": "1.0", "hm_sort": 1.0, "Situering": "Rechts", "geometry": Point(0, 0)},
-            {"Wegvaknum": "7", "Metrering": "1.0", "hm_sort": 1.0, "Situering": "Rechts", "geometry": Point(40, 0)},
-            {"Wegvaknum": "7", "Metrering": "1.1", "hm_sort": 1.1, "Situering": "Rechts", "geometry": Point(100, 0)},
-        ]
-    )
-    groups = {
-        "GRP_RIJBAAN_1": {
-            "ids": [0, 1],
-            "primary_ids": [0, 1],
-            "rank": 1,
-            "subthema": "rijstrook",
-            "sort_mode": "hm",
-            "tie_breaker_dist": 0,
-        }
-    }
-
-    object_df, group_df, _ = build_sort_diagnostics(gdf, groups, selected_road="N398")
-
-    duplicate_rows = object_df[object_df["sys_id"].isin([0, 1])]
-    assert duplicate_rows["sort_warning"].str.contains("INFO: meerdere primaire objecten").all()
-    assert "lokale routepositie lijkt bruikbaar" in group_df.loc[0, "waarschuwing"]

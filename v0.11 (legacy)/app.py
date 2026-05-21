@@ -1270,18 +1270,11 @@ with col_map:
                         st.markdown("#### Objectdiagnose")
                         st.dataframe(display_object_diag, use_container_width=True, hide_index=True)
 
-                        # Download exact dezelfde regels als zichtbaar zijn. In v0.11
-                        # exporteerde deze knop altijd de volledige objectdiagnose, ook
-                        # wanneer 'Alleen objecten met sorteerwaarschuwing' aan stond.
-                        object_csv = display_object_diag.to_csv(index=False, sep=";").encode("utf-8-sig")
-                        export_suffix = "_Waarschuwingen" if warning_filter else ""
+                        object_csv = object_diag.to_csv(index=False, sep=";").encode("utf-8-sig")
                         st.download_button(
-                            "📥 Download zichtbare objectdiagnose",
+                            "📥 Download objectdiagnose",
                             data=object_csv,
-                            file_name=(
-                                f"Sorteerdiagnose_Objecten_{sanitize_filename(selected_road)}"
-                                f"{export_suffix}.csv"
-                            ),
+                            file_name=f"Sorteerdiagnose_Objecten_{sanitize_filename(selected_road)}.csv",
                             mime="text/csv",
                         )
 

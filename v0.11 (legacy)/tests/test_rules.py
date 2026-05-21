@@ -87,24 +87,3 @@ def test_wrong_project_violation_has_own_category():
 
     assert violation["category"] == "Onterecht onderhoudsproject"
     assert violation["rule_code"] == "EXEMPT_HAS_PROJECT"
-
-
-def test_invalid_metrering_gets_location_data_warning():
-    gdf = _gdf([{"subthema": "rijstrook", "Onderhoudsproject": "N398-HRB-01.0-01.1"}])
-    gdf["Metrering"] = ["4,,9"]
-
-    violations = check_rules(gdf)
-
-    assert len(violations) == 1
-    assert violations[0]["category"] == "Liggingdata"
-    assert violations[0]["rule_code"] == "INVALID_METRERING"
-    assert "4,,9" in violations[0]["msg"]
-
-
-def test_empty_metrering_is_not_flagged_as_invalid_metrering_yet():
-    gdf = _gdf([{"subthema": "rijstrook", "Onderhoudsproject": "N398-HRB-01.0-01.1"}])
-    gdf["Metrering"] = [""]
-
-    violations = check_rules(gdf)
-
-    assert violations == []

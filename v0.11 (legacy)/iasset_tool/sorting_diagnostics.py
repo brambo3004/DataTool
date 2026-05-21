@@ -446,66 +446,19 @@ def build_sort_diagnostics(
     bucket_counts = working.groupby(bucket_key_columns, dropna=False).size().rename("_diag_bucket_count")
     working = working.join(bucket_counts, on=bucket_key_columns)
 
-    # Projecteer alle objecten één keer op de lokale route-as. Daardoor kunnen
-    # we duplicaten binnen hetzelfde wegvak/metrering niet alleen signaleren,
-    # maar ook beoordelen of de routepositie ze echt van elkaar onderscheidt.
-    projected_ranges = {
-        object_id: _project_geometry_range(row.geometry, axis)
-        for object_id, row in working.iterrows()
-    }
-    working["_diag_route_start"] = [projected_ranges[idx][0] for idx in working.index]
-    working["_diag_route_mid"] = [projected_ranges[idx][1] for idx in working.index]
-    working["_diag_route_end"] = [projected_ranges[idx][2] for idx in working.index]
-    working["_diag_lateral"] = [projected_ranges[idx][3] for idx in working.index]
-
-    duplicate_route_distinguishes: dict[tuple[Any, ...], bool] = {}
-    duplicate_route_warning: dict[tuple[Any, ...], str] = {}
-
-    for bucket_key, bucket in working.groupby(bucket_key_columns, dropna=False):
-        if len(bucket) <= 1:
-            continue
-
-        route_values = pd.to_numeric(bucket["_diag_route_mid"], errors="coerce").dropna()
-        if axis is None or len(route_values) < 2:
-            duplicate_route_distinguishes[bucket_key] = False
-            duplicate_route_warning[bucket_key] = "routepositie niet beschikbaar"
-            continue
-
-        route_spread = float(route_values.max() - route_values.min())
-        if route_spread > 1.0:
-            duplicate_route_distinguishes[bucket_key] = True
-            duplicate_route_warning[bucket_key] = "lokale routepositie onderscheidt binnenvakvolgorde"
-        else:
-            duplicate_route_distinguishes[bucket_key] = False
-            duplicate_route_warning[bucket_key] = "routepositie niet onderscheidend"
-
     object_rows: list[dict[str, Any]] = []
     for object_id, row in working.iterrows():
-        start_m = row["_diag_route_start"]
-        mid_m = row["_diag_route_mid"]
-        end_m = row["_diag_route_end"]
-        lateral_m = row["_diag_lateral"]
+        start_m, mid_m, end_m, lateral_m = _project_geometry_range(row.geometry, axis)
 
         warnings: list[str] = []
         if row["_diag_hm"] >= 90000:
-            warnings.append("WAARSCHUWING: mist metrering of metrering is ongeldig")
+            warnings.append("mist metrering")
         if row["_diag_wegvak"] in {"<leeg>", "<geen_kolom>"}:
-            warnings.append("WAARSCHUWING: mist wegvak")
+            warnings.append("mist wegvak")
         if int(row.get("_diag_bucket_count", 1)) > 1:
-            row_bucket_key = tuple(row[column] for column in bucket_key_columns)
-            route_note = duplicate_route_warning.get(row_bucket_key, "binnenvakvolgorde vraagt controle")
-
-            if bool(row["_diag_is_primary"]):
-                prefix = "INFO" if duplicate_route_distinguishes.get(row_bucket_key, False) else "WAARSCHUWING"
-                warnings.append(
-                    f"{prefix}: meerdere primaire objecten in zelfde wegvak/metrering/situering (meerdere objecten); {route_note}"
-                )
-            else:
-                warnings.append(
-                    f"INFO: meerdere secundaire objecten in zelfde wegvak/metrering/situering (meerdere objecten); {route_note}"
-                )
+            warnings.append("meerdere objecten in zelfde wegvak/metrering/situering")
         if axis is None:
-            warnings.append("WAARSCHUWING: geen lokale route-as")
+            warnings.append("geen lokale route-as")
 
         object_rows.append(
             {
@@ -518,10 +471,10 @@ def build_sort_diagnostics(
                 "Situering": row["_diag_situering"],
                 "hm_sort": None if row["_diag_hm"] >= 90000 else float(row["_diag_hm"]),
                 "bucket_count": int(row.get("_diag_bucket_count", 1)),
-                "route_start_m": round(float(start_m), 2) if start_m is not None else None,
-                "route_mid_m": round(float(mid_m), 2) if mid_m is not None else None,
-                "route_end_m": round(float(end_m), 2) if end_m is not None else None,
-                "dwarsafstand_m": round(float(lateral_m), 2) if lateral_m is not None else None,
+                "route_start_m": round(start_m, 2) if start_m is not None else None,
+                "route_mid_m": round(mid_m, 2) if mid_m is not None else None,
+                "route_end_m": round(end_m, 2) if end_m is not None else None,
+                "dwarsafstand_m": round(lateral_m, 2) if lateral_m is not None else None,
                 "sort_warning": "; ".join(warnings),
             }
         )
@@ -553,46 +506,25 @@ def build_sort_diagnostics(
         projected = object_df[object_df["sys_id"].isin(primary_ids if primary_ids else ids)]
         route_values = pd.to_numeric(projected["route_mid_m"], errors="coerce").dropna()
 
-        duplicate_primary = primary_subset[primary_subset.get("_diag_bucket_count", pd.Series(dtype=int)) > 1]
-        has_duplicate_bucket = not duplicate_primary.empty
-
-        duplicate_keys = {
-            tuple(row[column] for column in bucket_key_columns)
-            for _, row in duplicate_primary.iterrows()
-        }
-        duplicate_route_ok = [
-            duplicate_route_distinguishes.get(bucket_key, False)
-            for bucket_key in duplicate_keys
-        ]
-        has_non_distinguishing_duplicate = bool(duplicate_route_ok) and not all(duplicate_route_ok)
-
+        has_duplicate_bucket = bool((primary_subset.get("_diag_bucket_count", pd.Series(dtype=int)) > 1).any())
         sort_mode = clean_display_value(group_data.get("sort_mode", ""))
         tie_breaker = group_data.get("tie_breaker_dist", None)
 
         warnings: list[str] = []
         if valid_hm.empty:
             sort_quality = "laag"
-            warnings.append("WAARSCHUWING: geen geldige metrering in primaire objecten")
-        elif has_non_distinguishing_duplicate:
-            sort_quality = "middel"
-            warnings.append(
-                "WAARSCHUWING: dubbele primaire objecten binnen wegvak/metrering/situering; "
-                "lokale routepositie onderscheidt de binnenvakvolgorde niet betrouwbaar"
-            )
+            warnings.append("geen geldige metrering in primaire objecten")
         elif has_duplicate_bucket:
             sort_quality = "middel"
-            warnings.append(
-                "INFO: meerdere primaire objecten binnen hetzelfde wegvak/metrering/situering; "
-                "lokale routepositie lijkt bruikbaar als toekomstige tie-breaker"
-            )
+            warnings.append("dubbele primaire objecten binnen wegvak/metrering/situering; binnenvakvolgorde vraagt extra controle")
         else:
             sort_quality = "hoog"
 
         if sort_mode == "axis":
             sort_quality = "laag"
-            warnings.append("WAARSCHUWING: huidige volgorde gebruikt globale asfallback")
+            warnings.append("huidige volgorde gebruikt globale asfallback")
         elif sort_mode == "hm" and has_duplicate_bucket:
-            warnings.append("INFO: huidige Project Adviseur gebruikt nog globale X/Y-tie-breaker, niet de lokale route-as")
+            warnings.append("huidige tie-breaker is nog globale X/Y-richting, niet de lokale route-as")
 
         if axis is None:
             warnings.append("lokale route-as niet beschikbaar")
