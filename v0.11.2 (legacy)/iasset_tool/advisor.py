@@ -21,7 +21,6 @@ from .config import (
 )
 from .domain import is_maintenance_project_exempt
 from .fietspad import FietspadClassification, FietspadProjectRole, classify_fietspaden
-from .sorting_diagnostics import build_local_axis, project_geometry_range_on_axis
 from .utils import clean_display_value
 
 
@@ -111,63 +110,6 @@ def _axis_tie_breaker(gdf: gpd.GeoDataFrame, group_ids: list[int], direction_cod
 
     # Fallback: West -> Oost.
     return float(center.x)
-
-
-def _route_axis_tie_breaker(
-    gdf: gpd.GeoDataFrame,
-    group_ids: list[int],
-    axis,
-) -> tuple[float | None, float | None, float | None]:
-    """
-    Bepaal de positie van een groep langs de lokaal afgeleide route-as.
-
-    We projecteren de geometrieën van de primaire objecten op de route-as en
-    gebruiken de mediane positie als tie-breaker binnen dezelfde hectometrering.
-    De start/eindpositie bewaren we voor diagnose en debug. Als projectie niet
-    lukt, geeft de functie ``None`` terug zodat de oude globale X/Y-fallback
-    gebruikt blijft worden.
-    """
-    if axis is None or not group_ids:
-        return None, None, None
-
-    positions_start: list[float] = []
-    positions_mid: list[float] = []
-    positions_end: list[float] = []
-
-    for object_id in group_ids:
-        if object_id not in gdf.index:
-            continue
-
-        start_m, mid_m, end_m, _ = project_geometry_range_on_axis(gdf.loc[object_id].geometry, axis)
-        if start_m is None or mid_m is None or end_m is None:
-            continue
-
-        positions_start.append(float(start_m))
-        positions_mid.append(float(mid_m))
-        positions_end.append(float(end_m))
-
-    if not positions_mid:
-        return None, None, None
-
-    positions_mid.sort()
-    median_index = len(positions_mid) // 2
-    if len(positions_mid) % 2:
-        route_mid = positions_mid[median_index]
-    else:
-        route_mid = (positions_mid[median_index - 1] + positions_mid[median_index]) / 2
-
-    return min(positions_start), float(route_mid), max(positions_end)
-
-
-def _route_tie_breaker_is_usable(route_mid: float | None) -> bool:
-    """
-    Controleer of de lokale routepositie bruikbaar is als sorteerwaarde.
-
-    We eisen bewust alleen dat de projectie beschikbaar is. Als twee groepen
-    exact dezelfde routepositie krijgen, blijft de globale X/Y-fallback als
-    tweede tie-breaker in de sort-key staan.
-    """
-    return route_mid is not None
 
 
 def _all_backbone_types() -> set[str]:
@@ -612,8 +554,6 @@ def generate_grouped_proposals(gdf: gpd.GeoDataFrame, graph: nx.Graph) -> dict[s
 
     road_label = str(gdf["Wegnummer"].iloc[0]) if "Wegnummer" in gdf.columns and not gdf.empty else "Onbekend"
     direction_code = ROAD_DIRECTIONS.get(road_label, "UNKNOWN")
-    axis_result = build_local_axis(gdf, selected_road=road_label)
-    local_axis = axis_result.axis
 
     for group_id, group_data in groups.items():
         # Houd de volgorde stabiel en voorkom dubbele objecten.
@@ -623,44 +563,17 @@ def generate_grouped_proposals(gdf: gpd.GeoDataFrame, graph: nx.Graph) -> dict[s
         group_data["attached_fietspad_ids"] = list(dict.fromkeys(group_data.get("attached_fietspad_ids", [])))
 
         group_nodes = gdf.loc[group_data["ids"]]
-        global_tie_breaker_value = _axis_tie_breaker(gdf, group_data["ids"], direction_code)
+        tie_breaker_value = _axis_tie_breaker(gdf, group_data["ids"], direction_code)
 
-        # v0.12: gebruik de lokale route-as als gecontroleerde tie-breaker
-        # binnen dezelfde hectometrering. De globale X/Y-richting blijft als
-        # fallback bestaan, zodat eindpunt- of rotondegevallen niet instabiel
-        # worden wanneer meerdere groepen dezelfde routepositie krijgen.
-        route_start, route_mid, route_end = _route_axis_tie_breaker(
-            gdf,
-            group_data.get("primary_ids") or group_data["ids"],
-            local_axis,
-        )
-
-        group_data["route_tie_breaker_dist"] = route_mid
-        group_data["route_start_m"] = route_start
-        group_data["route_mid_m"] = route_mid
-        group_data["route_end_m"] = route_end
-        group_data["axis_tie_breaker_dist"] = global_tie_breaker_value
-        group_data["axis_source"] = axis_result.source
+        group_data["tie_breaker_dist"] = tie_breaker_value
 
         min_hm = group_nodes["hm_sort"].min() if "hm_sort" in group_nodes.columns else 99999.9
 
         if min_hm < 90000.0:
             group_data["sort_value"] = float(min_hm)
-            if _route_tie_breaker_is_usable(route_mid):
-                group_data["tie_breaker_dist"] = float(route_mid)
-                group_data["fallback_tie_breaker_dist"] = global_tie_breaker_value
-                group_data["tie_breaker_source"] = "lokale_route_as"
-                group_data["sort_mode"] = "hm_route"
-            else:
-                group_data["tie_breaker_dist"] = global_tie_breaker_value
-                group_data["fallback_tie_breaker_dist"] = 0.0
-                group_data["tie_breaker_source"] = "globale_as_fallback"
-                group_data["sort_mode"] = "hm"
+            group_data["sort_mode"] = "hm"
         else:
-            group_data["sort_value"] = global_tie_breaker_value
-            group_data["tie_breaker_dist"] = 0.0
-            group_data["fallback_tie_breaker_dist"] = 0.0
-            group_data["tie_breaker_source"] = "globale_as_fallback"
+            group_data["sort_value"] = tie_breaker_value
             group_data["sort_mode"] = "axis"
 
     sorted_groups = sorted(
@@ -669,7 +582,6 @@ def generate_grouped_proposals(gdf: gpd.GeoDataFrame, graph: nx.Graph) -> dict[s
             item[1]["rank"],
             item[1]["sort_value"],
             item[1]["tie_breaker_dist"],
-            item[1].get("fallback_tie_breaker_dist", 0.0),
         ),
     )
 

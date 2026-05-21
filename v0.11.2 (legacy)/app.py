@@ -692,7 +692,6 @@ with col_inspector:
                     item[1].get("rank", 99),
                     item[1].get("sort_value", 0),
                     item[1].get("tie_breaker_dist", 0),
-                    item[1].get("fallback_tie_breaker_dist", 0),
                 ),
             )
 
@@ -718,10 +717,6 @@ with col_inspector:
 
                         st.markdown(f"**{icon} {group_data['subthema'].title()}** ({count} obj)")
                         st.caption(group_data["reason"])
-
-                        tie_breaker_source = group_data.get("tie_breaker_source", "")
-                        if tie_breaker_source == "lokale_route_as":
-                            st.caption("Volgorde: hectometrering + lokale route-as.")
 
                         assignment_note = group_data.get("assignment_note", "")
                         if assignment_note and assignment_note != "Primaire ruggengraatgroep; secundaire objecten apart toegewezen.":

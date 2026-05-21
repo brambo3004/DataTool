@@ -344,21 +344,6 @@ def _project_geometry_range(geometry, axis: LineString | None) -> tuple[float | 
     return min(positions), float(median(positions)), max(positions), lateral_offset
 
 
-def project_geometry_range_on_axis(
-    geometry,
-    axis: LineString | None,
-) -> tuple[float | None, float | None, float | None, float | None]:
-    """
-    Publieke wrapper voor projectie op de lokale route-as.
-
-    De Project Adviseur gebruikt deze functie vanaf v0.12 als gecontroleerde
-    tie-breaker binnen dezelfde hectometrering. De eigenlijke projectiefunctie
-    blijft hier centraal staan, zodat diagnose en sortering dezelfde berekening
-    gebruiken.
-    """
-    return _project_geometry_range(geometry, axis)
-
-
 def _bucket_columns(gdf: gpd.GeoDataFrame) -> tuple[str | None, str | None, str | None]:
     """Geef de kolommen terug die voor binnenvak-diagnose worden gebruikt."""
     return (
@@ -366,106 +351,6 @@ def _bucket_columns(gdf: gpd.GeoDataFrame) -> tuple[str | None, str | None, str 
         _first_existing_column(gdf, METRERING_ALIASES),
         _first_existing_column(gdf, SITUERING_ALIASES),
     )
-
-
-def _attention_severity(messages: list[str]) -> str:
-    """
-    Vertaal diagnoseteksten naar een aparte ernstwaarde.
-
-    Waarom apart?
-    De kolom ``sort_warning`` blijft een leesbare toelichting voor de gebruiker,
-    maar filtering/export moet niet op losse tekst zoeken. Met ``sort_severity``
-    kunnen we echte waarschuwingen scheiden van informatieve aandachtspunten.
-    """
-    if not messages:
-        return ""
-
-    if any(str(message).startswith("WAARSCHUWING") for message in messages):
-        return "waarschuwing"
-
-    if any(str(message).startswith("INFO") for message in messages):
-        return "info"
-
-    return "aandachtspunt"
-
-
-def _value_counts_as_text(values: pd.Series) -> str:
-    """Maak een compacte, stabiele lijst van unieke waarden met aantallen."""
-    cleaned = [normalize_text(value) for value in values if clean_display_value(value)]
-    if not cleaned:
-        return ""
-
-    counts: dict[str, int] = {}
-    for value in cleaned:
-        counts[value] = counts.get(value, 0) + 1
-
-    return ", ".join(
-        f"{value} ({count})" if count > 1 else value
-        for value, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
-    )
-
-
-def _dominant_subthema(primary_subset: gpd.GeoDataFrame, subset: gpd.GeoDataFrame, group_data: dict[str, Any]) -> str:
-    """
-    Bepaal het meest representatieve subthema van een adviesgroep.
-
-    In de parallel-laag zitten parallelweg, landbouwpad en busbaan samen. Het
-    oude label gebruikte dan vaak blind ``parallelweg`` terwijl de groep in de
-    praktijk bijvoorbeeld alleen een landbouwpad bevatte. Voor diagnose en UI is
-    het veiliger om het dominante primaire subthema uit de data te tonen.
-    """
-    source = primary_subset if primary_subset is not None and not primary_subset.empty else subset
-
-    if source is not None and not source.empty and "subthema_clean" in source.columns:
-        values = [normalize_text(value) for value in source["subthema_clean"] if normalize_text(value)]
-        if values:
-            counts: dict[str, int] = {}
-            for value in values:
-                counts[value] = counts.get(value, 0) + 1
-            return sorted(counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
-
-    return normalize_text(group_data.get("subthema", "")) or clean_display_value(group_data.get("subthema", ""))
-
-
-def _project_prefix_for_subthema(subthema_clean: str) -> str:
-    """Vertaal een primair subthema naar het gebruikelijke onderhoudsprojectprefix."""
-    mapping = {
-        "rijstrook": "HRB",
-        "parallelweg": "PW",
-        "landbouwpad": "LBP",
-        "busbaan": "BB",
-        "fietspad": "FP",
-    }
-    return mapping.get(normalize_text(subthema_clean), "")
-
-
-def _fietspad_classification_text(group_data: dict[str, Any], dominant_subthema: str, subset: gpd.GeoDataFrame) -> str:
-    """
-    Geef een korte diagnose van de fietspadlogica voor een groep.
-
-    De Project Adviseur koppelt haakse/rotonde-/kruispuntfietspaden aan het
-    hoofdproject, terwijl parallelfietspaden een eigen groep kunnen vormen. Deze
-    tekst maakt zichtbaar waarom er minder fietspadgroepen zijn dan fietspad-
-    objecten in de brondata.
-    """
-    fietspad_count = 0
-    if subset is not None and not subset.empty and "subthema_clean" in subset.columns:
-        fietspad_count = int((subset["subthema_clean"].map(normalize_text) == "fietspad").sum())
-
-    attached_count = len(group_data.get("attached_fietspad_ids", []) or [])
-
-    if dominant_subthema == "fietspad":
-        if group_data.get("review_needed"):
-            return "fietspad eigen project: classificatie onzeker, handmatig controleren"
-        return "parallelfietspad / eigen onderhoudsproject"
-
-    if attached_count:
-        return f"{attached_count} fietspadobject(en) gekoppeld aan hoofdproject"
-
-    if fietspad_count:
-        return f"{fietspad_count} fietspadobject(en) in groep; controleer classificatie"
-
-    return ""
 
 
 def build_sort_diagnostics(
@@ -484,7 +369,6 @@ def build_sort_diagnostics(
     empty_objects = pd.DataFrame(
         columns=[
             "sys_id",
-            "Wegnummer",
             "nummer",
             "subthema",
             "is_primair",
@@ -497,18 +381,13 @@ def build_sort_diagnostics(
             "route_mid_m",
             "route_end_m",
             "dwarsafstand_m",
-            "sort_severity",
             "sort_warning",
         ]
     )
     empty_groups = pd.DataFrame(
         columns=[
             "groep",
-            "laag",
-            "dominant_subthema",
-            "subthema_lijst",
-            "project_prefix",
-            "fietspad_classificatie",
+            "subthema",
             "rank",
             "objecten",
             "primaire_objecten",
@@ -520,7 +399,6 @@ def build_sort_diagnostics(
             "route_mid_m",
             "route_end_m",
             "tie_breaker",
-            "tie_breaker_source",
             "waarschuwing",
         ]
     )
@@ -632,7 +510,6 @@ def build_sort_diagnostics(
         object_rows.append(
             {
                 "sys_id": object_id,
-                "Wegnummer": clean_display_value(row.get("Wegnummer", "")),
                 "nummer": clean_display_value(row.get("nummer", "")),
                 "subthema": clean_display_value(row.get("subthema", "")),
                 "is_primair": bool(row["_diag_is_primary"]),
@@ -645,7 +522,6 @@ def build_sort_diagnostics(
                 "route_mid_m": round(float(mid_m), 2) if mid_m is not None else None,
                 "route_end_m": round(float(end_m), 2) if end_m is not None else None,
                 "dwarsafstand_m": round(float(lateral_m), 2) if lateral_m is not None else None,
-                "sort_severity": _attention_severity(warnings),
                 "sort_warning": "; ".join(warnings),
             }
         )
@@ -671,12 +547,6 @@ def build_sort_diagnostics(
         subset = working.loc[ids]
         primary_subset = working.loc[primary_ids] if primary_ids else subset[subset["_diag_is_primary"]]
 
-        dominant_subthema = _dominant_subthema(primary_subset, subset, group_data)
-        subthema_lijst = _value_counts_as_text(primary_subset.get("subthema_clean", pd.Series(dtype=str)))
-        layer_label = clean_display_value(group_data.get("layer_label", ""))
-        if not layer_label:
-            layer_label = clean_display_value(group_data.get("subthema", ""))
-
         hm_values = pd.to_numeric(primary_subset["_diag_hm"], errors="coerce")
         valid_hm = hm_values[hm_values < 90000]
 
@@ -698,7 +568,6 @@ def build_sort_diagnostics(
 
         sort_mode = clean_display_value(group_data.get("sort_mode", ""))
         tie_breaker = group_data.get("tie_breaker_dist", None)
-        tie_breaker_source = clean_display_value(group_data.get("tie_breaker_source", ""))
 
         warnings: list[str] = []
         if valid_hm.empty:
@@ -722,8 +591,6 @@ def build_sort_diagnostics(
         if sort_mode == "axis":
             sort_quality = "laag"
             warnings.append("WAARSCHUWING: huidige volgorde gebruikt globale asfallback")
-        elif sort_mode == "hm_route" and has_duplicate_bucket:
-            warnings.append("INFO: huidige Project Adviseur gebruikt lokale route-as als tie-breaker binnen dezelfde metrering")
         elif sort_mode == "hm" and has_duplicate_bucket:
             warnings.append("INFO: huidige Project Adviseur gebruikt nog globale X/Y-tie-breaker, niet de lokale route-as")
 
@@ -737,11 +604,7 @@ def build_sort_diagnostics(
         group_rows.append(
             {
                 "groep": group_id,
-                "laag": layer_label,
-                "dominant_subthema": dominant_subthema,
-                "subthema_lijst": subthema_lijst,
-                "project_prefix": _project_prefix_for_subthema(dominant_subthema),
-                "fietspad_classificatie": _fietspad_classification_text(group_data, dominant_subthema, subset),
+                "subthema": clean_display_value(group_data.get("subthema", "")),
                 "rank": group_data.get("rank", ""),
                 "objecten": len(ids),
                 "primaire_objecten": len(primary_ids) if primary_ids else int(subset["_diag_is_primary"].sum()),
@@ -753,7 +616,6 @@ def build_sort_diagnostics(
                 "route_mid_m": round(float(route_mid), 2) if route_mid is not None else None,
                 "route_end_m": round(float(route_end), 2) if route_end is not None else None,
                 "tie_breaker": round(float(tie_breaker), 2) if tie_breaker is not None else None,
-                "tie_breaker_source": tie_breaker_source,
                 "waarschuwing": "; ".join(dict.fromkeys(warnings)),
             }
         )

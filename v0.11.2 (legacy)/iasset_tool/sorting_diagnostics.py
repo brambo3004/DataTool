@@ -344,21 +344,6 @@ def _project_geometry_range(geometry, axis: LineString | None) -> tuple[float | 
     return min(positions), float(median(positions)), max(positions), lateral_offset
 
 
-def project_geometry_range_on_axis(
-    geometry,
-    axis: LineString | None,
-) -> tuple[float | None, float | None, float | None, float | None]:
-    """
-    Publieke wrapper voor projectie op de lokale route-as.
-
-    De Project Adviseur gebruikt deze functie vanaf v0.12 als gecontroleerde
-    tie-breaker binnen dezelfde hectometrering. De eigenlijke projectiefunctie
-    blijft hier centraal staan, zodat diagnose en sortering dezelfde berekening
-    gebruiken.
-    """
-    return _project_geometry_range(geometry, axis)
-
-
 def _bucket_columns(gdf: gpd.GeoDataFrame) -> tuple[str | None, str | None, str | None]:
     """Geef de kolommen terug die voor binnenvak-diagnose worden gebruikt."""
     return (
@@ -520,7 +505,6 @@ def build_sort_diagnostics(
             "route_mid_m",
             "route_end_m",
             "tie_breaker",
-            "tie_breaker_source",
             "waarschuwing",
         ]
     )
@@ -698,7 +682,6 @@ def build_sort_diagnostics(
 
         sort_mode = clean_display_value(group_data.get("sort_mode", ""))
         tie_breaker = group_data.get("tie_breaker_dist", None)
-        tie_breaker_source = clean_display_value(group_data.get("tie_breaker_source", ""))
 
         warnings: list[str] = []
         if valid_hm.empty:
@@ -722,8 +705,6 @@ def build_sort_diagnostics(
         if sort_mode == "axis":
             sort_quality = "laag"
             warnings.append("WAARSCHUWING: huidige volgorde gebruikt globale asfallback")
-        elif sort_mode == "hm_route" and has_duplicate_bucket:
-            warnings.append("INFO: huidige Project Adviseur gebruikt lokale route-as als tie-breaker binnen dezelfde metrering")
         elif sort_mode == "hm" and has_duplicate_bucket:
             warnings.append("INFO: huidige Project Adviseur gebruikt nog globale X/Y-tie-breaker, niet de lokale route-as")
 
@@ -753,7 +734,6 @@ def build_sort_diagnostics(
                 "route_mid_m": round(float(route_mid), 2) if route_mid is not None else None,
                 "route_end_m": round(float(route_end), 2) if route_end is not None else None,
                 "tie_breaker": round(float(tie_breaker), 2) if tie_breaker is not None else None,
-                "tie_breaker_source": tie_breaker_source,
                 "waarschuwing": "; ".join(dict.fromkeys(warnings)),
             }
         )

@@ -70,7 +70,6 @@ ISSUE_CATEGORIES = [
     "Onderhoudsprojectplicht",
     "Onterecht onderhoudsproject",
     "Ontbrekende paspoortdata",
-    "Liggingdata",
     "Topologie",
     "Projectconsistentie",
     "Import / geometrie",

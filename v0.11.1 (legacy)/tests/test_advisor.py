@@ -19,11 +19,8 @@ def _gdf(rows):
             "Jaar aanleg": row.get("Jaar aanleg", "2020"),
             "Jaar deklaag": row.get("Jaar deklaag", "2020"),
             "Besteknummer": row.get("Besteknummer", "B-001"),
-            "Wegvaknum": row.get("Wegvaknum", ""),
-            "Metrering": row.get("Metrering", ""),
-            "Situering": row.get("Situering", ""),
             "hm_sort": row.get("hm_sort", 1.0),
-            "geometry": row.get("geometry", Point(idx, 0)),
+            "geometry": Point(idx, 0),
         }
         item["subthema_clean"] = normalize_text(item["subthema"])
         prepared.append(item)
@@ -134,30 +131,3 @@ def test_secondary_chain_between_two_rijstrook_groups_is_split_by_shortest_dista
 
     assert 2 in first_rijstrook_group["ids"]
     assert 3 in second_rijstrook_group["ids"]
-
-
-
-def test_project_advisor_uses_local_route_axis_as_tie_breaker_with_same_metrering():
-    """
-    Bij gelijke hectometrering moet de lokale route-as winnen van de globale X/Y-richting.
-
-    N398 heeft in de oude richtingentabel ETW (oost naar west). Zonder route-as
-    zou het object met de hoogste X-waarde eerst komen. De lokale as wordt hier
-    opgebouwd uit de metrering en moet daarom object 0 vóór object 1 zetten.
-    """
-    gdf = _gdf(
-        [
-            {"subthema": "rijstrook", "Wegvaknum": "1", "Metrering": "1.0", "hm_sort": 1.0, "Jaar aanleg": "2020", "geometry": Point(0, 0)},
-            {"subthema": "rijstrook", "Wegvaknum": "1", "Metrering": "1.0", "hm_sort": 1.0, "Jaar aanleg": "2021", "geometry": Point(100, 0)},
-            {"subthema": "rijstrook", "Wegvaknum": "1", "Metrering": "1.1", "hm_sort": 1.1, "Jaar aanleg": "2022", "geometry": Point(200, 0)},
-        ]
-    )
-    graph = nx.Graph()
-    graph.add_nodes_from(gdf.index)
-
-    groups = generate_grouped_proposals(gdf, graph)
-    ordered_primary_ids = [group["primary_ids"][0] for group in groups.values()]
-
-    assert ordered_primary_ids[:2] == [0, 1]
-    assert list(groups.values())[0]["sort_mode"] == "hm_route"
-    assert list(groups.values())[0]["tie_breaker_source"] == "lokale_route_as"

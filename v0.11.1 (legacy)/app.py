@@ -692,7 +692,6 @@ with col_inspector:
                     item[1].get("rank", 99),
                     item[1].get("sort_value", 0),
                     item[1].get("tie_breaker_dist", 0),
-                    item[1].get("fallback_tie_breaker_dist", 0),
                 ),
             )
 
@@ -718,10 +717,6 @@ with col_inspector:
 
                         st.markdown(f"**{icon} {group_data['subthema'].title()}** ({count} obj)")
                         st.caption(group_data["reason"])
-
-                        tie_breaker_source = group_data.get("tie_breaker_source", "")
-                        if tie_breaker_source == "lokale_route_as":
-                            st.caption("Volgorde: hectometrering + lokale route-as.")
 
                         assignment_note = group_data.get("assignment_note", "")
                         if assignment_note and assignment_note != "Primaire ruggengraatgroep; secundaire objecten apart toegewezen.":
@@ -1261,48 +1256,25 @@ with col_map:
 
                     object_diag = sort_diag.get("objects")
                     if show_object_diag and isinstance(object_diag, pd.DataFrame) and not object_diag.empty:
-                        attention_filter = st.selectbox(
-                            "Objectdiagnose-filter",
-                            [
-                                "Alle aandachtspunten",
-                                "Alleen waarschuwingen",
-                                "Alleen info",
-                                "Alle objecten",
-                            ],
-                            index=0,
-                            key=f"sort_diag_attention_filter_{selected_road}",
-                            help=(
-                                "Aandachtspunten zijn regels met een INFO of WAARSCHUWING. "
-                                "Gebruik 'Alleen waarschuwingen' voor echte risico's."
-                            ),
+                        warning_filter = st.checkbox(
+                            "Alleen objecten met sorteerwaarschuwing",
+                            value=True,
+                            key=f"sort_diag_warn_only_{selected_road}",
                         )
-
                         display_object_diag = object_diag
-                        if "sort_severity" in display_object_diag.columns:
-                            severity_series = display_object_diag["sort_severity"].astype(str).str.strip().str.lower()
-                            if attention_filter == "Alle aandachtspunten":
-                                display_object_diag = display_object_diag[severity_series != ""]
-                            elif attention_filter == "Alleen waarschuwingen":
-                                display_object_diag = display_object_diag[severity_series == "waarschuwing"]
-                            elif attention_filter == "Alleen info":
-                                display_object_diag = display_object_diag[severity_series == "info"]
-                        elif attention_filter != "Alle objecten" and "sort_warning" in display_object_diag.columns:
-                            # Fallback voor oude diagnoseframes zonder sort_severity.
-                            warning_text = display_object_diag["sort_warning"].astype(str).str.strip()
-                            display_object_diag = display_object_diag[warning_text != ""]
+                        if warning_filter and "sort_warning" in display_object_diag.columns:
+                            display_object_diag = display_object_diag[
+                                display_object_diag["sort_warning"].astype(str).str.strip() != ""
+                            ]
 
                         st.markdown("#### Objectdiagnose")
                         st.dataframe(display_object_diag, use_container_width=True, hide_index=True)
 
-                        # Download exact dezelfde regels als zichtbaar zijn.
+                        # Download exact dezelfde regels als zichtbaar zijn. In v0.11
+                        # exporteerde deze knop altijd de volledige objectdiagnose, ook
+                        # wanneer 'Alleen objecten met sorteerwaarschuwing' aan stond.
                         object_csv = display_object_diag.to_csv(index=False, sep=";").encode("utf-8-sig")
-                        suffix_map = {
-                            "Alle aandachtspunten": "_Aandachtspunten",
-                            "Alleen waarschuwingen": "_Waarschuwingen",
-                            "Alleen info": "_Info",
-                            "Alle objecten": "",
-                        }
-                        export_suffix = suffix_map.get(attention_filter, "")
+                        export_suffix = "_Waarschuwingen" if warning_filter else ""
                         st.download_button(
                             "📥 Download zichtbare objectdiagnose",
                             data=object_csv,
