@@ -1,4 +1,4 @@
-# iASSET Advisor - refactor v0.15.1
+# iASSET Advisor - refactor v0.15.0
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
@@ -107,15 +107,14 @@ pytest
 
 
 
-## Nieuw in v0.15.1
+## Nieuw in v0.15.0
 
-Deze patch maakt de v0.15-sortering robuuster voor compacte groepen met een verdachte route-startuitschieter, zoals de N354-casus rond `GRP_RIJBAAN_40`.
+Deze release maakt de Project Adviseur-sortering expliciet gebaseerd op de primaire ruggengraat van een onderhoudscomplex.
 
-- Compacte hm-groepen waarvan `route_start_m` kilometers afwijkt van `route_mid_m` gebruiken in overlapclusters nu de mediane routepositie als veilige Project Adviseur-sleutel.
-- De ruwe en gecorrigeerde sorteersleutel blijven controleerbaar via `advisor_sort_raw_m`, `advisor_sort_m` en `advisor_sort_correctie`.
-- Primaire objecten met een extreem grote route-span krijgen nu ook een duidelijke objectwaarschuwing, zodat ze in de waarschuwingen-/aandachtspuntenexport zichtbaar zijn.
-- De bestaande v0.15-velden `advisor_sort_basis`, `advisor_sort_fallback_m` en `advisor_sort_terugval_vorige` blijven bestaan.
-- De sorteerdiagnose gebruikt schema-versie `sortdiag-v0.15.1`, zodat oude Streamlit-session-state niet stil wordt hergebruikt.
+- Nieuwe velden `advisor_sort_m`, `advisor_sort_basis`, `advisor_sort_fallback_m` en `advisor_sort_terugval_vorige` tonen waarop de zichtbare projectvolgorde is gebaseerd.
+- De sorteersleutel gebruikt de primaire routepositie waar beschikbaar; secundaire objecten blijven gekoppelde inhoud, maar bepalen de projectvolgorde niet.
+- De bestaande v0.14.2-diagnosevelden blijven bestaan, zodat primaire-route en alle-object-route naast elkaar controleerbaar blijven.
+- De sorteerdiagnose gebruikt schema-versie `sortdiag-v0.15.0`, zodat oude Streamlit-session-state niet stil wordt hergebruikt.
 
 
 ## Nieuw in v0.14.2

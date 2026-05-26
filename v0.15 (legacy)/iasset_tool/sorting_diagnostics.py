@@ -672,8 +672,6 @@ def build_sort_diagnostics(
             "route_sort_bron",
             "route_sort_verklaarbaar",
             "advisor_sort_m",
-            "advisor_sort_raw_m",
-            "advisor_sort_correctie",
             "advisor_sort_basis",
             "advisor_sort_fallback_m",
             "advisor_sort_terugval_vorige",
@@ -814,17 +812,6 @@ def build_sort_diagnostics(
                 warnings.append(
                     f"INFO: meerdere secundaire objecten in zelfde wegvak/metrering/situering (meerdere objecten); {route_note}"
                 )
-        if object_route_outlier:
-            if bool(row["_diag_is_primary"]):
-                warnings.append(
-                    "WAARSCHUWING: primair object heeft extreem grote route-span; "
-                    "controleer geometrie of routeprojectie"
-                )
-            else:
-                warnings.append(
-                    "AANDACHTSPUNT: secundair object heeft extreem grote route-span; "
-                    "controleer koppeling aan onderhoudscomplex"
-                )
         if axis is None:
             warnings.append("WAARSCHUWING: geen lokale route-as")
 
@@ -900,8 +887,6 @@ def build_sort_diagnostics(
         route_sort_bron = clean_display_value(group_data.get("route_sort_bron", ""))
         fallback_sort = group_data.get("fallback_sort_m", group_data.get("fallback_tie_breaker_dist", None))
         advisor_sort_from_group = group_data.get("advisor_sort_m", route_sort_from_group)
-        advisor_sort_raw_from_group = group_data.get("advisor_sort_raw_m", advisor_sort_from_group)
-        advisor_sort_correctie = clean_display_value(group_data.get("advisor_sort_correctie", ""))
         advisor_sort_basis = clean_display_value(group_data.get("advisor_sort_basis", ""))
         advisor_sort_fallback = group_data.get("advisor_sort_fallback_m", fallback_sort)
 
@@ -979,14 +964,9 @@ def build_sort_diagnostics(
         route_sort = _diag_float(route_sort_from_group)
         fallback_sort_value = _diag_float(fallback_sort)
         advisor_sort_value = _diag_float(advisor_sort_from_group)
-        advisor_sort_raw_value = _diag_float(advisor_sort_raw_from_group)
         advisor_sort_fallback_value = _diag_float(advisor_sort_fallback)
         if advisor_sort_value is None and route_sort is not None:
             advisor_sort_value = route_sort
-        if advisor_sort_raw_value is None:
-            advisor_sort_raw_value = advisor_sort_value
-        if not advisor_sort_correctie:
-            advisor_sort_correctie = "geen_correctie"
         if not advisor_sort_basis:
             advisor_sort_basis = "primary_route_sort_m" if route_sort is not None else "globale_richting_fallback"
 
@@ -1054,8 +1034,6 @@ def build_sort_diagnostics(
                 "route_sort_bron": route_sort_bron,
                 "route_sort_verklaarbaar": bool(route_sort_verklaarbaar),
                 "advisor_sort_m": _round_or_none(advisor_sort_value),
-                "advisor_sort_raw_m": _round_or_none(advisor_sort_raw_value),
-                "advisor_sort_correctie": advisor_sort_correctie,
                 "advisor_sort_basis": advisor_sort_basis,
                 "advisor_sort_fallback_m": _round_or_none(advisor_sort_fallback_value),
                 "advisor_sort_terugval_vorige": False,
@@ -1151,14 +1129,6 @@ def build_sort_diagnostics(
                     warnings.append(
                         "INFO: overlapcluster-sortering actief: lokale routepositie gebruikt in plaats van alleen hm_min"
                     )
-
-            if clean_display_value(row.get("advisor_sort_correctie", "")) not in {"", "geen_correctie"}:
-                warnings.append(
-                    "INFO: Project Adviseur-sorteersleutel gecorrigeerd omdat route_start_m "
-                    "een uitschieter is binnen een compact hm-bereik"
-                )
-                if group_df.at[index, "sort_quality"] == "hoog":
-                    group_df.at[index, "sort_quality"] = "middel"
 
             if bool(row.get("route_conflict_sort_applied", False)):
                 group_df.at[index, "hm_route_conflict"] = True

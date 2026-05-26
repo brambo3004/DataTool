@@ -25,13 +25,6 @@ from .fietspad import FietspadClassification, FietspadProjectRole, classify_fiet
 from .sorting_diagnostics import build_local_axis, project_geometry_range_on_axis
 from .utils import clean_display_value
 
-# Drempel voor een routeprojectie die te groot is voor een compact hm-vak.
-# Bewust gelijk aan de diagnose-drempel in sorting_diagnostics.py, maar hier
-# lokaal gehouden om geen extra afhankelijkheid in de sorteerkern te maken.
-ROUTE_SPAN_OUTLIER_THRESHOLD_M = 1000.0
-COMPACT_HM_SPAN_FOR_ROUTE_CORRECTION = 0.2
-
-
 
 def _get_segmentation_hash(gdf: gpd.GeoDataFrame, node_id: int) -> tuple[str, ...]:
     """
@@ -231,52 +224,6 @@ def _route_value_is_explainable(
     return low <= route_sort_m <= high
 
 
-def _hm_span_for_group_data(group_data: dict[str, Any]) -> float | None:
-    """Geef het hm-bereik van een adviesgroep terug, tolerant voor lege waarden."""
-    try:
-        hm_min = float(group_data.get("hm_min_sort", group_data.get("sort_value", 99999.9)) or 99999.9)
-        hm_max = float(group_data.get("hm_max_sort", hm_min) or hm_min)
-    except (TypeError, ValueError, OverflowError):
-        return None
-
-    if hm_min >= 90000.0 or hm_max >= 90000.0:
-        return None
-
-    return abs(hm_max - hm_min)
-
-
-def _compact_group_has_route_start_outlier(group_data: dict[str, Any]) -> bool:
-    """
-    Herken de N354-achtige fout waarbij een compact hm-vak een extreem vroeg
-    route-startpunt heeft.
-
-    Waarom?
-    Bij overlapclusters gebruikte de Project Adviseur bewust het begin van een
-    groep. Dat werkt goed voor normale korte knips, maar niet wanneer één
-    primair object door een geometrische/projectie-uitschieter meer dan een
-    kilometer terugschiet terwijl midden/einde wel bij de buurgroepen liggen.
-    In dat geval is de mediaan van de routepositie veiliger als sorteersleutel.
-    """
-    hm_span = _hm_span_for_group_data(group_data)
-    if hm_span is not None and hm_span > COMPACT_HM_SPAN_FOR_ROUTE_CORRECTION:
-        return False
-
-    route_start = _safe_route_value(group_data.get("route_start_m"))
-    route_mid = _safe_route_value(group_data.get("route_mid_m"))
-    route_end = _safe_route_value(group_data.get("route_end_m"))
-
-    if route_start is None or route_mid is None:
-        return False
-
-    start_mid_delta = abs(route_mid - route_start)
-    mid_end_delta = abs(route_end - route_mid) if route_end is not None else 0.0
-
-    return (
-        start_mid_delta > ROUTE_SPAN_OUTLIER_THRESHOLD_M
-        and mid_end_delta <= ROUTE_SPAN_OUTLIER_THRESHOLD_M
-    )
-
-
 def _preferred_route_sort_value(
     group_data: dict[str, Any],
     *,
@@ -287,17 +234,14 @@ def _preferred_route_sort_value(
 
     Voor gewone groepen gebruiken we bij voorkeur de mediane positie
     ``route_mid_m``. Binnen overlapclusters gebruiken we liever het begin van
-    het segment ``route_start_m``. Vanaf v0.15.1 corrigeren we één veilige
-    uitzondering: een compact hm-vak met een extreem vroeg route-startpunt krijgt
-    ``route_mid_m`` als sorteersleutel, zodat een geometrische uitschieter de
-    projectvolgorde niet kilometers terugtrekt.
+    het segment ``route_start_m``. Daardoor komt een korte knip die ruimtelijk
+    eerder begint niet achter een lang segment te staan dat alleen een lagere
+    hm_min heeft.
     """
     route_start = _safe_route_value(group_data.get("route_start_m"))
     route_mid = _safe_route_value(group_data.get("route_mid_m"))
 
     if prefer_start and route_start is not None:
-        if _compact_group_has_route_start_outlier(group_data) and route_mid is not None:
-            return route_mid, "route_mid_m_gecorrigeerd_start_outlier"
         return route_start, "route_start_m"
 
     if route_mid is not None:
@@ -339,8 +283,6 @@ def _set_advisor_sort_metadata(
     advisor_sort_m: float | None,
     advisor_sort_basis: str,
     advisor_sort_fallback_m: float | None,
-    advisor_sort_raw_m: float | None = None,
-    advisor_sort_correctie: str = "",
 ) -> None:
     """
     Leg vast welke routecomponent de Project Adviseur echt gebruikt.
@@ -348,14 +290,11 @@ def _set_advisor_sort_metadata(
     Vanaf v0.15 is dit bewust een aparte diagnosewaarde. De hoofdvolgorde wordt
     gebaseerd op de primaire ruggengraat van het onderhoudscomplex. Secundaire
     objecten blijven gekoppelde inhoud, maar mogen de projectvolgorde niet stil
-    naar voren of achteren trekken. v0.15.1 bewaart daarnaast de ruwe waarde en
-    eventuele correctie, zodat een aangepaste sorteersleutel controleerbaar is.
+    naar voren of achteren trekken.
     """
     group_data["advisor_sort_m"] = advisor_sort_m
     group_data["advisor_sort_basis"] = advisor_sort_basis
     group_data["advisor_sort_fallback_m"] = advisor_sort_fallback_m
-    group_data["advisor_sort_raw_m"] = advisor_sort_m if advisor_sort_raw_m is None else advisor_sort_raw_m
-    group_data["advisor_sort_correctie"] = advisor_sort_correctie
 
 
 def _advisor_sort_component(group_data: dict[str, Any]) -> float:
@@ -679,15 +618,9 @@ def _sort_groups_with_overlap_clusters(
                     data["overlap_sort_applied"] = True
                     data["overlap_cluster_size"] = len(sorted_cluster)
 
-                    raw_route_sort = _safe_route_value(data.get("route_start_m"))
                     route_sort, route_sort_bron = _preferred_route_sort_value(data, prefer_start=True)
                     fallback = float(
                         data.get("fallback_tie_breaker_dist", data.get("axis_tie_breaker_dist", 0.0)) or 0.0
-                    )
-                    sort_correctie = (
-                        "compacte_groep_route_start_outlier_gecorrigeerd"
-                        if route_sort_bron == "route_mid_m_gecorrigeerd_start_outlier"
-                        else "geen_correctie"
                     )
                     _set_route_sort_metadata(
                         data,
@@ -700,8 +633,6 @@ def _sort_groups_with_overlap_clusters(
                         advisor_sort_m=route_sort,
                         advisor_sort_basis="primary_route_sort_m" if route_sort is not None else "stabiele_fallback",
                         advisor_sort_fallback_m=fallback,
-                        advisor_sort_raw_m=raw_route_sort,
-                        advisor_sort_correctie=sort_correctie,
                     )
 
                     if route_sort is None:
@@ -1268,8 +1199,6 @@ def generate_grouped_proposals(gdf: gpd.GeoDataFrame, graph: nx.Graph) -> dict[s
                     advisor_sort_m=route_sort,
                     advisor_sort_basis="primary_route_sort_m" if route_sort is not None else "globale_richting_fallback",
                     advisor_sort_fallback_m=global_tie_breaker_value,
-                    advisor_sort_raw_m=route_sort,
-                    advisor_sort_correctie="geen_correctie",
                 )
                 group_data["tie_breaker_dist"] = float(route_sort) if route_sort is not None else global_tie_breaker_value
                 group_data["fallback_tie_breaker_dist"] = global_tie_breaker_value
@@ -1289,8 +1218,6 @@ def generate_grouped_proposals(gdf: gpd.GeoDataFrame, graph: nx.Graph) -> dict[s
                     advisor_sort_m=global_tie_breaker_value,
                     advisor_sort_basis="globale_richting_fallback",
                     advisor_sort_fallback_m=global_tie_breaker_value,
-                    advisor_sort_raw_m=global_tie_breaker_value,
-                    advisor_sort_correctie="geen_correctie",
                 )
                 group_data["tie_breaker_dist"] = global_tie_breaker_value
                 group_data["fallback_tie_breaker_dist"] = 0.0
@@ -1310,8 +1237,6 @@ def generate_grouped_proposals(gdf: gpd.GeoDataFrame, graph: nx.Graph) -> dict[s
                 advisor_sort_m=global_tie_breaker_value,
                 advisor_sort_basis="globale_richting_fallback",
                 advisor_sort_fallback_m=global_tie_breaker_value,
-                advisor_sort_raw_m=global_tie_breaker_value,
-                advisor_sort_correctie="geen_correctie",
             )
             group_data["sort_value"] = global_tie_breaker_value
             group_data["tie_breaker_dist"] = 0.0

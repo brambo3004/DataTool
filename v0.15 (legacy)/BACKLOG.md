@@ -1,14 +1,5 @@
 # Takenlijst iASSET Advisor
 
-## Klaar in v0.15.1
-
-1. **Robuustere Project Adviseur-sleutel bij primaire route-outliers**
-   - Compacte hm-groepen met een extreem vroeg `route_start_m` gebruiken in overlapclusters `route_mid_m` als gecorrigeerde sorteersleutel.
-   - De diagnose toont `advisor_sort_raw_m`, `advisor_sort_m` en `advisor_sort_correctie`, zodat de correctie controleerbaar blijft.
-   - `GRP_RIJBAAN_40`-achtige situaties blijven een route-outlier-waarschuwing houden, maar trekken de projectvolgorde niet meer kilometers terug.
-   - Primaire objecten met een extreem grote `object_route_span_m` krijgen nu een objectwaarschuwing.
-   - Testdekking toegevoegd voor de N354-achtige route-startuitschieter en voor object-route-outliers.
-
 ## Klaar in v0.15.0
 
 1. **Projectvolgorde baseren op primaire ruggengraat**
@@ -29,7 +20,7 @@
    - Diagnoseberichten zijn versie-onafhankelijk gemaakt.
    - Testdekking uitgebreid voor route-mid versus route-sort, outliers, primaire/all-routeverschillen en versie-onafhankelijke waarschuwingen.
 
-## Gepland na v0.15.1
+## Gepland na v0.15.0
 
 1. **Fase 4-controle onderhoudscomplexen**
    - Paspoortexport en onderhoudsexport naast elkaar controleren.
