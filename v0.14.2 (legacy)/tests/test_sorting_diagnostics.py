@@ -49,9 +49,6 @@ def test_group_diagnostics_exposes_exact_route_sort_fields():
             "route_sort_m": 0.0,
             "route_sort_bron": "route_mid_m",
             "route_sort_verklaarbaar": True,
-            "advisor_sort_m": 0.0,
-            "advisor_sort_basis": "primary_route_sort_m",
-            "advisor_sort_fallback_m": 10.0,
             "fallback_sort_m": 10.0,
             "tie_breaker_dist": 0.0,
             "tie_breaker_source": "lokale_route_as",
@@ -69,10 +66,6 @@ def test_group_diagnostics_exposes_exact_route_sort_fields():
     assert row["route_sort_bron"] == "route_mid_m"
     assert row["route_sort_verklaarbaar"] is True or bool(row["route_sort_verklaarbaar"]) is True
     assert row["fallback_sort_m"] == 10.0
-    assert row["advisor_sort_m"] == 0.0
-    assert row["advisor_sort_basis"] == "primary_route_sort_m"
-    assert row["advisor_sort_fallback_m"] == 10.0
-    assert row["advisor_sort_terugval_vorige"] is False or bool(row["advisor_sort_terugval_vorige"]) is False
     assert row["tie_breaker_source"] == "lokale_route_as"
 
 
@@ -288,60 +281,3 @@ def test_sort_diagnostic_warning_texts_are_version_independent():
     assert "v0.13" not in warning_text
     assert "v0.14" not in warning_text
     assert "overlapcluster-sortering actief" in warning_text
-
-
-def test_group_diagnostics_reports_advisor_sort_backtracking_separately():
-    """
-    v0.15 toont een eventuele terugval in de Project Adviseur-sleutel apart,
-    zodat route- en advisor-diagnose niet door elkaar lopen.
-    """
-    gdf = _diagnose_gdf()
-    groups = {
-        "GRP_RIJBAAN_1": {
-            "ids": [0],
-            "primary_ids": [0],
-            "rank": 1,
-            "subthema": "rijstrook",
-            "layer_label": "rijstrook",
-            "route_start_m": 10.0,
-            "route_mid_m": 10.0,
-            "route_end_m": 10.0,
-            "route_sort_m": 10.0,
-            "route_sort_bron": "route_mid_m",
-            "advisor_sort_m": 10.0,
-            "advisor_sort_basis": "primary_route_sort_m",
-            "advisor_sort_fallback_m": 0.0,
-            "tie_breaker_source": "lokale_route_as",
-            "sort_mode": "hm_route",
-            "hm_min_sort": 1.0,
-            "hm_max_sort": 1.0,
-        },
-        "GRP_RIJBAAN_2": {
-            "ids": [1],
-            "primary_ids": [1],
-            "rank": 1,
-            "subthema": "rijstrook",
-            "layer_label": "rijstrook",
-            "route_start_m": 9.0,
-            "route_mid_m": 9.0,
-            "route_end_m": 9.0,
-            "route_sort_m": 9.0,
-            "route_sort_bron": "route_mid_m",
-            "advisor_sort_m": 9.0,
-            "advisor_sort_basis": "primary_route_sort_m",
-            "advisor_sort_fallback_m": 0.0,
-            "tie_breaker_source": "lokale_route_as",
-            "sort_mode": "hm_route",
-            "hm_min_sort": 1.1,
-            "hm_max_sort": 1.1,
-        },
-    }
-
-    _, group_diag, _ = build_sort_diagnostics(gdf, groups, selected_road="N398")
-    second = group_diag.iloc[1]
-
-    assert bool(second["advisor_sort_terugval_vorige"]) is True
-    assert bool(second["route_sort_terugval_vorige"]) is True
-    assert "advisor_sort_m" in group_diag.columns
-    assert "advisor_sort_basis" in group_diag.columns
-

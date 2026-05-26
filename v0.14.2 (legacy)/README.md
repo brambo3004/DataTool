@@ -1,4 +1,4 @@
-# iASSET Advisor - refactor v0.15.0
+# iASSET Advisor - refactor v0.14.2
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
@@ -105,16 +105,6 @@ pytest
 
 
 
-
-
-## Nieuw in v0.15.0
-
-Deze release maakt de Project Adviseur-sortering expliciet gebaseerd op de primaire ruggengraat van een onderhoudscomplex.
-
-- Nieuwe velden `advisor_sort_m`, `advisor_sort_basis`, `advisor_sort_fallback_m` en `advisor_sort_terugval_vorige` tonen waarop de zichtbare projectvolgorde is gebaseerd.
-- De sorteersleutel gebruikt de primaire routepositie waar beschikbaar; secundaire objecten blijven gekoppelde inhoud, maar bepalen de projectvolgorde niet.
-- De bestaande v0.14.2-diagnosevelden blijven bestaan, zodat primaire-route en alle-object-route naast elkaar controleerbaar blijven.
-- De sorteerdiagnose gebruikt schema-versie `sortdiag-v0.15.0`, zodat oude Streamlit-session-state niet stil wordt hergebruikt.
 
 
 ## Nieuw in v0.14.2

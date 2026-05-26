@@ -1,14 +1,5 @@
 # Takenlijst iASSET Advisor
 
-## Klaar in v0.15.0
-
-1. **Projectvolgorde baseren op primaire ruggengraat**
-   - Project Adviseur gebruikt een expliciete `advisor_sort_m`-sleutel.
-   - `advisor_sort_basis` maakt zichtbaar of de volgorde op primaire routepositie of fallback is gebaseerd.
-   - Secundaire objecten blijven gekoppelde inhoud van de groep, maar bepalen de projectvolgorde niet.
-   - Sorteerdiagnose toont `advisor_sort_terugval_vorige` naast de bestaande route-terugvalvelden.
-   - Testdekking toegevoegd voor primaire-ruggengraatvolgorde met een secundaire route-uitschieter.
-
 ## Klaar in v0.14.2
 
 1. **Diagnosefix routewaarden en primaire ruggengraat**
@@ -20,12 +11,12 @@
    - Diagnoseberichten zijn versie-onafhankelijk gemaakt.
    - Testdekking uitgebreid voor route-mid versus route-sort, outliers, primaire/all-routeverschillen en versie-onafhankelijke waarschuwingen.
 
-## Gepland na v0.15.0
+## Gepland voor v0.15
 
-1. **Fase 4-controle onderhoudscomplexen**
-   - Paspoortexport en onderhoudsexport naast elkaar controleren.
-   - Ontbrekende of verweesde onderhoudscomplexen signaleren.
-   - Controlepakket maken voor overleg vóór verwerking in iASSET en maatregeltoets.
+1. **Projectvolgorde baseren op primaire ruggengraat**
+   - Project Adviseur sorteert groepen expliciet op `primary_route_sort_m` waar beschikbaar.
+   - Secundaire objecten bepalen de inhoud van het onderhoudscomplex, maar niet de projectvolgorde.
+   - Fallbacks blijven zichtbaar en worden niet stil toegepast.
 
 ## Klaar in v0.13.1
 

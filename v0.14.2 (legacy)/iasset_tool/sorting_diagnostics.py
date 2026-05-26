@@ -2,16 +2,17 @@
 """
 Sorteerdiagnose voor onderhoudsprojecten.
 
-Deze module maakt zichtbaar waarop de Project Adviseur-volgorde gebaseerd is
-en waar de data onvoldoende is voor betrouwbare volgorde binnen hetzelfde
-wegvak/metrering.
+Deze module wijzigt de bestaande Project Adviseur-logica niet. De functies
+maken zichtbaar waarop de huidige volgorde gebaseerd is en waar de data
+onvoldoende is voor betrouwbare volgorde binnen hetzelfde wegvak/metrering.
 
 Waarom apart?
 De sortering van onderhoudsprojecten is domeingevoelig: kronkelende wegen,
 parallelwegen, meerdere rijstroken en extra knips binnen één hectometervak
-kunnen niet betrouwbaar worden opgelost met alleen X/Y-sortering. De diagnose
-toont daarom expliciet de primaire ruggengraatroute, alle-object-route en de
-feitelijke Project Adviseur-sleutel.
+kunnen niet betrouwbaar worden opgelost met alleen X/Y-sortering. Door eerst
+diagnosewaarden te tonen, kunnen databeheerders controleren welke bronvelden
+en geometrische hulplogica geschikt zijn voordat de echte sorteersleutel wordt
+aangepast.
 """
 
 from __future__ import annotations
@@ -671,10 +672,6 @@ def build_sort_diagnostics(
             "route_sort_m",
             "route_sort_bron",
             "route_sort_verklaarbaar",
-            "advisor_sort_m",
-            "advisor_sort_basis",
-            "advisor_sort_fallback_m",
-            "advisor_sort_terugval_vorige",
             "primary_route_start_m",
             "primary_route_mid_m",
             "primary_route_end_m",
@@ -879,16 +876,13 @@ def build_sort_diagnostics(
         # Gebruik voor de groepsdiagnose bij voorkeur exact dezelfde routewaarden
         # als de Project Adviseur heeft gebruikt. Daarnaast tonen we expliciet
         # de primaire route én de alle-object-route, zodat secundaire uitschieters
-        # zichtbaar blijven nu v0.15 de Project Adviseur-sleutel expliciet maakt.
+        # zichtbaar worden zonder dat v0.14.2 de sortering al verandert.
         route_start_from_group = group_data.get("route_start_m", None)
         route_mid_from_group = group_data.get("route_mid_m", None)
         route_end_from_group = group_data.get("route_end_m", None)
         route_sort_from_group = group_data.get("route_sort_m", None)
         route_sort_bron = clean_display_value(group_data.get("route_sort_bron", ""))
         fallback_sort = group_data.get("fallback_sort_m", group_data.get("fallback_tie_breaker_dist", None))
-        advisor_sort_from_group = group_data.get("advisor_sort_m", route_sort_from_group)
-        advisor_sort_basis = clean_display_value(group_data.get("advisor_sort_basis", ""))
-        advisor_sort_fallback = group_data.get("advisor_sort_fallback_m", fallback_sort)
 
         route_basis = "primary_ids" if primary_ids else "all_ids_fallback"
         primary_route_stats = _route_stats_from_projected(primary_projected)
@@ -963,12 +957,6 @@ def build_sort_diagnostics(
 
         route_sort = _diag_float(route_sort_from_group)
         fallback_sort_value = _diag_float(fallback_sort)
-        advisor_sort_value = _diag_float(advisor_sort_from_group)
-        advisor_sort_fallback_value = _diag_float(advisor_sort_fallback)
-        if advisor_sort_value is None and route_sort is not None:
-            advisor_sort_value = route_sort
-        if not advisor_sort_basis:
-            advisor_sort_basis = "primary_route_sort_m" if route_sort is not None else "globale_richting_fallback"
 
         if route_sort is not None and route_start is not None and route_end is not None:
             route_sort_verklaarbaar = min(route_start, route_end) - 0.01 <= route_sort <= max(route_start, route_end) + 0.01
@@ -1033,10 +1021,6 @@ def build_sort_diagnostics(
                 "route_sort_m": _round_or_none(route_sort),
                 "route_sort_bron": route_sort_bron,
                 "route_sort_verklaarbaar": bool(route_sort_verklaarbaar),
-                "advisor_sort_m": _round_or_none(advisor_sort_value),
-                "advisor_sort_basis": advisor_sort_basis,
-                "advisor_sort_fallback_m": _round_or_none(advisor_sort_fallback_value),
-                "advisor_sort_terugval_vorige": False,
                 "primary_route_start_m": _round_or_none(primary_route_stats.get("start")),
                 "primary_route_mid_m": _round_or_none(primary_route_stats.get("mid")),
                 "primary_route_end_m": _round_or_none(primary_route_stats.get("end")),
@@ -1079,12 +1063,7 @@ def build_sort_diagnostics(
         # Dit verandert de sortering niet; het maakt alleen zichtbaar waar
         # overlapcluster-sortering de volgorde moet verklaren.
         route_duplicate_keys: set[tuple[Any, Any, Any]] = set()
-        if "advisor_sort_m" in group_df.columns:
-            route_key_column = "advisor_sort_m"
-        elif "route_sort_m" in group_df.columns:
-            route_key_column = "route_sort_m"
-        else:
-            route_key_column = "route_mid_m"
+        route_key_column = "route_sort_m" if "route_sort_m" in group_df.columns else "route_mid_m"
         for (rank_value, hm_value), part in group_df.groupby(["rank", "hm_min"], dropna=False):
             rounded_routes = pd.to_numeric(part[route_key_column], errors="coerce").round(2)
             duplicated = rounded_routes.duplicated(keep=False)
@@ -1162,13 +1141,6 @@ def build_sort_diagnostics(
                 prev_route_mid = previous.get("route_mid_m")
                 route_sort = row.get("route_sort_m")
                 prev_route_sort = previous.get("route_sort_m")
-                advisor_sort = row.get("advisor_sort_m")
-                prev_advisor_sort = previous.get("advisor_sort_m")
-
-                advisor_sort_terugval = False
-                if pd.notna(advisor_sort) and pd.notna(prev_advisor_sort):
-                    advisor_sort_terugval = float(advisor_sort) + 0.01 < float(prev_advisor_sort)
-                    group_df.at[index, "advisor_sort_terugval_vorige"] = bool(advisor_sort_terugval)
 
                 route_mid_terugval = False
                 if pd.notna(route_mid) and pd.notna(prev_route_mid):
@@ -1182,15 +1154,6 @@ def build_sort_diagnostics(
                     # Backwards-compatible alias: vanaf v0.14.2 volgt deze kolom
                     # de feitelijke sorteersleutel, niet meer blind route_mid_m.
                     group_df.at[index, "route_terugval_vorige"] = bool(route_sort_terugval)
-
-                if advisor_sort_terugval and not route_sort_terugval:
-                    group_df.at[index, "hm_route_conflict"] = True
-                    warnings.append(
-                        "WAARSCHUWING: advisor_sort_m ligt vóór de vorige groep; "
-                        "controleer primaire ruggengraatvolgorde"
-                    )
-                    if group_df.at[index, "sort_quality"] == "hoog":
-                        group_df.at[index, "sort_quality"] = "middel"
 
                 if route_sort_terugval:
                     group_df.at[index, "hm_route_conflict"] = True

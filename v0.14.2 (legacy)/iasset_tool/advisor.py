@@ -277,51 +277,6 @@ def _set_route_sort_metadata(
     )
 
 
-def _set_advisor_sort_metadata(
-    group_data: dict[str, Any],
-    *,
-    advisor_sort_m: float | None,
-    advisor_sort_basis: str,
-    advisor_sort_fallback_m: float | None,
-) -> None:
-    """
-    Leg vast welke routecomponent de Project Adviseur echt gebruikt.
-
-    Vanaf v0.15 is dit bewust een aparte diagnosewaarde. De hoofdvolgorde wordt
-    gebaseerd op de primaire ruggengraat van het onderhoudscomplex. Secundaire
-    objecten blijven gekoppelde inhoud, maar mogen de projectvolgorde niet stil
-    naar voren of achteren trekken.
-    """
-    group_data["advisor_sort_m"] = advisor_sort_m
-    group_data["advisor_sort_basis"] = advisor_sort_basis
-    group_data["advisor_sort_fallback_m"] = advisor_sort_fallback_m
-
-
-def _advisor_sort_component(group_data: dict[str, Any]) -> float:
-    """
-    Geef de routecomponent terug die de Project Adviseur voor de zichtbare
-    volgorde gebruikt.
-
-    De volgorde is defensief:
-    1. expliciete v0.15-sleutel ``advisor_sort_m``;
-    2. oudere ``route_sort_m`` uit v0.14.x;
-    3. stabiele fallbackwaarden.
-    """
-    for key in (
-        "advisor_sort_m",
-        "route_sort_m",
-        "tie_breaker_dist",
-        "fallback_sort_m",
-        "fallback_tie_breaker_dist",
-        "axis_tie_breaker_dist",
-    ):
-        value = _safe_route_value(group_data.get(key))
-        if value is not None:
-            return float(value)
-
-    return 0.0
-
-
 def _overlap_cluster_route_key(group_data: dict[str, Any]) -> tuple[float, float, float, float]:
     """
     Sorteersleutel binnen een overlappend hm-cluster.
@@ -365,7 +320,7 @@ def _route_sort_for_conflict_resolution(group_data: dict[str, Any]) -> float | N
     We gebruiken eerst de expliciete ``route_sort_m`` uit de Project Adviseur.
     Ontbreekt die, dan vallen we terug op de eerder berekende routepositie.
     """
-    for key in ("advisor_sort_m", "route_sort_m", "route_start_m", "route_mid_m"):
+    for key in ("route_sort_m", "route_start_m", "route_mid_m"):
         value = _safe_route_value(group_data.get(key))
         if value is not None:
             return value
@@ -536,21 +491,14 @@ def _resolve_route_backtracking_conflicts(
 
 
 
-def _regular_group_sort_key(item: tuple[str, dict[str, Any]]) -> tuple[int, float, float, float, str]:
-    """
-    Sorteersleutel voor niet-overlappende groepen.
-
-    v0.15 maakt de routecomponent expliciet: de Project Adviseur kijkt eerst naar
-    de primaire ruggengraatpositie (``advisor_sort_m``). Pas als die ontbreekt,
-    valt de app terug op oudere route-/fallbackwaarden.
-    """
-    group_id, group_data = item
+def _regular_group_sort_key(item: tuple[str, dict[str, Any]]) -> tuple[int, float, float, float]:
+    """Sorteersleutel voor niet-overlappende groepen."""
+    _, group_data = item
     return (
         int(group_data.get("rank", 99)),
         float(group_data.get("hm_min_sort", group_data.get("sort_value", 99999.9)) or 99999.9),
-        _advisor_sort_component(group_data),
+        float(group_data.get("tie_breaker_dist", 0.0) or 0.0),
         float(group_data.get("fallback_tie_breaker_dist", 0.0) or 0.0),
-        str(group_id),
     )
 
 
@@ -627,12 +575,6 @@ def _sort_groups_with_overlap_clusters(
                         route_sort_m=route_sort,
                         route_sort_bron=route_sort_bron,
                         fallback_sort_m=fallback,
-                    )
-                    _set_advisor_sort_metadata(
-                        data,
-                        advisor_sort_m=route_sort,
-                        advisor_sort_basis="primary_route_sort_m" if route_sort is not None else "stabiele_fallback",
-                        advisor_sort_fallback_m=fallback,
                     )
 
                     if route_sort is None:
@@ -1120,7 +1062,7 @@ def generate_grouped_proposals(gdf: gpd.GeoDataFrame, graph: nx.Graph) -> dict[s
     1. Bouw per primaire laag de ruggengraatgroepen;
     2. knip die ruggengraat bij veranderende segmentatiekenmerken;
     3. wijs secundaire objecten toe via afstand en hiërarchie;
-    4. sorteer de groepen op rang, hectometrering en primaire ruggengraatroute.
+    4. sorteer de groepen op rang, hectometrering en ruimtelijke tie-breaker.
     """
     if gdf is None or gdf.empty or graph is None:
         return {}
@@ -1148,34 +1090,20 @@ def generate_grouped_proposals(gdf: gpd.GeoDataFrame, graph: nx.Graph) -> dict[s
         group_nodes = gdf.loc[group_data["ids"]]
         global_tie_breaker_value = _axis_tie_breaker(gdf, group_data["ids"], direction_code)
 
-        # v0.15: gebruik de lokale route-as van de primaire ruggengraat
-        # als gecontroleerde sorteersleutel. De globale X/Y-richting blijft als
+        # v0.12: gebruik de lokale route-as als gecontroleerde tie-breaker
+        # binnen dezelfde hectometrering. De globale X/Y-richting blijft als
         # fallback bestaan, zodat eindpunt- of rotondegevallen niet instabiel
         # worden wanneer meerdere groepen dezelfde routepositie krijgen.
-        primary_route_start, primary_route_mid, primary_route_end = _route_axis_tie_breaker(
+        route_start, route_mid, route_end = _route_axis_tie_breaker(
             gdf,
             group_data.get("primary_ids") or group_data["ids"],
             local_axis,
         )
-        all_route_start, all_route_mid, all_route_end = _route_axis_tie_breaker(
-            gdf,
-            group_data["ids"],
-            local_axis,
-        )
 
-        # De historische routevelden blijven bestaan voor bestaande diagnose-
-        # exports, maar zijn vanaf v0.15 expliciet de primaire ruggengraatroute.
-        route_start, route_mid, route_end = primary_route_start, primary_route_mid, primary_route_end
         group_data["route_tie_breaker_dist"] = route_mid
         group_data["route_start_m"] = route_start
         group_data["route_mid_m"] = route_mid
         group_data["route_end_m"] = route_end
-        group_data["primary_route_start_m"] = primary_route_start
-        group_data["primary_route_mid_m"] = primary_route_mid
-        group_data["primary_route_end_m"] = primary_route_end
-        group_data["all_route_start_m"] = all_route_start
-        group_data["all_route_mid_m"] = all_route_mid
-        group_data["all_route_end_m"] = all_route_end
         group_data["axis_tie_breaker_dist"] = global_tie_breaker_value
         group_data["axis_source"] = axis_result.source
 
@@ -1194,12 +1122,6 @@ def generate_grouped_proposals(gdf: gpd.GeoDataFrame, graph: nx.Graph) -> dict[s
                     route_sort_bron=route_sort_bron,
                     fallback_sort_m=global_tie_breaker_value,
                 )
-                _set_advisor_sort_metadata(
-                    group_data,
-                    advisor_sort_m=route_sort,
-                    advisor_sort_basis="primary_route_sort_m" if route_sort is not None else "globale_richting_fallback",
-                    advisor_sort_fallback_m=global_tie_breaker_value,
-                )
                 group_data["tie_breaker_dist"] = float(route_sort) if route_sort is not None else global_tie_breaker_value
                 group_data["fallback_tie_breaker_dist"] = global_tie_breaker_value
                 group_data["tie_breaker_source"] = "lokale_route_as" if route_sort is not None else "globale_richting_fallback"
@@ -1213,12 +1135,6 @@ def generate_grouped_proposals(gdf: gpd.GeoDataFrame, graph: nx.Graph) -> dict[s
                     route_sort_bron="",
                     fallback_sort_m=global_tie_breaker_value,
                 )
-                _set_advisor_sort_metadata(
-                    group_data,
-                    advisor_sort_m=global_tie_breaker_value,
-                    advisor_sort_basis="globale_richting_fallback",
-                    advisor_sort_fallback_m=global_tie_breaker_value,
-                )
                 group_data["tie_breaker_dist"] = global_tie_breaker_value
                 group_data["fallback_tie_breaker_dist"] = 0.0
                 group_data["tie_breaker_source"] = "globale_richting_fallback"
@@ -1231,12 +1147,6 @@ def generate_grouped_proposals(gdf: gpd.GeoDataFrame, graph: nx.Graph) -> dict[s
                 route_sort_m=None,
                 route_sort_bron="",
                 fallback_sort_m=global_tie_breaker_value,
-            )
-            _set_advisor_sort_metadata(
-                group_data,
-                advisor_sort_m=global_tie_breaker_value,
-                advisor_sort_basis="globale_richting_fallback",
-                advisor_sort_fallback_m=global_tie_breaker_value,
             )
             group_data["sort_value"] = global_tie_breaker_value
             group_data["tie_breaker_dist"] = 0.0
