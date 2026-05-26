@@ -91,7 +91,7 @@ def test_build_maintenance_control_finds_ok_missing_and_orphan_projects():
     result = build_maintenance_control(passport_df, maintenance_df, selected_road="N398")
 
     statuses = dict(zip(result.comparison["onderhoudsproject"], result.comparison["status"]))
-    assert statuses["N398-HRB-01.0-02.0"] == "OK_VOLLEDIG"
+    assert statuses["N398-HRB-01.0-02.0"] == "OK"
     assert statuses["N398-HRB-02.0-03.0"] == "ONTBREEKT_IN_ONDERHOUD"
     assert statuses["N398-HRB-03.0-04.0"] == "GEEN_PASPOORTOBJECTEN"
     assert result.summary["projecten_ok"] == 1
@@ -147,104 +147,3 @@ def test_maintenance_summary_filters_by_selected_road_from_project_name():
 
     assert len(summary) == 1
     assert summary.iloc[0]["onderhoudsproject"] == "N398-HRB-01.0-02.0"
-
-
-def test_build_maintenance_control_detects_object_difference_and_wrong_road_object():
-    passport_df = pd.DataFrame(
-        [
-            {
-                "nummer": "VV-N398-26704",
-                "Wegnummer": "N398",
-                "subthema": "rijstrook",
-                "Onderhoudsproject": "N398-HRB-00.8-01.1",
-                "Metrering": "0,8",
-            },
-            {
-                "nummer": "VV-N398-26707",
-                "Wegnummer": "N398",
-                "subthema": "rijstrook",
-                "Onderhoudsproject": "N398-HRB-00.8-01.1",
-                "Metrering": "1,0",
-            },
-        ]
-    )
-
-    maintenance_df = pd.DataFrame(
-        [
-            {
-                "objectnummer": "VV-N398-26704",
-                "Onderhoudsproject": "N398-HRB-00.8-01.1",
-                "maatregel": "OAB",
-            },
-            {
-                "objectnummer": "VV-N398-26707",
-                "Onderhoudsproject": "N398-HRB-00.8-01.1",
-                "maatregel": "OAB",
-            },
-            {
-                "objectnummer": "VV-N389-00000008",
-                "Onderhoudsproject": "N398-HRB-00.8-01.1",
-                "maatregel": "OAB",
-            },
-        ]
-    )
-
-    result = build_maintenance_control(passport_df, maintenance_df, selected_road="N398")
-
-    row = result.comparison.iloc[0]
-    assert row["status"] == "OBJECT_WEGNUMMER_VERDACHT"
-    assert row["alleen_in_onderhoud"] == 1
-    assert row["onderhoud_object_wegnummer_verdacht"] == 1
-
-    diff_types = set(result.object_differences["verschiltype"])
-    assert "ALLEEN_IN_ONDERHOUD" in diff_types
-    assert "OBJECT_WEGNUMMER_VERDACHT" in diff_types
-
-
-def test_invalid_metrering_is_ignored_for_hm_range_but_reported():
-    passport_df = pd.DataFrame(
-        [
-            {
-                "nummer": "VV-N398-38213",
-                "Wegnummer": "N398",
-                "subthema": "rijstrook",
-                "Onderhoudsproject": "N398-HRB-04.8-04.9",
-                "Metrering": "4,9",
-            },
-            {
-                "nummer": "VV-N398-38214",
-                "Wegnummer": "N398",
-                "subthema": "inrit en doorsteek",
-                "Onderhoudsproject": "N398-HRB-04.8-04.9",
-                "Metrering": "4,,9",
-            },
-        ]
-    )
-
-    maintenance_df = pd.DataFrame(
-        [
-            {
-                "objectnummer": "VV-N398-38213",
-                "Onderhoudsproject": "N398-HRB-04.8-04.9",
-                "maatregel": "DGD",
-            },
-            {
-                "objectnummer": "VV-N398-38214",
-                "Onderhoudsproject": "N398-HRB-04.8-04.9",
-                "maatregel": "DGD",
-            },
-        ]
-    )
-
-    result = build_maintenance_control(passport_df, maintenance_df, selected_road="N398")
-
-    summary_row = result.passport_projects.iloc[0]
-    assert summary_row["paspoort_hm_min"] == 4.9
-    assert summary_row["paspoort_hm_max"] == 4.9
-    assert summary_row["paspoort_ongeldige_metrering_aantal"] == 1
-
-    comparison_row = result.comparison.iloc[0]
-    assert comparison_row["status"] == "HM_BEREIK_VERDACHT"
-
-    diff_types = set(result.object_differences["verschiltype"])
-    assert "ONGELDIGE_METRERING_PASPOORT" in diff_types

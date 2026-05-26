@@ -50,7 +50,6 @@ class MaintenanceControlResult:
     comparison: pd.DataFrame = field(default_factory=pd.DataFrame)
     passport_projects: pd.DataFrame = field(default_factory=pd.DataFrame)
     maintenance_projects: pd.DataFrame = field(default_factory=pd.DataFrame)
-    object_differences: pd.DataFrame = field(default_factory=pd.DataFrame)
     warnings: list[str] = field(default_factory=list)
 
 
@@ -513,325 +512,6 @@ def _join_preview(values: Iterable[Any], max_items: int = 6) -> str:
 
 
 
-
-
-def normalize_object_number(value: Any) -> str:
-    """
-    Normaliseer objectnummers voor Fase-4-vergelijking.
-
-    We gebruiken hoofdletters en verwijderen loze spaties, maar veranderen de
-    inhoud niet. Een verkeerd wegnummer in een objectnummer moet dus zichtbaar
-    blijven en mag niet door normalisatie verdwijnen.
-    """
-    if is_empty_value(value):
-        return ""
-
-    text = clean_display_value(value).strip().upper()
-    if text in {"NAN", "NONE", "NULL", "<NA>"}:
-        return ""
-
-    text = re.sub(r"\s+", "", text)
-    return text
-
-
-def _extract_road_from_text(value: Any) -> str:
-    """Haal een N-wegnummer uit een project- of objecttekst, als dat aanwezig is."""
-    text = clean_display_value(value).upper()
-    match = re.search(r"\bN\d{3,4}\b", text)
-    return match.group(0) if match else ""
-
-
-def _hm_value_for_control(row: pd.Series) -> float:
-    """
-    Bepaal een betrouwbare hectometerwaarde voor Fase-4-samenvattingen.
-
-    Waarom niet blind op ``hm_sort`` vertrouwen?
-    De algemene sorteerfallback gebruikt 99999.9 bij ongeldige metrering. Dat is
-    handig om de app niet te laten crashen, maar ongeschikt voor rapportage:
-    één waarde zoals ``4,,9`` mag de samenvatting niet naar hm 99999.9 trekken.
-    """
-    if "Metrering" in row.index:
-        hm_value = parse_hm_sort(row.get("Metrering"), fallback=float("nan"))
-    elif "hm_sort" in row.index:
-        hm_value = pd.to_numeric(row.get("hm_sort"), errors="coerce")
-    else:
-        return float("nan")
-
-    if pd.isna(hm_value):
-        return float("nan")
-
-    try:
-        hm_float = float(hm_value)
-    except (TypeError, ValueError, OverflowError):
-        return float("nan")
-
-    # 99999.9 is de generieke sorteerfallback voor ongeldige waarden. Voor deze
-    # controle behandelen we zulke waarden als ongeldig en rapporteren we ze los.
-    if hm_float >= 90000:
-        return float("nan")
-
-    return hm_float
-
-
-def _prepare_passport_project_rows(passport_df: pd.DataFrame, selected_road: str | None = None) -> pd.DataFrame:
-    """Maak paspoortregels klaar voor projectcontrole."""
-    if passport_df is None or passport_df.empty or "Onderhoudsproject" not in passport_df.columns:
-        return pd.DataFrame()
-
-    working = passport_df.copy()
-    if selected_road and "Wegnummer" in working.columns:
-        selected_road_text = clean_display_value(selected_road)
-        working = working[working["Wegnummer"].astype(str).str.strip() == selected_road_text].copy()
-
-    working["project_norm"] = working["Onderhoudsproject"].apply(normalize_project_name)
-    working = working[working["project_norm"] != ""].copy()
-
-    if working.empty:
-        return working
-
-    working["_hm_sort_control"] = working.apply(_hm_value_for_control, axis=1)
-    working["_hm_valid_control"] = working["_hm_sort_control"].notna()
-    return working
-
-
-def _prepare_maintenance_project_rows(maintenance_df: pd.DataFrame, selected_road: str | None = None) -> pd.DataFrame:
-    """Maak onderhoudsregels klaar voor projectcontrole."""
-    if maintenance_df is None or maintenance_df.empty:
-        return pd.DataFrame()
-
-    project_column = _first_existing_column(maintenance_df, ["Onderhoudsproject", "project"])
-    if project_column is None:
-        return pd.DataFrame()
-
-    working = maintenance_df.copy()
-    working["project_norm"] = working[project_column].apply(normalize_project_name)
-    working = working[working["project_norm"] != ""].copy()
-
-    if selected_road:
-        selected = clean_display_value(selected_road).upper()
-        if selected:
-            working = working[working["project_norm"].str.contains(re.escape(selected), na=False)].copy()
-
-    return working
-
-
-def _object_display_map(values: Iterable[Any]) -> dict[str, str]:
-    """Bewaar per genormaliseerd objectnummer de eerste leesbare schrijfwijze."""
-    result: dict[str, str] = {}
-    for value in values:
-        normalized = normalize_object_number(value)
-        if not normalized:
-            continue
-        result.setdefault(normalized, clean_display_value(value))
-    return result
-
-
-def _passport_project_object_maps(
-    passport_df: pd.DataFrame,
-    selected_road: str | None = None,
-) -> dict[str, dict[str, Any]]:
-    """Verzamel paspoortobjecten per onderhoudsproject."""
-    working = _prepare_passport_project_rows(passport_df, selected_road=selected_road)
-    if working.empty:
-        return {}
-
-    object_column = _first_existing_column(working, ["nummer", "bron_id", "objectnummer", "sys_id"])
-    result: dict[str, dict[str, Any]] = {}
-
-    for project_norm, group in working.groupby("project_norm", dropna=False):
-        project_names = [clean_display_value(value) for value in group["Onderhoudsproject"] if clean_display_value(value)]
-        project_name = project_names[0] if project_names else project_norm
-
-        object_values = group[object_column] if object_column else group.index.to_series()
-        display_map = _object_display_map(object_values)
-
-        invalid_hm_records: list[dict[str, str]] = []
-        invalid_group = group[~group["_hm_valid_control"]]
-        for row_index, row in invalid_group.iterrows():
-            raw_object = row.get(object_column, row_index) if object_column else row_index
-            normalized_object = normalize_object_number(raw_object)
-            if not normalized_object:
-                continue
-
-            invalid_hm_records.append(
-                {
-                    "objectnummer_norm": normalized_object,
-                    "objectnummer": clean_display_value(raw_object),
-                    "metrering": clean_display_value(row.get("Metrering", "")),
-                }
-            )
-
-        result[str(project_norm)] = {
-            "onderhoudsproject": project_name,
-            "objects": set(display_map),
-            "display": display_map,
-            "invalid_hm": invalid_hm_records,
-        }
-
-    return result
-
-
-def _maintenance_project_object_maps(
-    maintenance_df: pd.DataFrame,
-    selected_road: str | None = None,
-) -> dict[str, dict[str, Any]]:
-    """Verzamel onderhoudsexportobjecten per onderhoudsproject."""
-    working = _prepare_maintenance_project_rows(maintenance_df, selected_road=selected_road)
-    if working.empty:
-        return {}
-
-    project_column = _first_existing_column(working, ["Onderhoudsproject", "project"])
-    object_column = _first_existing_column(working, ["objectnummer", "nummer", "bron_id"])
-    result: dict[str, dict[str, Any]] = {}
-
-    for project_norm, group in working.groupby("project_norm", dropna=False):
-        project_names = [clean_display_value(value) for value in group[project_column] if clean_display_value(value)]
-        project_name = project_names[0] if project_names else project_norm
-
-        if object_column:
-            object_values = group[object_column]
-            display_map = _object_display_map(object_values)
-        else:
-            display_map = {}
-
-        result[str(project_norm)] = {
-            "onderhoudsproject": project_name,
-            "objects": set(display_map),
-            "display": display_map,
-        }
-
-    return result
-
-
-def build_object_differences(
-    passport_df: pd.DataFrame,
-    maintenance_df: pd.DataFrame,
-    selected_road: str | None = None,
-) -> pd.DataFrame:
-    """
-    Vergelijk objectsets per onderhoudsproject.
-
-    Deze tabel is de verdiepende Fase-4-controle: projectnamen kunnen in beide
-    exports bestaan, terwijl de onderliggende objecten toch verschillen.
-    """
-    passport_map = _passport_project_object_maps(passport_df, selected_road=selected_road)
-    maintenance_map = _maintenance_project_object_maps(maintenance_df, selected_road=selected_road)
-    keys = sorted(set(passport_map) | set(maintenance_map))
-    records: list[dict[str, Any]] = []
-    selected_road_text = clean_display_value(selected_road).upper() if selected_road else ""
-
-    for key in keys:
-        passport_record = passport_map.get(key, {})
-        maintenance_record = maintenance_map.get(key, {})
-        project_name = (
-            passport_record.get("onderhoudsproject")
-            or maintenance_record.get("onderhoudsproject")
-            or key
-        )
-
-        passport_objects = set(passport_record.get("objects", set()))
-        maintenance_objects = set(maintenance_record.get("objects", set()))
-        passport_display = passport_record.get("display", {})
-        maintenance_display = maintenance_record.get("display", {})
-
-        for object_norm in sorted(passport_objects - maintenance_objects):
-            records.append(
-                {
-                    "onderhoudsproject": project_name,
-                    "project_norm": key,
-                    "objectnummer": passport_display.get(object_norm, object_norm),
-                    "objectnummer_norm": object_norm,
-                    "verschiltype": "ALLEEN_IN_PASPOORT",
-                    "bron": "paspoortexport",
-                    "ernst": "waarschuwing",
-                    "object_wegnummer_vermoed": _extract_road_from_text(object_norm),
-                    "geselecteerde_weg": selected_road_text,
-                    "metrering": "",
-                    "melding": "Object staat in de paspoortexport, maar niet in de onderhoudsexport.",
-                }
-            )
-
-        for object_norm in sorted(maintenance_objects - passport_objects):
-            object_road = _extract_road_from_text(object_norm)
-            records.append(
-                {
-                    "onderhoudsproject": project_name,
-                    "project_norm": key,
-                    "objectnummer": maintenance_display.get(object_norm, object_norm),
-                    "objectnummer_norm": object_norm,
-                    "verschiltype": "ALLEEN_IN_ONDERHOUD",
-                    "bron": "onderhoudsexport",
-                    "ernst": "waarschuwing",
-                    "object_wegnummer_vermoed": object_road,
-                    "geselecteerde_weg": selected_road_text,
-                    "metrering": "",
-                    "melding": "Object staat in de onderhoudsexport, maar niet in de paspoortexport.",
-                }
-            )
-
-        for object_norm in sorted(maintenance_objects):
-            object_road = _extract_road_from_text(object_norm)
-            if selected_road_text and object_road and object_road != selected_road_text:
-                records.append(
-                    {
-                        "onderhoudsproject": project_name,
-                        "project_norm": key,
-                        "objectnummer": maintenance_display.get(object_norm, object_norm),
-                        "objectnummer_norm": object_norm,
-                        "verschiltype": "OBJECT_WEGNUMMER_VERDACHT",
-                        "bron": "onderhoudsexport",
-                        "ernst": "waarschuwing",
-                        "object_wegnummer_vermoed": object_road,
-                        "geselecteerde_weg": selected_road_text,
-                        "metrering": "",
-                        "melding": (
-                            f"Objectnummer lijkt bij {object_road} te horen, "
-                            f"maar de controle draait voor {selected_road_text}."
-                        ),
-                    }
-                )
-
-        for invalid_hm in passport_record.get("invalid_hm", []):
-            records.append(
-                {
-                    "onderhoudsproject": project_name,
-                    "project_norm": key,
-                    "objectnummer": invalid_hm.get("objectnummer", ""),
-                    "objectnummer_norm": invalid_hm.get("objectnummer_norm", ""),
-                    "verschiltype": "ONGELDIGE_METRERING_PASPOORT",
-                    "bron": "paspoortexport",
-                    "ernst": "aandachtspunt",
-                    "object_wegnummer_vermoed": _extract_road_from_text(invalid_hm.get("objectnummer_norm", "")),
-                    "geselecteerde_weg": selected_road_text,
-                    "metrering": invalid_hm.get("metrering", ""),
-                    "melding": "Object heeft een ongeldige metrering; genegeerd in hm_min/hm_max.",
-                }
-            )
-
-    if not records:
-        return pd.DataFrame(
-            columns=[
-                "onderhoudsproject",
-                "project_norm",
-                "objectnummer",
-                "objectnummer_norm",
-                "verschiltype",
-                "bron",
-                "ernst",
-                "object_wegnummer_vermoed",
-                "geselecteerde_weg",
-                "metrering",
-                "melding",
-            ]
-        )
-
-    sort_order = {"waarschuwing": 0, "aandachtspunt": 1, "info": 2, "ok": 3}
-    result = pd.DataFrame(records)
-    result["_sort_ernst"] = result["ernst"].map(sort_order).fillna(9)
-    result = result.sort_values(["_sort_ernst", "onderhoudsproject", "verschiltype", "objectnummer"]).drop(columns=["_sort_ernst"]).reset_index(drop=True)
-    return result
-
-
 def _numeric_score(series: pd.Series) -> int:
     """Tel hoeveel waarden in een kolom numeriek leesbaar zijn."""
     if series is None or series.empty:
@@ -889,7 +569,13 @@ def summarize_passport_projects(passport_df: pd.DataFrame, selected_road: str | 
     if "Onderhoudsproject" not in passport_df.columns:
         return pd.DataFrame()
 
-    working = _prepare_passport_project_rows(passport_df, selected_road=selected_road)
+    working = passport_df.copy()
+    if selected_road and "Wegnummer" in working.columns:
+        selected_road_text = clean_display_value(selected_road)
+        working = working[working["Wegnummer"].astype(str).str.strip() == selected_road_text].copy()
+
+    working["project_norm"] = working["Onderhoudsproject"].apply(normalize_project_name)
+    working = working[working["project_norm"] != ""].copy()
 
     if working.empty:
         return pd.DataFrame()
@@ -898,6 +584,13 @@ def summarize_passport_projects(passport_df: pd.DataFrame, selected_road: str | 
     subthema_series = working["subthema"].apply(normalize_text) if "subthema" in working.columns else pd.Series("", index=working.index)
     working["_is_primary"] = subthema_series.isin({normalize_text(value) for value in BACKBONE_TYPES})
     working["_is_exempt"] = working.apply(is_maintenance_project_exempt, axis=1)
+
+    if "hm_sort" in working.columns:
+        working["_hm_sort_control"] = pd.to_numeric(working["hm_sort"], errors="coerce")
+    elif "Metrering" in working.columns:
+        working["_hm_sort_control"] = working["Metrering"].apply(lambda value: parse_hm_sort(value, fallback=float("nan")))
+    else:
+        working["_hm_sort_control"] = float("nan")
 
     records: list[dict[str, Any]] = []
 
@@ -917,14 +610,9 @@ def summarize_passport_projects(passport_df: pd.DataFrame, selected_road: str | 
             "paspoort_subthema_samenvatting": _join_preview(group["subthema"]) if "subthema" in group.columns else "",
             "paspoort_objectvoorbeeld": _join_preview(object_values, max_items=8),
             "paspoort_naamvarianten": _join_preview(project_names),
-            "paspoort_ongeldige_metrering_aantal": int((~group["_hm_valid_control"]).sum()),
-            "paspoort_ongeldige_metrering_objecten": _join_preview(
-                object_values[~group["_hm_valid_control"]],
-                max_items=8,
-            ),
         }
 
-        hm_values = pd.to_numeric(group.loc[group["_hm_valid_control"], "_hm_sort_control"], errors="coerce").dropna()
+        hm_values = pd.to_numeric(group["_hm_sort_control"], errors="coerce").dropna()
         if not hm_values.empty:
             record["paspoort_hm_min"] = float(hm_values.min())
             record["paspoort_hm_max"] = float(hm_values.max())
@@ -945,12 +633,24 @@ def summarize_maintenance_projects(maintenance_df: pd.DataFrame, selected_road: 
     if maintenance_df is None or maintenance_df.empty:
         return pd.DataFrame()
 
-    working = _prepare_maintenance_project_rows(maintenance_df, selected_road=selected_road)
+    project_column = _first_existing_column(maintenance_df, ["Onderhoudsproject", "project"])
+    if project_column is None:
+        return pd.DataFrame()
+
+    working = maintenance_df.copy()
+    working["project_norm"] = working[project_column].apply(normalize_project_name)
+    working = working[working["project_norm"] != ""].copy()
+
+    if selected_road:
+        selected = clean_display_value(selected_road).upper()
+        if selected:
+            # Filter mild op projectnaam, omdat onderhoudsexporten vaak geen losse
+            # Wegnummer-kolom hebben maar wel projectnamen als N398-HRB-...
+            working = working[working["project_norm"].str.contains(re.escape(selected.upper()), na=False)].copy()
 
     if working.empty:
         return pd.DataFrame()
 
-    project_column = _first_existing_column(working, ["Onderhoudsproject", "project"])
     object_column = _first_existing_column(working, ["objectnummer", "nummer", "bron_id"])
     measure_column = _first_existing_column(working, ["maatregel", "Maatregel Omschrijving"])
     amount_column = _first_existing_column(working, ["hoeveelheid", "Hoeveelh."])
@@ -995,42 +695,11 @@ def summarize_maintenance_projects(maintenance_df: pd.DataFrame, selected_road: 
     return pd.DataFrame(records).sort_values(["onderhoudsproject"]).reset_index(drop=True)
 
 
-def _difference_counts_for_project(object_differences: pd.DataFrame, project_key: str) -> dict[str, int]:
-    """Tel objectverschillen voor één onderhoudsproject."""
-    if object_differences is None or object_differences.empty:
-        return {
-            "objectverschillen_aantal": 0,
-            "alleen_in_paspoort": 0,
-            "alleen_in_onderhoud": 0,
-            "onderhoud_object_wegnummer_verdacht": 0,
-            "ongeldige_metrering_paspoort": 0,
-        }
-
-    project_diffs = object_differences[object_differences["project_norm"].astype(str) == str(project_key)]
-    if project_diffs.empty:
-        return {
-            "objectverschillen_aantal": 0,
-            "alleen_in_paspoort": 0,
-            "alleen_in_onderhoud": 0,
-            "onderhoud_object_wegnummer_verdacht": 0,
-            "ongeldige_metrering_paspoort": 0,
-        }
-
-    return {
-        "objectverschillen_aantal": int(project_diffs["verschiltype"].isin(["ALLEEN_IN_PASPOORT", "ALLEEN_IN_ONDERHOUD"]).sum()),
-        "alleen_in_paspoort": int((project_diffs["verschiltype"] == "ALLEEN_IN_PASPOORT").sum()),
-        "alleen_in_onderhoud": int((project_diffs["verschiltype"] == "ALLEEN_IN_ONDERHOUD").sum()),
-        "onderhoud_object_wegnummer_verdacht": int((project_diffs["verschiltype"] == "OBJECT_WEGNUMMER_VERDACHT").sum()),
-        "ongeldige_metrering_paspoort": int((project_diffs["verschiltype"] == "ONGELDIGE_METRERING_PASPOORT").sum()),
-    }
-
-
 def compare_passport_and_maintenance(
     passport_projects: pd.DataFrame,
     maintenance_projects: pd.DataFrame,
-    object_differences: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Leg paspoortprojecten, onderhoudsprojecten en objectverschillen naast elkaar."""
+    """Leg paspoortprojecten en onderhoudsprojecten naast elkaar."""
     passport_by_key = {
         str(row["project_norm"]): row.to_dict()
         for _, row in passport_projects.iterrows()
@@ -1049,7 +718,6 @@ def compare_passport_and_maintenance(
         maintenance_record = maintenance_by_key.get(key, {})
         in_passport = bool(passport_record)
         in_maintenance = bool(maintenance_record)
-        diff_counts = _difference_counts_for_project(object_differences, key)
 
         project_name = (
             passport_record.get("onderhoudsproject")
@@ -1058,30 +726,9 @@ def compare_passport_and_maintenance(
         )
 
         if in_passport and in_maintenance:
-            if diff_counts["onderhoud_object_wegnummer_verdacht"] > 0:
-                status = "OBJECT_WEGNUMMER_VERDACHT"
-                severity = "waarschuwing"
-                message = (
-                    "Projectnaam komt in beide exports voor, maar de onderhoudsexport bevat "
-                    "objectnummers die bij een ander wegnummer lijken te horen."
-                )
-            elif diff_counts["objectverschillen_aantal"] > 0:
-                status = "OBJECTVERSCHIL"
-                severity = "waarschuwing"
-                message = (
-                    "Projectnaam komt in beide exports voor, maar de objectsets zijn niet gelijk."
-                )
-            elif diff_counts["ongeldige_metrering_paspoort"] > 0:
-                status = "HM_BEREIK_VERDACHT"
-                severity = "aandachtspunt"
-                message = (
-                    "Projectnaam komt in beide exports voor, maar één of meer paspoortobjecten "
-                    "hebben een ongeldige metrering. Deze zijn genegeerd in hm_min/hm_max."
-                )
-            else:
-                status = "OK_VOLLEDIG"
-                severity = "ok"
-                message = "Projectnaam én objectset komen overeen tussen paspoortexport en onderhoudsexport."
+            status = "OK"
+            severity = "ok"
+            message = "Project komt voor in paspoortexport én onderhoudsexport."
         elif in_passport:
             status = "ONTBREEKT_IN_ONDERHOUD"
             severity = "waarschuwing"
@@ -1099,8 +746,6 @@ def compare_passport_and_maintenance(
             "controle_bericht": message,
             "in_paspoortexport": in_passport,
             "in_onderhoudsexport": in_maintenance,
-            "projectnaam_in_beide_exports": bool(in_passport and in_maintenance),
-            **diff_counts,
         }
         record.update({column: passport_record.get(column, "") for column in passport_projects.columns if column not in {"project_norm", "onderhoudsproject"}} if passport_projects is not None and not passport_projects.empty else {})
         record.update({column: maintenance_record.get(column, "") for column in maintenance_projects.columns if column not in {"project_norm", "onderhoudsproject"}} if maintenance_projects is not None and not maintenance_projects.empty else {})
@@ -1110,11 +755,12 @@ def compare_passport_and_maintenance(
     if not records:
         return pd.DataFrame()
 
-    sort_order = {"waarschuwing": 0, "aandachtspunt": 1, "info": 2, "ok": 3}
+    sort_order = {"waarschuwing": 0, "info": 1, "ok": 2}
     result = pd.DataFrame(records)
     result["_sort_ernst"] = result["ernst"].map(sort_order).fillna(9)
     result = result.sort_values(["_sort_ernst", "onderhoudsproject"]).drop(columns=["_sort_ernst"]).reset_index(drop=True)
     return result
+
 
 def build_maintenance_control(
     passport_df: pd.DataFrame,
@@ -1137,38 +783,23 @@ def build_maintenance_control(
     if maintenance_projects.empty:
         warnings.append("Geen onderhoudsprojecten gevonden in de onderhoudsexport voor deze selectie.")
 
-    object_differences = build_object_differences(passport_df, maintenance_df, selected_road=selected_road)
-    comparison = compare_passport_and_maintenance(passport_projects, maintenance_projects, object_differences)
+    comparison = compare_passport_and_maintenance(passport_projects, maintenance_projects)
 
     if comparison.empty:
         summary = {
             "projecten_totaal": 0,
             "projecten_ok": 0,
-            "ok_volledig": 0,
-            "ok_projectnaam": 0,
-            "objectverschillen": 0,
-            "hm_bereik_verdacht": 0,
-            "object_wegnummer_verdacht": 0,
             "ontbreekt_in_onderhoud": 0,
             "geen_paspoortobjecten": 0,
             "waarschuwingen": 0,
-            "aandachtspunten": 0,
-            "objectverschillen_regels": 0,
         }
     else:
         summary = {
             "projecten_totaal": int(len(comparison)),
-            "projecten_ok": int((comparison["status"] == "OK_VOLLEDIG").sum()),
-            "ok_volledig": int((comparison["status"] == "OK_VOLLEDIG").sum()),
-            "ok_projectnaam": int(comparison["projectnaam_in_beide_exports"].sum()),
-            "objectverschillen": int((comparison["status"] == "OBJECTVERSCHIL").sum()),
-            "hm_bereik_verdacht": int((comparison["status"] == "HM_BEREIK_VERDACHT").sum()),
-            "object_wegnummer_verdacht": int((comparison["status"] == "OBJECT_WEGNUMMER_VERDACHT").sum()),
+            "projecten_ok": int((comparison["status"] == "OK").sum()),
             "ontbreekt_in_onderhoud": int((comparison["status"] == "ONTBREEKT_IN_ONDERHOUD").sum()),
             "geen_paspoortobjecten": int((comparison["status"] == "GEEN_PASPOORTOBJECTEN").sum()),
             "waarschuwingen": int((comparison["ernst"] == "waarschuwing").sum()),
-            "aandachtspunten": int((comparison["ernst"] == "aandachtspunt").sum()),
-            "objectverschillen_regels": int(len(object_differences)),
         }
 
     return MaintenanceControlResult(
@@ -1176,6 +807,5 @@ def build_maintenance_control(
         comparison=comparison,
         passport_projects=passport_projects,
         maintenance_projects=maintenance_projects,
-        object_differences=object_differences,
         warnings=warnings,
     )

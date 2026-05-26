@@ -1,16 +1,5 @@
 # Takenlijst iASSET Advisor
 
-## Klaar in v0.16.1
-
-1. **Fase-4-controle verdiept naar objectinhoudcontrole**
-   - Projecten worden niet meer alleen op projectnaam gecontroleerd, maar ook op de objectsets per onderhoudsproject.
-   - Nieuwe objectverschillenexport: `Fase4_Objectverschillen_[weg].csv`.
-   - Statussen aangescherpt naar onder andere `OK_VOLLEDIG`, `OBJECTVERSCHIL`, `OBJECT_WEGNUMMER_VERDACHT` en `HM_BEREIK_VERDACHT`.
-   - Objecten die alleen in de paspoortexport of alleen in de onderhoudsexport staan worden expliciet gemeld.
-   - Objectnummers in de onderhoudsexport die bij een ander wegnummer lijken te horen worden als waarschuwing gemeld.
-   - Ongeldige meteringen worden genegeerd in `hm_min`/`hm_max` en apart gerapporteerd.
-   - Testdekking toegevoegd voor objectverschillen, verkeerd wegnummer in onderhoudsobjecten en ongeldige metrering.
-
 ## Klaar in v0.16.0
 
 1. **Eerste Fase-4-controle paspoortexport versus onderhoudsexport**
@@ -51,10 +40,11 @@
    - Diagnoseberichten zijn versie-onafhankelijk gemaakt.
    - Testdekking uitgebreid voor route-mid versus route-sort, outliers, primaire/all-routeverschillen en versie-onafhankelijke waarschuwingen.
 
-## Gepland na v0.16.1
+## Gepland na v0.16.0
 
 1. **Fase-4-controle verdiepen**
    - Naamvarianten slimmer herkennen, bijvoorbeeld `01.2` versus `1.2`.
+   - Objectniveaucontrole toevoegen: welke objecten uit de onderhoudsexport ontbreken in de paspoortselectie en andersom.
    - Controlepakket uitbreiden met Excel/HTML-export voor overleg.
    - Later pas: gecontroleerde mutatievoorstellen richting iASSET.
 

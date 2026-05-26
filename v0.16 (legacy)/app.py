@@ -958,17 +958,11 @@ with col_inspector:
                     st.warning(warning)
 
                 summary = control_result.summary
-                c_ok, c_object, c_missing, c_total = st.columns(4)
-                c_ok.metric("OK volledig", summary.get("ok_volledig", summary.get("projecten_ok", 0)))
-                c_object.metric("Objectverschil", summary.get("objectverschillen", 0) + summary.get("object_wegnummer_verdacht", 0))
-                c_missing.metric("Ontbreekt/verweesd", summary.get("ontbreekt_in_onderhoud", 0) + summary.get("geen_paspoortobjecten", 0))
+                c_ok, c_missing, c_orphan, c_total = st.columns(4)
+                c_ok.metric("OK", summary.get("projecten_ok", 0))
+                c_missing.metric("Ontbreekt in onderhoud", summary.get("ontbreekt_in_onderhoud", 0))
+                c_orphan.metric("Geen paspoortobjecten", summary.get("geen_paspoortobjecten", 0))
                 c_total.metric("Totaal gecontroleerd", summary.get("projecten_totaal", 0))
-
-                if summary.get("hm_bereik_verdacht", 0):
-                    st.info(
-                        f"{summary.get('hm_bereik_verdacht', 0)} project(en) hebben een verdacht hm-bereik "
-                        "door ongeldige metrering in de paspoortexport."
-                    )
 
                 comparison = control_result.comparison
 
@@ -1009,20 +1003,6 @@ with col_inspector:
                             "📥 Download samenvatting onderhoudsexport",
                             data=maintenance_csv,
                             file_name=f"Fase4_Onderhoudsexport_{sanitize_filename(selected_road)}.csv",
-                            mime="text/csv",
-                        )
-
-                    object_differences = control_result.object_differences
-                    if object_differences.empty:
-                        st.success("Geen objectverschillen gevonden tussen paspoortexport en onderhoudsexport.")
-                    else:
-                        st.markdown("#### Objectverschillen")
-                        st.dataframe(object_differences, use_container_width=True, hide_index=True)
-                        object_diff_csv = object_differences.to_csv(index=False, sep=";").encode("utf-8-sig")
-                        st.download_button(
-                            "📥 Download objectverschillen",
-                            data=object_diff_csv,
-                            file_name=f"Fase4_Objectverschillen_{sanitize_filename(selected_road)}.csv",
                             mime="text/csv",
                         )
 
