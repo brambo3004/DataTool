@@ -27,7 +27,7 @@ from iasset_tool.changes import (
     save_autosave,
     summarize_export_profile,
 )
-from iasset_tool.config import APP_VERSION, AUTOSAVE_FILE, DEFAULT_EXPORT_PROFILE, HIERARCHY_RANK, ISSUE_CATEGORIES, SEGMENTATION_ATTRIBUTES
+from iasset_tool.config import AUTOSAVE_FILE, DEFAULT_EXPORT_PROFILE, HIERARCHY_RANK, ISSUE_CATEGORIES, SEGMENTATION_ATTRIBUTES
 from iasset_tool.data_loader import LoadResult, load_iasset_data
 from iasset_tool.geometry import build_graph_from_geometry
 from iasset_tool.map_view import build_road_map
@@ -58,40 +58,6 @@ st.set_page_config(layout="wide", page_title="iASSET Tool - Smart Advisor")
 # leek het totaal in de zijbalk soms veel hoger dan de wachttijd van de actie
 # die je net uitvoerde.
 st.session_state["performance_log"] = {}
-
-
-def render_version_badge() -> None:
-    """
-    Toon het actuele versienummer klein in beeld.
-
-    Waarom?
-    Streamlit Cloud/GitHub kan soms nog een oudere build tonen. Een zichtbaar
-    versienummer maakt meteen duidelijk welke codeversie echt draait.
-    """
-    st.sidebar.caption(f"Versie {APP_VERSION}")
-    st.markdown(
-        f"""
-        <style>
-        .iasset-version-badge {{
-            position: fixed;
-            right: 0.75rem;
-            bottom: 0.45rem;
-            z-index: 9999;
-            padding: 0.15rem 0.45rem;
-            border-radius: 0.4rem;
-            background: rgba(240, 242, 246, 0.92);
-            color: #555;
-            font-size: 0.72rem;
-            border: 1px solid rgba(49, 51, 63, 0.12);
-        }}
-        </style>
-        <div class="iasset-version-badge">iASSET DataTool {APP_VERSION}</div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-render_version_badge()
 
 
 @st.cache_data(show_spinner=False)

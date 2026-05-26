@@ -524,10 +524,6 @@ def build_sort_diagnostics(
             "route_sort_bron",
             "route_sort_verklaarbaar",
             "hm_route_conflict",
-            "hm_route_conflict_resolved",
-            "route_conflict_cluster_id",
-            "route_conflict_sort_applied",
-            "route_conflict_cluster_size",
             "fallback_sort_m",
             "overlap_cluster_id",
             "overlap_sort_applied",
@@ -812,10 +808,6 @@ def build_sort_diagnostics(
                 "route_sort_bron": route_sort_bron,
                 "route_sort_verklaarbaar": bool(route_sort_verklaarbaar),
                 "hm_route_conflict": False,
-                "hm_route_conflict_resolved": bool(group_data.get("hm_route_conflict_resolved", False)),
-                "route_conflict_cluster_id": clean_display_value(group_data.get("route_conflict_cluster_id", "")),
-                "route_conflict_sort_applied": bool(group_data.get("route_conflict_sort_applied", False)),
-                "route_conflict_cluster_size": int(group_data.get("route_conflict_cluster_size", 1) or 1),
                 "fallback_sort_m": round(float(fallback_sort_value), 2) if fallback_sort_value is not None else None,
                 "overlap_cluster_id": clean_display_value(group_data.get("overlap_cluster_id", "")),
                 "overlap_sort_applied": bool(group_data.get("overlap_sort_applied", False)),
@@ -886,14 +878,6 @@ def build_sort_diagnostics(
                         "INFO: v0.13 sorteert deze overlapcluster op lokale routepositie in plaats van alleen hm_min"
                     )
 
-            if bool(row.get("route_conflict_sort_applied", False)):
-                group_df.at[index, "hm_route_conflict"] = True
-                warnings.append(
-                    "INFO: v0.14 heeft een lokale hm/route-conflictcluster op routepositie hersorteerd"
-                )
-                if group_df.at[index, "sort_quality"] == "hoog":
-                    group_df.at[index, "sort_quality"] = "middel"
-
             if previous is not None:
                 hm_min = row.get("hm_min")
                 hm_max = row.get("hm_max")
@@ -921,15 +905,10 @@ def build_sort_diagnostics(
                     group_df.at[index, "route_terugval_vorige"] = bool(route_terugval)
                     if route_terugval:
                         group_df.at[index, "hm_route_conflict"] = True
-                        if bool(row.get("route_conflict_sort_applied", False)):
-                            warnings.append(
-                                "INFO: routepositie lag vóór de vorige groep, maar v0.14 heeft dit lokale conflict hersorteerd"
-                            )
-                        else:
-                            warnings.append(
-                                "WAARSCHUWING: routepositie ligt vóór de vorige groep; "
-                                "huidige hm-volgorde en lokale route-as spreken elkaar tegen"
-                            )
+                        warnings.append(
+                            "WAARSCHUWING: routepositie ligt vóór de vorige groep; "
+                            "huidige hm-volgorde en lokale route-as spreken elkaar tegen"
+                        )
                         if group_df.at[index, "sort_quality"] == "hoog":
                             group_df.at[index, "sort_quality"] = "middel"
 

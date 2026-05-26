@@ -11,7 +11,7 @@ from pathlib import Path
 # --- Bestanden -------------------------------------------------------------
 
 # Versie die in de Streamlit-interface zichtbaar wordt getoond.
-APP_VERSION = "v0.14"
+APP_VERSION = "v0.13.2"
 
 DATA_DIR = Path(".")
 FILE_NIET_RIJSTROOK = DATA_DIR / "N-allemaal-niet-rijstrook.csv"

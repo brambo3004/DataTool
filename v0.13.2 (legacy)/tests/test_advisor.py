@@ -2,7 +2,7 @@ import geopandas as gpd
 import networkx as nx
 from shapely.geometry import Point
 
-from iasset_tool.advisor import generate_grouped_proposals, _resolve_route_backtracking_conflicts, _sort_groups_with_overlap_clusters
+from iasset_tool.advisor import generate_grouped_proposals, _sort_groups_with_overlap_clusters
 from iasset_tool.utils import normalize_text
 
 
@@ -257,88 +257,3 @@ def test_overlap_cluster_marks_stable_fallback_when_route_position_is_not_distin
         assert group_data["route_sort_bron"] == "route_start_m"
         assert group_data["route_sort_verklaarbaar"] is True
         assert group_data["routepositie_onderscheidend"] is False
-
-
-
-def test_route_backtracking_conflict_is_resorted_when_hm_ranges_are_related():
-    """
-    v0.14 corrigeert compacte plekken waar hm-volgorde en route-as elkaar tegenspreken.
-
-    Dit bootst een N354-achtige situatie na: een lang segment met lagere hm_min
-    staat eerst, maar een korte knip binnen hetzelfde hm-bereik ligt ruimtelijk
-    eerder langs de lokale route-as.
-    """
-    items = [
-        (
-            "lange_groep",
-            {
-                "rank": 1,
-                "hm_min_sort": 26.9,
-                "hm_max_sort": 29.6,
-                "route_sort_m": 45012.0,
-                "route_start_m": 45012.0,
-                "route_mid_m": 45031.0,
-                "route_end_m": 45049.0,
-                "fallback_tie_breaker_dist": 0.0,
-                "sort_mode": "hm_route",
-                "tie_breaker_source": "lokale_route_as",
-            },
-        ),
-        (
-            "korte_knip",
-            {
-                "rank": 1,
-                "hm_min_sort": 28.0,
-                "hm_max_sort": 28.1,
-                "route_sort_m": 43540.0,
-                "route_start_m": 43540.0,
-                "route_mid_m": 43549.0,
-                "route_end_m": 43560.0,
-                "fallback_tie_breaker_dist": 0.0,
-                "sort_mode": "hm_route",
-                "tie_breaker_source": "lokale_route_as",
-            },
-        ),
-    ]
-
-    sorted_items = _resolve_route_backtracking_conflicts(items)
-
-    assert [group_id for group_id, _ in sorted_items] == ["korte_knip", "lange_groep"]
-    assert all(group_data["route_conflict_sort_applied"] for _, group_data in sorted_items)
-    assert all(group_data["tie_breaker_source"] == "lokale_route_as_conflictcluster" for _, group_data in sorted_items)
-
-
-def test_route_backtracking_conflict_does_not_reorder_unrelated_hm_ranges():
-    """
-    Een route-terugval zonder hm-relatie kan ook een onbetrouwbare lokale as zijn.
-
-    Die situatie moet de app niet automatisch over de hele weg hersorteren.
-    """
-    items = [
-        (
-            "groep_a",
-            {
-                "rank": 1,
-                "hm_min_sort": 10.0,
-                "hm_max_sort": 10.1,
-                "route_sort_m": 5000.0,
-                "sort_mode": "hm_route",
-            },
-        ),
-        (
-            "groep_b",
-            {
-                "rank": 1,
-                "hm_min_sort": 12.0,
-                "hm_max_sort": 12.1,
-                "route_sort_m": 4000.0,
-                "sort_mode": "hm_route",
-            },
-        ),
-    ]
-
-    sorted_items = _resolve_route_backtracking_conflicts(items)
-
-    assert [group_id for group_id, _ in sorted_items] == ["groep_a", "groep_b"]
-    assert "route_conflict_sort_applied" not in sorted_items[0][1]
-    assert "route_conflict_sort_applied" not in sorted_items[1][1]
