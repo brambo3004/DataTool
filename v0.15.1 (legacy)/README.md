@@ -1,4 +1,4 @@
-# iASSET Advisor - refactor v0.16.0
+# iASSET Advisor - refactor v0.15.1
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
@@ -38,7 +38,6 @@ De huidige functionaliteit blijft zoveel mogelijk gelijk:
 │   ├── overview_map.py
 │   ├── object_editor.py
 │   ├── sorting_diagnostics.py
-│   ├── maintenance_control.py
 │   ├── changes.py
 │   └── state.py
 ├── tests/
@@ -105,26 +104,6 @@ pytest
 ```
 
 
-
-
-
-## Nieuw in v0.16.0
-
-Deze versie voegt de eerste **Fase 4-controle** toe: paspoortexport en onderhoudsexport worden naast elkaar gelegd voordat er iets in iASSET of het maatregeltoetsdocument wordt verwerkt.
-
-- Nieuw onderdeel **Fase 4 Controle** in de werklijst.
-- Aparte upload voor onderhoudsexports, omdat deze bestanden meestal geen geometrie bevatten en dus niet door de gewone paspoort/geometrielader horen te gaan.
-- De controle groepeert paspoortobjecten per `Onderhoudsproject` en onderhoudsregels per projectnaam.
-- De vergelijking markeert:
-  - `OK`: project komt in beide exports voor;
-  - `ONTBREEKT_IN_ONDERHOUD`: project staat bij objecten in de paspoortexport, maar ontbreekt in de onderhoudsexport;
-  - `GEEN_PASPOORTOBJECTEN`: project staat in de onderhoudsexport, maar er zijn geen paspoortobjecten met die projectnaam.
-- Downloadbare controletabellen:
-  - volledige Fase-4-vergelijking;
-  - samenvatting paspoortprojecten;
-  - samenvatting onderhoudsexport.
-- De N398-voorbeeldset is als smoke test gebruikt: 11 projecten, 11x `OK`, 0 waarschuwingen.
-- De sorteerbasis uit v0.15.1 blijft ongewijzigd; deze versie voert geen automatische mutaties uit.
 
 
 

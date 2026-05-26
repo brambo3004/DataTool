@@ -31,7 +31,6 @@ from iasset_tool.config import APP_VERSION, AUTOSAVE_FILE, DEFAULT_EXPORT_PROFIL
 from iasset_tool.data_loader import LoadResult, load_iasset_data
 from iasset_tool.geometry import build_graph_from_geometry
 from iasset_tool.map_view import build_road_map
-from iasset_tool.maintenance_control import build_maintenance_control, read_maintenance_exports
 from iasset_tool.object_editor import (
     editable_fields_for_profile,
     missing_profile_columns,
@@ -115,18 +114,6 @@ def cached_load_uploaded_data(file_payloads: tuple[tuple[str, bytes], ...]) -> L
     niet automatisch als bronbestand op schijf op.
     """
     return load_iasset_data(input_files=file_payloads)
-
-
-@st.cache_data(show_spinner=False)
-def cached_load_maintenance_exports(file_payloads: tuple[tuple[str, bytes], ...]):
-    """
-    Laad onderhoudsexports voor de Fase-4-controle.
-
-    Dit is bewust een aparte uploadstroom naast de paspoortexport. De
-    onderhoudsexport heeft meestal geen geometrie en hoort daarom niet door de
-    gewone iASSET-geometrielader te lopen.
-    """
-    return read_maintenance_exports(file_payloads)
 
 
 def build_data_source_key(file_payloads: tuple[tuple[str, bytes], ...]) -> str:
@@ -466,34 +453,6 @@ with st.sidebar.expander("Databron", expanded="data_complete" not in st.session_
         st.rerun()
 
 
-with st.sidebar.expander("Onderhoudsexport voor controle", expanded=False):
-    maintenance_uploaded_files = st.file_uploader(
-        "Upload onderhoudsexport",
-        type=["csv", "xlsx", "xls", "xlsm"],
-        accept_multiple_files=True,
-        key="maintenance_export_uploads",
-        help=(
-            "Gebruik dit voor de Fase-4-controle: de onderhoudsregels/projecten "
-            "worden naast de actieve paspoortexport gelegd."
-        ),
-    )
-
-    maintenance_payloads: tuple[tuple[str, bytes], ...] = tuple(
-        (uploaded_file.name, uploaded_file.getvalue()) for uploaded_file in maintenance_uploaded_files
-    ) if maintenance_uploaded_files else tuple()
-
-    st.session_state["maintenance_upload_payloads"] = maintenance_payloads
-
-    if maintenance_payloads:
-        st.caption(
-            "Onderhoudsexport klaar voor controle: "
-            + ", ".join(name for name, _ in maintenance_payloads[:3])
-            + (" ..." if len(maintenance_payloads) > 3 else "")
-        )
-    else:
-        st.caption("Geen onderhoudsexport geüpload.")
-
-
 # --- Applicatie-initialisatie ---------------------------------------------
 
 if "data_complete" not in st.session_state:
@@ -595,7 +554,7 @@ with col_inspector:
 
     mode = st.radio(
         "Modus:",
-        ["🔍 Data Kwaliteit", "🏗️ Project Adviseur", "📋 Fase 4 Controle", "🧾 Objectinspecteur", "🗺️ Overzicht"],
+        ["🔍 Data Kwaliteit", "🏗️ Project Adviseur", "🧾 Objectinspecteur", "🗺️ Overzicht"],
         horizontal=True,
         on_change=lambda: reset_selection(st.session_state),
     )
@@ -913,98 +872,6 @@ with col_inspector:
                             st.info("Geen wijzigingen nodig, naam stond al goed.")
 
                         st.rerun()
-
-
-
-    elif mode == "📋 Fase 4 Controle":
-        st.markdown("### 📋 Fase 4 Controle")
-        st.caption(
-            "Leg de actieve paspoortexport naast een onderhoudsexport. "
-            "De controle voert geen mutaties uit; hij laat alleen zien welke "
-            "onderhoudscomplexen ontbreken of verweesd zijn."
-        )
-
-        maintenance_payloads = tuple(st.session_state.get("maintenance_upload_payloads") or ())
-
-        if not maintenance_payloads:
-            st.info(
-                "Upload eerst een onderhoudsexport in de zijbalk bij "
-                "'Onderhoudsexport voor controle'."
-            )
-        else:
-            maintenance_read = measure_step(
-                get_performance_log(),
-                "Onderhoudsexport lezen",
-                cached_load_maintenance_exports,
-                maintenance_payloads,
-            )
-
-            for warning in maintenance_read.warnings:
-                st.warning(warning)
-
-            if maintenance_read.dataframe.empty:
-                st.error("De onderhoudsexport bevat geen herkenbare projectregels.")
-            else:
-                control_result = measure_step(
-                    get_performance_log(),
-                    "Fase 4 controle",
-                    build_maintenance_control,
-                    road_gdf,
-                    maintenance_read.dataframe,
-                    selected_road,
-                )
-
-                for warning in control_result.warnings:
-                    st.warning(warning)
-
-                summary = control_result.summary
-                c_ok, c_missing, c_orphan, c_total = st.columns(4)
-                c_ok.metric("OK", summary.get("projecten_ok", 0))
-                c_missing.metric("Ontbreekt in onderhoud", summary.get("ontbreekt_in_onderhoud", 0))
-                c_orphan.metric("Geen paspoortobjecten", summary.get("geen_paspoortobjecten", 0))
-                c_total.metric("Totaal gecontroleerd", summary.get("projecten_totaal", 0))
-
-                comparison = control_result.comparison
-
-                if comparison.empty:
-                    st.info("Geen vergelijkingsregels beschikbaar.")
-                else:
-                    status_options = ["Alle statussen", *sorted(comparison["status"].dropna().astype(str).unique())]
-                    selected_status = st.selectbox("Filter status", status_options)
-
-                    visible_comparison = comparison
-                    if selected_status != "Alle statussen":
-                        visible_comparison = comparison[comparison["status"].astype(str) == selected_status]
-
-                    st.markdown("#### Vergelijking paspoortexport ↔ onderhoudsexport")
-                    st.dataframe(visible_comparison, use_container_width=True, hide_index=True)
-
-                    comparison_csv = visible_comparison.to_csv(index=False, sep=";").encode("utf-8-sig")
-                    st.download_button(
-                        "📥 Download zichtbare Fase-4-controle",
-                        data=comparison_csv,
-                        file_name=f"Fase4_Controle_{sanitize_filename(selected_road)}.csv",
-                        mime="text/csv",
-                    )
-
-                    c_dl_1, c_dl_2 = st.columns(2)
-                    with c_dl_1:
-                        passport_csv = control_result.passport_projects.to_csv(index=False, sep=";").encode("utf-8-sig")
-                        st.download_button(
-                            "📥 Download samenvatting paspoortprojecten",
-                            data=passport_csv,
-                            file_name=f"Fase4_Paspoortprojecten_{sanitize_filename(selected_road)}.csv",
-                            mime="text/csv",
-                        )
-
-                    with c_dl_2:
-                        maintenance_csv = control_result.maintenance_projects.to_csv(index=False, sep=";").encode("utf-8-sig")
-                        st.download_button(
-                            "📥 Download samenvatting onderhoudsexport",
-                            data=maintenance_csv,
-                            file_name=f"Fase4_Onderhoudsexport_{sanitize_filename(selected_road)}.csv",
-                            mime="text/csv",
-                        )
 
 
     elif mode == "🧾 Objectinspecteur":

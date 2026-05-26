@@ -1,16 +1,5 @@
 # Takenlijst iASSET Advisor
 
-## Klaar in v0.16.0
-
-1. **Eerste Fase-4-controle paspoortexport versus onderhoudsexport**
-   - Nieuw UI-onderdeel **Fase 4 Controle** toegevoegd.
-   - Onderhoudsexports worden apart ingelezen, zonder geometrieverplichting.
-   - Paspoortobjecten worden per onderhoudsproject samengevat.
-   - Onderhoudsregels worden per projectnaam samengevat.
-   - De vergelijking markeert projecten als `OK`, `ONTBREEKT_IN_ONDERHOUD` of `GEEN_PASPOORTOBJECTEN`.
-   - Controletabellen zijn als CSV te downloaden voor overleg vóór verwerking in iASSET/maatregeltoets.
-   - N398-smoketest: 11 projecten gecontroleerd, 11 OK, 0 waarschuwingen.
-
 ## Klaar in v0.15.1
 
 1. **Robuustere Project Adviseur-sleutel bij primaire route-outliers**
@@ -40,13 +29,12 @@
    - Diagnoseberichten zijn versie-onafhankelijk gemaakt.
    - Testdekking uitgebreid voor route-mid versus route-sort, outliers, primaire/all-routeverschillen en versie-onafhankelijke waarschuwingen.
 
-## Gepland na v0.16.0
+## Gepland na v0.15.1
 
-1. **Fase-4-controle verdiepen**
-   - Naamvarianten slimmer herkennen, bijvoorbeeld `01.2` versus `1.2`.
-   - Objectniveaucontrole toevoegen: welke objecten uit de onderhoudsexport ontbreken in de paspoortselectie en andersom.
-   - Controlepakket uitbreiden met Excel/HTML-export voor overleg.
-   - Later pas: gecontroleerde mutatievoorstellen richting iASSET.
+1. **Fase 4-controle onderhoudscomplexen**
+   - Paspoortexport en onderhoudsexport naast elkaar controleren.
+   - Ontbrekende of verweesde onderhoudscomplexen signaleren.
+   - Controlepakket maken voor overleg vóór verwerking in iASSET en maatregeltoets.
 
 ## Klaar in v0.13.1
 
