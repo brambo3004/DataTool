@@ -27,7 +27,7 @@ from iasset_tool.changes import (
     save_autosave,
     summarize_export_profile,
 )
-from iasset_tool.config import APP_VERSION, AUTOSAVE_FILE, DEFAULT_EXPORT_PROFILE, HIERARCHY_RANK, ISSUE_CATEGORIES, SEGMENTATION_ATTRIBUTES, SORT_DIAGNOSTICS_SCHEMA_VERSION
+from iasset_tool.config import APP_VERSION, AUTOSAVE_FILE, DEFAULT_EXPORT_PROFILE, HIERARCHY_RANK, ISSUE_CATEGORIES, SEGMENTATION_ATTRIBUTES
 from iasset_tool.data_loader import LoadResult, load_iasset_data
 from iasset_tool.geometry import build_graph_from_geometry
 from iasset_tool.map_view import build_road_map
@@ -1256,8 +1256,6 @@ with col_map:
                     st.session_state["sort_diagnostics"] = {
                         "road": selected_road,
                         "revision": current_data_revision_key(),
-                        "schema_version": SORT_DIAGNOSTICS_SCHEMA_VERSION,
-                        "app_version": APP_VERSION,
                         "objects": object_diag,
                         "groups": group_diag,
                         "axis_source": axis_result.source,
@@ -1269,17 +1267,11 @@ with col_map:
                 if (
                     sort_diag.get("road") != selected_road
                     or sort_diag.get("revision") != current_data_revision_key()
-                    or sort_diag.get("schema_version") != SORT_DIAGNOSTICS_SCHEMA_VERSION
                 ):
-                    st.info(
-                        "Klik op 'Bereken sorteerdiagnose' om de diagnose voor deze weg, "
-                        "datasetrevisie en appversie te maken."
-                    )
+                    st.info("Klik op 'Bereken sorteerdiagnose' om de diagnose voor deze weg en datasetrevisie te maken.")
                 else:
                     axis_warning = sort_diag.get("axis_warning", "")
                     st.caption(
-                        f"Diagnose: {sort_diag.get('app_version', APP_VERSION)} / "
-                        f"{sort_diag.get('schema_version', 'onbekend')}. "
                         f"Lokale route-as: {sort_diag.get('axis_source', 'onbekend')} "
                         f"met {sort_diag.get('axis_anchor_count', 0)} ankerpunten."
                     )
