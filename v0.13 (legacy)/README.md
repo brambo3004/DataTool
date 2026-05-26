@@ -1,4 +1,4 @@
-# iASSET Advisor - refactor v0.13.1
+# iASSET Advisor - refactor v0.12
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 

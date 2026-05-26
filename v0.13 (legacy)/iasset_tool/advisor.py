@@ -202,81 +202,6 @@ def _safe_route_value(value: Any) -> float | None:
     return number
 
 
-def _route_value_is_explainable(
-    route_sort_m: float | None,
-    route_start_m: float | None,
-    route_end_m: float | None,
-) -> bool:
-    """
-    Controleer of de gekozen route-sortering binnen het diagnosebereik valt.
-
-    Waarom?
-    De N354 liet zien dat een algemene ``tie_breaker`` verwarrend werd wanneer
-    die niet duidelijk overeenkwam met ``route_start_m``/``route_mid_m``/
-    ``route_end_m``. Deze helper maakt expliciet of de sorteerwaarde uitlegbaar
-    is vanuit de getoonde routeprojectie.
-    """
-    if route_sort_m is None or route_start_m is None or route_end_m is None:
-        return False
-
-    low = min(route_start_m, route_end_m) - 0.01
-    high = max(route_start_m, route_end_m) + 0.01
-    return low <= route_sort_m <= high
-
-
-def _preferred_route_sort_value(
-    group_data: dict[str, Any],
-    *,
-    prefer_start: bool,
-) -> tuple[float | None, str]:
-    """
-    Kies de lokale routewaarde die als sorteercomponent wordt gebruikt.
-
-    Voor gewone groepen gebruiken we bij voorkeur de mediane positie
-    ``route_mid_m``. Binnen overlapclusters gebruiken we liever het begin van
-    het segment ``route_start_m``. Daardoor komt een korte knip die ruimtelijk
-    eerder begint niet achter een lang segment te staan dat alleen een lagere
-    hm_min heeft.
-    """
-    route_start = _safe_route_value(group_data.get("route_start_m"))
-    route_mid = _safe_route_value(group_data.get("route_mid_m"))
-
-    if prefer_start and route_start is not None:
-        return route_start, "route_start_m"
-
-    if route_mid is not None:
-        return route_mid, "route_mid_m"
-
-    if route_start is not None:
-        return route_start, "route_start_m"
-
-    return None, ""
-
-
-def _set_route_sort_metadata(
-    group_data: dict[str, Any],
-    *,
-    route_sort_m: float | None,
-    route_sort_bron: str,
-    fallback_sort_m: float | None,
-) -> None:
-    """
-    Sla de exacte route- en fallbackwaarden op die de sortering verklaren.
-
-    De Project Adviseur mag technisch meerdere sorteercomponenten gebruiken,
-    maar de diagnose moet voor databeheerders zichtbaar maken welke waarde
-    precies heeft meegedaan. Daarom bewaren we route-sortering en fallback apart.
-    """
-    group_data["route_sort_m"] = route_sort_m
-    group_data["route_sort_bron"] = route_sort_bron
-    group_data["fallback_sort_m"] = fallback_sort_m
-    group_data["route_sort_verklaarbaar"] = _route_value_is_explainable(
-        route_sort_m,
-        _safe_route_value(group_data.get("route_start_m")),
-        _safe_route_value(group_data.get("route_end_m")),
-    )
-
-
 def _overlap_cluster_route_key(group_data: dict[str, Any]) -> tuple[float, float, float, float]:
     """
     Sorteersleutel binnen een overlappend hm-cluster.
@@ -285,19 +210,15 @@ def _overlap_cluster_route_key(group_data: dict[str, Any]) -> tuple[float, float
     segment met een lage begin-hectometrering kan ruimtelijk later liggen dan
     een korte knip binnen dezelfde omgeving. Daarom gebruiken we dan de positie
     langs de lokale route-as, bij voorkeur het beginpunt van de groep.
-
-    De fallback blijft in de sleutel staan voor gevallen waarin meerdere groepen
-    exact dezelfde routepositie krijgen, bijvoorbeeld aan een eindpunt of rond
-    een compacte rotonde/kruising.
     """
-    route_sort, _ = _preferred_route_sort_value(group_data, prefer_start=True)
+    route_start = _safe_route_value(group_data.get("route_start_m"))
+    route_mid = _safe_route_value(group_data.get("route_mid_m"))
     hm_min = float(group_data.get("hm_min_sort", group_data.get("sort_value", 99999.9)) or 99999.9)
     fallback = float(group_data.get("fallback_tie_breaker_dist", group_data.get("axis_tie_breaker_dist", 0.0)) or 0.0)
 
-    route_sort_key = route_sort if route_sort is not None else float("inf")
-    return (route_sort_key, fallback, hm_min, fallback)
-
-
+    route_start_sort = route_start if route_start is not None else float("inf")
+    route_mid_sort = route_mid if route_mid is not None else float("inf")
+    return (route_start_sort, route_mid_sort, hm_min, fallback)
 
 
 def _regular_group_sort_key(item: tuple[str, dict[str, Any]]) -> tuple[int, float, float, float]:
@@ -358,55 +279,20 @@ def _sort_groups_with_overlap_clusters(
                 sorted_cluster = sorted(cluster, key=lambda item: _overlap_cluster_route_key(item[1]))
                 cluster_id = f"R{rank}-{cluster_number}"
 
-                # Bepaal of de lokale routepositie binnen deze overlapcluster
-                # echt onderscheid maakt. Als meerdere groepen dezelfde
-                # route_sort_m krijgen, moet de diagnose expliciet tonen dat de
-                # stabiele fallback de doorslag geeft.
-                route_sort_counts: dict[float, int] = {}
-                for _, data in sorted_cluster:
-                    route_sort, _ = _preferred_route_sort_value(data, prefer_start=True)
-                    if route_sort is None:
-                        continue
-                    rounded_route_sort = round(float(route_sort), 2)
-                    route_sort_counts[rounded_route_sort] = route_sort_counts.get(rounded_route_sort, 0) + 1
-
                 for _, data in sorted_cluster:
                     data["overlap_cluster_id"] = cluster_id
                     data["overlap_sort_applied"] = True
                     data["overlap_cluster_size"] = len(sorted_cluster)
 
-                    route_sort, route_sort_bron = _preferred_route_sort_value(data, prefer_start=True)
-                    fallback = float(
-                        data.get("fallback_tie_breaker_dist", data.get("axis_tie_breaker_dist", 0.0)) or 0.0
-                    )
-                    _set_route_sort_metadata(
-                        data,
-                        route_sort_m=route_sort,
-                        route_sort_bron=route_sort_bron,
-                        fallback_sort_m=fallback,
-                    )
-
-                    if route_sort is None:
-                        data["sort_mode"] = "hm_overlap_fallback"
-                        data["tie_breaker_source"] = "stabiele_fallback"
-                        data["tie_breaker_dist"] = fallback
-                        data["routepositie_onderscheidend"] = False
-                        data["fallback_used_in_overlap"] = True
-                        continue
-
-                    rounded_route_sort = round(float(route_sort), 2)
-                    route_distinguishes = route_sort_counts.get(rounded_route_sort, 0) <= 1
-                    data["routepositie_onderscheidend"] = route_distinguishes
-                    data["fallback_used_in_overlap"] = not route_distinguishes
-
-                    if route_distinguishes:
+                    route_key = _overlap_cluster_route_key(data)
+                    if route_key[0] != float("inf") or route_key[1] != float("inf"):
                         data["sort_mode"] = "hm_overlap_route"
                         data["tie_breaker_source"] = "lokale_route_as_overlapcluster"
-                        data["tie_breaker_dist"] = float(route_sort)
+                        # Bewaar de gebruikte routewaarde ook in de algemene
+                        # tie-breaker, zodat debugtabellen dezelfde richting tonen.
+                        data["tie_breaker_dist"] = route_key[0] if route_key[0] != float("inf") else route_key[1]
                     else:
-                        data["sort_mode"] = "hm_overlap_route_fallback"
-                        data["tie_breaker_source"] = "stabiele_fallback"
-                        data["tie_breaker_dist"] = float(fallback)
+                        data["tie_breaker_source"] = "globale_richting_fallback"
             else:
                 sorted_cluster = sorted(cluster, key=_regular_group_sort_key)
                 for _, data in sorted_cluster:
@@ -924,46 +810,21 @@ def generate_grouped_proposals(gdf: gpd.GeoDataFrame, graph: nx.Graph) -> dict[s
         if min_hm < 90000.0:
             group_data["sort_value"] = float(min_hm)
             if _route_tie_breaker_is_usable(route_mid):
-                route_sort, route_sort_bron = _preferred_route_sort_value(group_data, prefer_start=False)
-                _set_route_sort_metadata(
-                    group_data,
-                    route_sort_m=route_sort,
-                    route_sort_bron=route_sort_bron,
-                    fallback_sort_m=global_tie_breaker_value,
-                )
-                group_data["tie_breaker_dist"] = float(route_sort) if route_sort is not None else global_tie_breaker_value
+                group_data["tie_breaker_dist"] = float(route_mid)
                 group_data["fallback_tie_breaker_dist"] = global_tie_breaker_value
-                group_data["tie_breaker_source"] = "lokale_route_as" if route_sort is not None else "globale_richting_fallback"
-                group_data["sort_mode"] = "hm_route" if route_sort is not None else "hm"
-                group_data["routepositie_onderscheidend"] = True
-                group_data["fallback_used_in_overlap"] = False
+                group_data["tie_breaker_source"] = "lokale_route_as"
+                group_data["sort_mode"] = "hm_route"
             else:
-                _set_route_sort_metadata(
-                    group_data,
-                    route_sort_m=None,
-                    route_sort_bron="",
-                    fallback_sort_m=global_tie_breaker_value,
-                )
                 group_data["tie_breaker_dist"] = global_tie_breaker_value
                 group_data["fallback_tie_breaker_dist"] = 0.0
                 group_data["tie_breaker_source"] = "globale_richting_fallback"
                 group_data["sort_mode"] = "hm"
-                group_data["routepositie_onderscheidend"] = False
-                group_data["fallback_used_in_overlap"] = False
         else:
-            _set_route_sort_metadata(
-                group_data,
-                route_sort_m=None,
-                route_sort_bron="",
-                fallback_sort_m=global_tie_breaker_value,
-            )
             group_data["sort_value"] = global_tie_breaker_value
             group_data["tie_breaker_dist"] = 0.0
             group_data["fallback_tie_breaker_dist"] = 0.0
             group_data["tie_breaker_source"] = "globale_richting_fallback"
             group_data["sort_mode"] = "axis"
-            group_data["routepositie_onderscheidend"] = False
-            group_data["fallback_used_in_overlap"] = False
 
     sorted_groups = _sort_groups_with_overlap_clusters(list(groups.items()))
 

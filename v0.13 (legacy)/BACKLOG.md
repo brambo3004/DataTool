@@ -1,20 +1,5 @@
 # Takenlijst iASSET Advisor
 
-## Klaar in v0.13.1
-
-1. **Uitlegbaarheidsfix route-as-sortering**
-   - Groepsdiagnose toont nu expliciet `route_sort_m`, `route_sort_bron`, `route_sort_verklaarbaar`, `fallback_sort_m` en `hm_route_conflict`.
-   - De algemene `tie_breaker` is niet langer de enige aanwijzing voor de sortering; routewaarde en fallbackwaarde staan apart in de diagnose.
-   - Overlapclusters waarbij meerdere groepen dezelfde lokale routepositie krijgen, tonen nu `stabiele_fallback`.
-   - Eindpunt- en rotondeachtige situaties worden daardoor niet meer onterecht gepresenteerd alsof de lokale route-as de onderlinge volgorde volledig verklaart.
-
-## Klaar in v0.13
-
-1. **Overlapclusters sorteren op lokale route-as**
-   - Bij overlappende hm-bereiken bepaalt de lokale routepositie de volgorde binnen het cluster.
-   - Metrering blijft leidend buiten overlapclusters.
-   - De globale richtingentabel blijft fallback.
-
 ## Klaar in v0.11
 
 1. **Sorteerdiagnose als voorbereiding op betere projectvolgorde**
