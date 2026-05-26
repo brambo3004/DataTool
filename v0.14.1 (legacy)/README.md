@@ -1,4 +1,4 @@
-# iASSET Advisor - refactor v0.14.2
+# iASSET Advisor - refactor v0.13.1
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
@@ -104,19 +104,6 @@ pytest
 ```
 
 
-
-
-
-## Nieuw in v0.14.2
-
-Deze patch verbetert de sorteerdiagnose zonder de Project Adviseur-sortering inhoudelijk om te gooien.
-
-- `route_terugval_vorige` volgt nu de feitelijke `route_sort_m`-sleutel.
-- Nieuwe kolommen `route_mid_terugval_vorige` en `route_sort_terugval_vorige` maken onderscheid tussen een middelpunt-terugval en een echte sorteerterugval.
-- De groepsdiagnose toont nu primaire-routevelden naast alle-object-routevelden, zodat secundaire geometrische uitschieters zichtbaar worden.
-- Compacte groepen met grote routeverschillen krijgen een expliciete `route_outlier_warning`.
-- Waarschuwingsteksten in de diagnose zijn versie-onafhankelijk gemaakt.
-- De sorteerdiagnose gebruikt schema-versie `sortdiag-v0.14.2`, zodat oude Streamlit-session-state niet stil wordt hergebruikt.
 
 
 

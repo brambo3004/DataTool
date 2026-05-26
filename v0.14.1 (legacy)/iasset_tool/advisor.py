@@ -176,7 +176,7 @@ def _hm_range_for_group(gdf: gpd.GeoDataFrame, group_ids: list[int]) -> tuple[fl
     """
     Bepaal het geldige hectometerbereik van een adviesgroep.
 
-    We gebruiken dit om overlappende groepen te herkennen. Lege of
+    We gebruiken dit vanaf v0.13 om overlappende groepen te herkennen. Lege of
     corrupte hm-waarden krijgen een hoge fallback, zodat de app blijft draaien
     bij wisselende iASSET-exports.
     """
@@ -315,7 +315,7 @@ def _valid_hm_range(group_data: dict[str, Any]) -> tuple[float | None, float | N
 
 def _route_sort_for_conflict_resolution(group_data: dict[str, Any]) -> float | None:
     """
-    Geef de routewaarde die voor routeconflict-detectie wordt gebruikt.
+    Geef de routewaarde die v0.14 gebruikt voor routeconflict-detectie.
 
     We gebruiken eerst de expliciete ``route_sort_m`` uit de Project Adviseur.
     Ontbreekt die, dan vallen we terug op de eerder berekende routepositie.
@@ -378,7 +378,7 @@ def _mark_route_conflict_cluster(
         data["hm_route_conflict_resolved"] = True
 
         # Laat de eerdere sort_mode staan als overlapclusterlogica al actief was,
-        # maar maak zichtbaar dat daarna nog een routeconflict is opgelost.
+        # maar maak zichtbaar dat v0.14 daarna nog een routeconflict heeft opgelost.
         if str(data.get("sort_mode", "")).startswith("hm_overlap"):
             data["sort_mode"] = "hm_overlap_route_conflict"
         elif data.get("sort_mode") == "hm_route":
@@ -399,7 +399,7 @@ def _resolve_route_backtracking_conflicts(
     """
     Los lokale route-terugvallen op binnen hm-gerelateerde groepjes.
 
-    Overlapclusters worden al op routepositie gesorteerd. In praktijkdata, zoals
+    v0.13 sorteerde overlapclusters al op routepositie. In praktijkdata, zoals
     de N354, kunnen daarna nog kleine route-terugvallen zichtbaar blijven rond
     complexe kruisingen of lange segmenten. Deze stap corrigeert alleen compacte
     clusters waar:

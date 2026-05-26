@@ -389,147 +389,6 @@ def _attention_severity(messages: list[str]) -> str:
     return "aandachtspunt"
 
 
-ROUTE_SPAN_OUTLIER_THRESHOLD_M = 1000.0
-ROUTE_PRIMARY_ALL_DELTA_THRESHOLD_M = 250.0
-
-
-def _round_or_none(value: Any, digits: int = 2) -> float | None:
-    """Rond een getal veilig af of geef ``None`` terug."""
-    try:
-        if value is None or pd.isna(value):
-            return None
-        return round(float(value), digits)
-    except (TypeError, ValueError, OverflowError):
-        return None
-
-
-def _numeric_values(values: pd.Series) -> pd.Series:
-    """Zet een serie tolerant om naar numerieke waarden zonder lege waarden."""
-    if values is None:
-        return pd.Series(dtype=float)
-    return pd.to_numeric(values, errors="coerce").dropna()
-
-
-def _route_stats_from_projected(projected: pd.DataFrame) -> dict[str, float | None]:
-    """
-    Vat routeposities van een set objecten samen.
-
-    ``start`` en ``end`` gebruiken de buitenste projectiepunten. ``mid`` gebruikt
-    de mediaan van de objectmiddens, zodat één extreem secundair object zichtbaar
-    blijft maar niet stil de hele diagnose domineert.
-    """
-    if projected is None or projected.empty:
-        return {"start": None, "mid": None, "end": None, "span": None}
-
-    starts = _numeric_values(projected.get("route_start_m", pd.Series(dtype=float)))
-    mids = _numeric_values(projected.get("route_mid_m", pd.Series(dtype=float)))
-    ends = _numeric_values(projected.get("route_end_m", pd.Series(dtype=float)))
-
-    route_start = float(starts.min()) if not starts.empty else None
-    route_mid = float(mids.median()) if not mids.empty else None
-    route_end = float(ends.max()) if not ends.empty else None
-
-    if route_start is not None and route_end is not None:
-        route_span = max(0.0, route_end - route_start)
-    else:
-        route_span = None
-
-    return {
-        "start": route_start,
-        "mid": route_mid,
-        "end": route_end,
-        "span": route_span,
-    }
-
-
-def _sort_value_from_route_stats(
-    route_stats: dict[str, float | None],
-    route_sort_bron: str,
-) -> float | None:
-    """
-    Bereken de route-sortwaarde uit een diagnose-samenvatting.
-
-    De Project Adviseur gebruikt normaal ``route_mid_m`` en binnen
-    overlapclusters meestal ``route_start_m``. Door dezelfde bronnaam toe te
-    passen op primaire en alle-object-routevelden kunnen we eerlijk vergelijken
-    zonder de sortering zelf te wijzigen.
-    """
-    source = normalize_text(route_sort_bron)
-
-    if source == "route_start_m":
-        return route_stats.get("start")
-    if source == "route_end_m":
-        return route_stats.get("end")
-
-    # Default bewust op mid: dit is de normale Project Adviseur-sorteerwaarde.
-    return route_stats.get("mid")
-
-
-def _route_delta(left: float | None, right: float | None) -> float | None:
-    """Geef het absolute verschil tussen twee routewaarden terug."""
-    if left is None or right is None:
-        return None
-    return abs(float(left) - float(right))
-
-
-def _route_outlier_messages(
-    *,
-    hm_min: float | None,
-    hm_max: float | None,
-    route_start: float | None,
-    route_mid: float | None,
-    route_end: float | None,
-    primary_route_sort: float | None,
-    all_route_sort: float | None,
-    route_basis: str,
-) -> list[str]:
-    """
-    Signaleer route-anomalieën zonder de sortering te wijzigen.
-
-    Dit is bewust diagnose. Grote sprongen kunnen ontstaan door secundaire
-    objecten, foutieve geometrie of route-asprojectie rond kruisingen/rotondes.
-    De databeheerder moet de oorzaak kunnen controleren voordat v0.15 de
-    primaire ruggengraat als harde sorteersleutel gebruikt.
-    """
-    messages: list[str] = []
-
-    start_mid_delta = _route_delta(route_start, route_mid)
-    mid_end_delta = _route_delta(route_mid, route_end)
-    route_span = _route_delta(route_start, route_end)
-
-    hm_span = None
-    if hm_min is not None and hm_max is not None:
-        hm_span = abs(float(hm_max) - float(hm_min))
-
-    compact_hm = hm_span is None or hm_span <= 0.2
-
-    if (
-        compact_hm
-        and (
-            (start_mid_delta is not None and start_mid_delta > ROUTE_SPAN_OUTLIER_THRESHOLD_M)
-            or (mid_end_delta is not None and mid_end_delta > ROUTE_SPAN_OUTLIER_THRESHOLD_M)
-            or (route_span is not None and route_span > ROUTE_SPAN_OUTLIER_THRESHOLD_M)
-        )
-    ):
-        messages.append(
-            "WAARSCHUWING: groot verschil tussen route_start_m, route_mid_m en/of route_end_m "
-            "binnen een compact hm-bereik; controleer objectgeometrie of gekoppelde objecten"
-        )
-
-    primary_all_delta = _route_delta(primary_route_sort, all_route_sort)
-    if (
-        route_basis == "primary_ids"
-        and primary_all_delta is not None
-        and primary_all_delta > ROUTE_PRIMARY_ALL_DELTA_THRESHOLD_M
-    ):
-        messages.append(
-            "INFO: primaire-route en alle-object-route verschillen duidelijk; "
-            "controleer of secundaire objecten de groepsroute vertekenen"
-        )
-
-    return messages
-
-
 def _value_counts_as_text(values: pd.Series) -> str:
     """Maak een compacte, stabiele lijst van unieke waarden met aantallen."""
     cleaned = [normalize_text(value) for value in values if clean_display_value(value)]
@@ -637,11 +496,6 @@ def build_sort_diagnostics(
             "route_start_m",
             "route_mid_m",
             "route_end_m",
-            "object_route_start_m",
-            "object_route_mid_m",
-            "object_route_end_m",
-            "object_route_span_m",
-            "object_route_outlier",
             "dwarsafstand_m",
             "sort_severity",
             "sort_warning",
@@ -665,26 +519,10 @@ def build_sort_diagnostics(
             "hm_max",
             "hm_overlap_vorige",
             "route_terugval_vorige",
-            "route_mid_terugval_vorige",
-            "route_sort_terugval_vorige",
             "routepositie_onderscheidend",
-            "route_basis",
             "route_sort_m",
             "route_sort_bron",
             "route_sort_verklaarbaar",
-            "primary_route_start_m",
-            "primary_route_mid_m",
-            "primary_route_end_m",
-            "primary_route_sort_m",
-            "primary_route_span_m",
-            "all_route_start_m",
-            "all_route_mid_m",
-            "all_route_end_m",
-            "all_route_sort_m",
-            "all_route_span_m",
-            "primary_all_route_delta_m",
-            "route_span_warning",
-            "route_outlier_warning",
             "hm_route_conflict",
             "hm_route_conflict_resolved",
             "route_conflict_cluster_id",
@@ -785,11 +623,6 @@ def build_sort_diagnostics(
         mid_m = row["_diag_route_mid"]
         end_m = row["_diag_route_end"]
         lateral_m = row["_diag_lateral"]
-        object_route_span = _route_delta(start_m, end_m)
-        object_route_outlier = (
-            object_route_span is not None
-            and object_route_span > ROUTE_SPAN_OUTLIER_THRESHOLD_M
-        )
 
         warnings: list[str] = []
         if row["_diag_hm"] >= 90000:
@@ -824,15 +657,10 @@ def build_sort_diagnostics(
                 "Situering": row["_diag_situering"],
                 "hm_sort": None if row["_diag_hm"] >= 90000 else float(row["_diag_hm"]),
                 "bucket_count": int(row.get("_diag_bucket_count", 1)),
-                "route_start_m": _round_or_none(start_m),
-                "route_mid_m": _round_or_none(mid_m),
-                "route_end_m": _round_or_none(end_m),
-                "object_route_start_m": _round_or_none(start_m),
-                "object_route_mid_m": _round_or_none(mid_m),
-                "object_route_end_m": _round_or_none(end_m),
-                "object_route_span_m": _round_or_none(object_route_span),
-                "object_route_outlier": bool(object_route_outlier),
-                "dwarsafstand_m": _round_or_none(lateral_m),
+                "route_start_m": round(float(start_m), 2) if start_m is not None else None,
+                "route_mid_m": round(float(mid_m), 2) if mid_m is not None else None,
+                "route_end_m": round(float(end_m), 2) if end_m is not None else None,
+                "dwarsafstand_m": round(float(lateral_m), 2) if lateral_m is not None else None,
                 "sort_severity": _attention_severity(warnings),
                 "sort_warning": "; ".join(warnings),
             }
@@ -868,25 +696,18 @@ def build_sort_diagnostics(
         hm_values = pd.to_numeric(primary_subset["_diag_hm"], errors="coerce")
         valid_hm = hm_values[hm_values < 90000]
 
-        all_projected = object_df[object_df["sys_id"].isin(ids)]
-        primary_projected = object_df[object_df["sys_id"].isin(primary_ids)] if primary_ids else object_df.iloc[0:0]
-        projected = primary_projected if not primary_projected.empty else all_projected
-        route_values = _numeric_values(projected.get("route_mid_m", pd.Series(dtype=float)))
+        projected = object_df[object_df["sys_id"].isin(primary_ids if primary_ids else ids)]
+        route_values = pd.to_numeric(projected["route_mid_m"], errors="coerce").dropna()
 
-        # Gebruik voor de groepsdiagnose bij voorkeur exact dezelfde routewaarden
-        # als de Project Adviseur heeft gebruikt. Daarnaast tonen we expliciet
-        # de primaire route én de alle-object-route, zodat secundaire uitschieters
-        # zichtbaar worden zonder dat v0.14.2 de sortering al verandert.
+        # Gebruik voor de groepsdiagnose bij voorkeur exact dezelfde
+        # routewaarden als de Project Adviseur heeft gebruikt. Daarmee blijven
+        # ``route_sort_m`` en ``tie_breaker`` uitlegbaar vanuit de diagnose.
         route_start_from_group = group_data.get("route_start_m", None)
         route_mid_from_group = group_data.get("route_mid_m", None)
         route_end_from_group = group_data.get("route_end_m", None)
         route_sort_from_group = group_data.get("route_sort_m", None)
         route_sort_bron = clean_display_value(group_data.get("route_sort_bron", ""))
         fallback_sort = group_data.get("fallback_sort_m", group_data.get("fallback_tie_breaker_dist", None))
-
-        route_basis = "primary_ids" if primary_ids else "all_ids_fallback"
-        primary_route_stats = _route_stats_from_projected(primary_projected)
-        all_route_stats = _route_stats_from_projected(all_projected)
 
         duplicate_primary = primary_subset[primary_subset.get("_diag_bucket_count", pd.Series(dtype=int)) > 1]
         has_duplicate_bucket = not duplicate_primary.empty
@@ -964,35 +785,7 @@ def build_sort_diagnostics(
             route_sort_verklaarbaar = False
 
         if route_sort is not None and not route_sort_bron:
-            route_sort_bron = "route_mid_m"
-
-        primary_route_sort = _sort_value_from_route_stats(primary_route_stats, route_sort_bron)
-        all_route_sort = _sort_value_from_route_stats(all_route_stats, route_sort_bron)
-        primary_all_route_delta = _route_delta(primary_route_sort, all_route_sort)
-
-        hm_min_value = round(float(valid_hm.min()), 3) if not valid_hm.empty else None
-        hm_max_value = round(float(valid_hm.max()), 3) if not valid_hm.empty else None
-
-        route_outlier_messages = _route_outlier_messages(
-            hm_min=hm_min_value,
-            hm_max=hm_max_value,
-            route_start=route_start,
-            route_mid=route_mid,
-            route_end=route_end,
-            primary_route_sort=primary_route_sort,
-            all_route_sort=all_route_sort,
-            route_basis=route_basis,
-        )
-        warnings.extend(route_outlier_messages)
-        route_outlier_warning = "; ".join(dict.fromkeys(route_outlier_messages))
-        route_span_warning = next(
-            (
-                message
-                for message in route_outlier_messages
-                if "groot verschil tussen route_start_m" in message
-            ),
-            "",
-        )
+            route_sort_bron = "route_sort_m"
 
         group_rows.append(
             {
@@ -1008,45 +801,29 @@ def build_sort_diagnostics(
                 "primaire_objecten": len(primary_ids) if primary_ids else int(subset["_diag_is_primary"].sum()),
                 "sort_mode": sort_mode or "?",
                 "sort_quality": sort_quality,
-                "hm_min": hm_min_value,
-                "hm_max": hm_max_value,
+                "hm_min": round(float(valid_hm.min()), 3) if not valid_hm.empty else None,
+                "hm_max": round(float(valid_hm.max()), 3) if not valid_hm.empty else None,
                 # Deze diagnosevelden worden na het opbouwen van alle groepen
                 # gevuld, omdat ze afhangen van de vorige groep in de zichtbare volgorde.
                 "hm_overlap_vorige": False,
                 "route_terugval_vorige": False,
-                "route_mid_terugval_vorige": False,
-                "route_sort_terugval_vorige": False,
                 "routepositie_onderscheidend": bool(group_data.get("routepositie_onderscheidend", True)),
-                "route_basis": route_basis,
-                "route_sort_m": _round_or_none(route_sort),
+                "route_sort_m": round(float(route_sort), 2) if route_sort is not None else None,
                 "route_sort_bron": route_sort_bron,
                 "route_sort_verklaarbaar": bool(route_sort_verklaarbaar),
-                "primary_route_start_m": _round_or_none(primary_route_stats.get("start")),
-                "primary_route_mid_m": _round_or_none(primary_route_stats.get("mid")),
-                "primary_route_end_m": _round_or_none(primary_route_stats.get("end")),
-                "primary_route_sort_m": _round_or_none(primary_route_sort),
-                "primary_route_span_m": _round_or_none(primary_route_stats.get("span")),
-                "all_route_start_m": _round_or_none(all_route_stats.get("start")),
-                "all_route_mid_m": _round_or_none(all_route_stats.get("mid")),
-                "all_route_end_m": _round_or_none(all_route_stats.get("end")),
-                "all_route_sort_m": _round_or_none(all_route_sort),
-                "all_route_span_m": _round_or_none(all_route_stats.get("span")),
-                "primary_all_route_delta_m": _round_or_none(primary_all_route_delta),
-                "route_span_warning": route_span_warning,
-                "route_outlier_warning": route_outlier_warning,
                 "hm_route_conflict": False,
                 "hm_route_conflict_resolved": bool(group_data.get("hm_route_conflict_resolved", False)),
                 "route_conflict_cluster_id": clean_display_value(group_data.get("route_conflict_cluster_id", "")),
                 "route_conflict_sort_applied": bool(group_data.get("route_conflict_sort_applied", False)),
                 "route_conflict_cluster_size": int(group_data.get("route_conflict_cluster_size", 1) or 1),
-                "fallback_sort_m": _round_or_none(fallback_sort_value),
+                "fallback_sort_m": round(float(fallback_sort_value), 2) if fallback_sort_value is not None else None,
                 "overlap_cluster_id": clean_display_value(group_data.get("overlap_cluster_id", "")),
                 "overlap_sort_applied": bool(group_data.get("overlap_sort_applied", False)),
                 "overlap_cluster_size": int(group_data.get("overlap_cluster_size", 1) or 1),
-                "route_start_m": _round_or_none(route_start),
-                "route_mid_m": _round_or_none(route_mid),
-                "route_end_m": _round_or_none(route_end),
-                "tie_breaker": _round_or_none(tie_breaker),
+                "route_start_m": round(float(route_start), 2) if route_start is not None else None,
+                "route_mid_m": round(float(route_mid), 2) if route_mid is not None else None,
+                "route_end_m": round(float(route_end), 2) if route_end is not None else None,
+                "tie_breaker": round(float(tie_breaker), 2) if tie_breaker is not None else None,
                 "tie_breaker_source": tie_breaker_source,
                 "waarschuwing": "; ".join(dict.fromkeys(warnings)),
             }
@@ -1060,8 +837,8 @@ def build_sort_diagnostics(
         group_df = group_df.sort_values(by=["volgorde_nr"], na_position="last").reset_index(drop=True)
 
         # Diagnoseer per laag of de huidige volgorde opvallende sprongen bevat.
-        # Dit verandert de sortering niet; het maakt alleen zichtbaar waar
-        # overlapcluster-sortering de volgorde moet verklaren.
+        # Dit verandert de sortering niet; het maakt alleen zichtbaar waar v0.13
+        # eventueel een overlapcluster-sortering moet gebruiken.
         route_duplicate_keys: set[tuple[Any, Any, Any]] = set()
         route_key_column = "route_sort_m" if "route_sort_m" in group_df.columns else "route_mid_m"
         for (rank_value, hm_value), part in group_df.groupby(["rank", "hm_min"], dropna=False):
@@ -1102,17 +879,17 @@ def build_sort_diagnostics(
             if bool(row.get("overlap_sort_applied", False)):
                 if row.get("tie_breaker_source") == "stabiele_fallback":
                     warnings.append(
-                        "INFO: overlapcluster-sortering actief, maar binnen deze groep is de lokale routepositie niet onderscheidend"
+                        "INFO: v0.13 gebruikt overlapcluster-sortering, maar binnen deze groep is de lokale routepositie niet onderscheidend"
                     )
                 else:
                     warnings.append(
-                        "INFO: overlapcluster-sortering actief: lokale routepositie gebruikt in plaats van alleen hm_min"
+                        "INFO: v0.13 sorteert deze overlapcluster op lokale routepositie in plaats van alleen hm_min"
                     )
 
             if bool(row.get("route_conflict_sort_applied", False)):
                 group_df.at[index, "hm_route_conflict"] = True
                 warnings.append(
-                    "INFO: hm/route-conflictcluster is op lokale routepositie hersorteerd"
+                    "INFO: v0.14 heeft een lokale hm/route-conflictcluster op routepositie hersorteerd"
                 )
                 if group_df.at[index, "sort_quality"] == "hoog":
                     group_df.at[index, "sort_quality"] = "middel"
@@ -1134,47 +911,27 @@ def build_sort_diagnostics(
                     if hm_overlap:
                         warnings.append(
                             "INFO: hm-bereik overlapt met vorige groep in dezelfde laag; "
-                            "controleer of lokale routepositie de volgorde moet verklaren"
+                            "controleer of routepositie in v0.13 moet bepalen"
                         )
 
                 route_mid = row.get("route_mid_m")
                 prev_route_mid = previous.get("route_mid_m")
-                route_sort = row.get("route_sort_m")
-                prev_route_sort = previous.get("route_sort_m")
-
-                route_mid_terugval = False
                 if pd.notna(route_mid) and pd.notna(prev_route_mid):
-                    route_mid_terugval = float(route_mid) + 0.01 < float(prev_route_mid)
-                    group_df.at[index, "route_mid_terugval_vorige"] = bool(route_mid_terugval)
-
-                route_sort_terugval = False
-                if pd.notna(route_sort) and pd.notna(prev_route_sort):
-                    route_sort_terugval = float(route_sort) + 0.01 < float(prev_route_sort)
-                    group_df.at[index, "route_sort_terugval_vorige"] = bool(route_sort_terugval)
-                    # Backwards-compatible alias: vanaf v0.14.2 volgt deze kolom
-                    # de feitelijke sorteersleutel, niet meer blind route_mid_m.
-                    group_df.at[index, "route_terugval_vorige"] = bool(route_sort_terugval)
-
-                if route_sort_terugval:
-                    group_df.at[index, "hm_route_conflict"] = True
-                    if bool(row.get("route_conflict_sort_applied", False)):
-                        warnings.append(
-                            "INFO: route_sort_m lag vóór de vorige groep, maar het lokale conflict is hersorteerd"
-                        )
-                    else:
-                        warnings.append(
-                            "WAARSCHUWING: route_sort_m ligt vóór de vorige groep; "
-                            "huidige zichtbare volgorde en sorteersleutel spreken elkaar tegen"
-                        )
-                    if group_df.at[index, "sort_quality"] == "hoog":
-                        group_df.at[index, "sort_quality"] = "middel"
-                elif route_mid_terugval:
-                    warnings.append(
-                        "INFO: route_mid_m ligt vóór de vorige groep, maar route_sort_m blijft oplopend; "
-                        "dit is een diagnoseverschil, geen sorteertegenstrijdigheid"
-                    )
-                    if group_df.at[index, "sort_quality"] == "hoog":
-                        group_df.at[index, "sort_quality"] = "middel"
+                    route_terugval = float(route_mid) + 0.01 < float(prev_route_mid)
+                    group_df.at[index, "route_terugval_vorige"] = bool(route_terugval)
+                    if route_terugval:
+                        group_df.at[index, "hm_route_conflict"] = True
+                        if bool(row.get("route_conflict_sort_applied", False)):
+                            warnings.append(
+                                "INFO: routepositie lag vóór de vorige groep, maar v0.14 heeft dit lokale conflict hersorteerd"
+                            )
+                        else:
+                            warnings.append(
+                                "WAARSCHUWING: routepositie ligt vóór de vorige groep; "
+                                "huidige hm-volgorde en lokale route-as spreken elkaar tegen"
+                            )
+                        if group_df.at[index, "sort_quality"] == "hoog":
+                            group_df.at[index, "sort_quality"] = "middel"
 
             group_df.at[index, "waarschuwing"] = "; ".join(dict.fromkeys(warnings))
             previous_by_rank[rank_value] = group_df.loc[index]

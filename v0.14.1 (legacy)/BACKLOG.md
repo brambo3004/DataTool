@@ -1,23 +1,5 @@
 # Takenlijst iASSET Advisor
 
-## Klaar in v0.14.2
-
-1. **Diagnosefix routewaarden en primaire ruggengraat**
-   - `route_mid_terugval_vorige` en `route_sort_terugval_vorige` zijn gescheiden.
-   - De oude kolom `route_terugval_vorige` blijft bestaan, maar volgt nu de feitelijke sorteersleutel `route_sort_m`.
-   - Groepsdiagnose toont `primary_route_*` en `all_route_*` naast elkaar.
-   - `route_basis` maakt zichtbaar of de sortering op primaire objecten of op alle objecten terugvalt.
-   - `route_outlier_warning` markeert compacte hm-groepen met grote routeverschillen, zoals een verdacht start-/mid-/eindverschil.
-   - Diagnoseberichten zijn versie-onafhankelijk gemaakt.
-   - Testdekking uitgebreid voor route-mid versus route-sort, outliers, primaire/all-routeverschillen en versie-onafhankelijke waarschuwingen.
-
-## Gepland voor v0.15
-
-1. **Projectvolgorde baseren op primaire ruggengraat**
-   - Project Adviseur sorteert groepen expliciet op `primary_route_sort_m` waar beschikbaar.
-   - Secundaire objecten bepalen de inhoud van het onderhoudscomplex, maar niet de projectvolgorde.
-   - Fallbacks blijven zichtbaar en worden niet stil toegepast.
-
 ## Klaar in v0.13.1
 
 1. **Uitlegbaarheidsfix route-as-sortering**
