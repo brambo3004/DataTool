@@ -1075,20 +1075,6 @@ with col_inspector:
                         q_investigate.metric("In onderzoek", queue_summary.get("in_onderzoek", 0))
                         q_fix.metric("Te corrigeren", queue_summary.get("te_corrigeren", 0))
 
-                        possible_matches = int(
-                            action_list.get("mogelijke_onderhoudsmatch", pd.Series(dtype=str))
-                            .fillna("")
-                            .astype(str)
-                            .str.strip()
-                            .ne("")
-                            .sum()
-                        )
-                        if possible_matches:
-                            st.info(
-                                f"{possible_matches} controlepunt(en) hebben een mogelijke onderhoudsmatch. "
-                                "Gebruik dit als hint, niet als automatische correctie."
-                            )
-
                         filter_row_1 = st.columns(3)
                         with filter_row_1[0]:
                             severity_options = ["Alle ernstniveaus", *sorted(action_list["ernst"].dropna().astype(str).unique())]
@@ -1213,9 +1199,6 @@ with col_inspector:
                                 st.markdown(f"**Status:** {clean_display_value(detail_row.get('status', ''))}")
                                 st.markdown(f"**Praktische categorie:** {clean_display_value(detail_row.get('praktische_categorie', ''))}")
                                 st.markdown(f"**Betrokken objecten:** {clean_display_value(detail_row.get('betrokken_objecten', ''))}")
-                                if clean_display_value(detail_row.get("mogelijke_onderhoudsmatch", "")):
-                                    st.markdown(f"**Mogelijke onderhoudsmatch:** {clean_display_value(detail_row.get('mogelijke_onderhoudsmatch', ''))}")
-                                    st.markdown(f"**Waarom deze match?:** {clean_display_value(detail_row.get('onderhoudsmatch_uitleg', ''))}")
                                 st.markdown(f"**Uitleg:** {clean_display_value(detail_row.get('uitleg', ''))}")
                                 st.markdown(f"**Mogelijke oorzaak:** {clean_display_value(detail_row.get('mogelijke_oorzaak', ''))}")
                                 st.markdown(f"**Voorgestelde actie:** {clean_display_value(detail_row.get('voorgestelde_actie', ''))}")

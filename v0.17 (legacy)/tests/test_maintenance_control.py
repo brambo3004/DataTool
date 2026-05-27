@@ -6,7 +6,6 @@ from iasset_tool.maintenance_control import (
     action_work_queue_summary,
     build_maintenance_control,
     filter_action_work_queue,
-    ensure_action_work_queue_columns,
     merge_action_work_queue_edits,
     merge_previous_action_follow_up,
     normalize_project_name,
@@ -644,97 +643,3 @@ def test_merge_action_work_queue_edits_updates_only_follow_up_columns():
     assert changed["beoordeling_databeheerder"] == "Grensgeval bij wegnummerovergang"
     assert changed["actiehouder"] == "Bram"
     assert changed["status"] == "OBJECT_WEGNUMMER_VERDACHT"
-
-
-def test_missing_project_gets_possible_maintenance_match_by_hm_overlap():
-    passport_df = pd.DataFrame(
-        [
-            {
-                "nummer": "VV-N354-100",
-                "Wegnummer": "N354",
-                "subthema": "rijstrook",
-                "Onderhoudsproject": "N354-HRB-11.5-12.8",
-                "Metrering": "11,5",
-            }
-        ]
-    )
-    maintenance_df = pd.DataFrame(
-        [
-            {
-                "objectnummer": "VV-N354-200",
-                "Onderhoudsproject": "N354-HRB-10.8-20.2",
-                "maatregel": "DGD",
-            }
-        ]
-    )
-
-    result = build_maintenance_control(passport_df, maintenance_df, selected_road="N354")
-
-    missing_row = result.comparison[result.comparison["status"] == "ONTBREEKT_IN_ONDERHOUD"].iloc[0]
-    assert "N354-HRB-10.8-20.2" in missing_row["mogelijke_onderhoudsmatch"]
-    assert missing_row["onderhoudsmatch_type"] == "hm_overlap_zelfde_categorie"
-    assert result.summary["acties_met_mogelijke_projectmatch"] == 1
-
-    action = result.action_list[result.action_list["status"] == "ONTBREEKT_IN_ONDERHOUD"].iloc[0]
-    assert "N354-HRB-10.8-20.2" in action["mogelijke_onderhoudsmatch"]
-    assert "Mogelijke onderhoudsmatch" in action["uitleg"]
-    assert "hint" in action["voorgestelde_actie"]
-
-
-def test_missing_project_does_not_match_other_road_or_different_category():
-    passport_df = pd.DataFrame(
-        [
-            {
-                "nummer": "VV-N354-100",
-                "Wegnummer": "N354",
-                "subthema": "rijstrook",
-                "Onderhoudsproject": "N354-HRB-11.5-12.8",
-                "Metrering": "11,5",
-            }
-        ]
-    )
-    maintenance_df = pd.DataFrame(
-        [
-            {
-                "objectnummer": "VV-N924-1",
-                "Onderhoudsproject": "N924-HRB-11.5-12.8",
-                "maatregel": "DGD",
-            },
-            {
-                "objectnummer": "VV-N354-2",
-                "Onderhoudsproject": "N354-FPR-11.5-12.8",
-                "maatregel": "DGD",
-            },
-        ]
-    )
-
-    result = build_maintenance_control(passport_df, maintenance_df, selected_road="N354")
-
-    action = result.action_list[result.action_list["status"] == "ONTBREEKT_IN_ONDERHOUD"].iloc[0]
-    assert action["mogelijke_onderhoudsmatch"] == ""
-    assert action["onderhoudsmatch_score"] == 0
-
-
-def test_action_work_queue_keeps_possible_match_columns():
-    action_list = pd.DataFrame(
-        [
-            {
-                "onderhoudsproject": "N354-HRB-11.5-12.8",
-                "ernst": "waarschuwing",
-                "status": "ONTBREEKT_IN_ONDERHOUD",
-                "praktische_categorie": "oude_of_ontbrekende_projectnaam_controleren",
-                "aantal_objecten": 1,
-                "betrokken_objecten": "VV-N354-100",
-                "mogelijke_onderhoudsmatch": "N354-HRB-10.8-20.2",
-                "onderhoudsmatch_type": "hm_overlap_zelfde_categorie",
-                "onderhoudsmatch_uitleg": "Mogelijke match op basis van hm-overlap.",
-                "afhandelstatus": "nieuw",
-            }
-        ]
-    )
-
-    queue = ensure_action_work_queue_columns(action_list)
-
-    assert "mogelijke_onderhoudsmatch" in queue.columns
-    assert "onderhoudsmatch_type" in queue.columns
-    assert queue.iloc[0]["mogelijke_onderhoudsmatch"] == "N354-HRB-10.8-20.2"

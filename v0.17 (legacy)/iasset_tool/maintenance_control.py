@@ -60,9 +60,6 @@ ACTION_WORK_QUEUE_DISPLAY_COLUMNS: tuple[str, ...] = (
     "praktische_categorie",
     "aantal_objecten",
     "betrokken_objecten",
-    "mogelijke_onderhoudsmatch",
-    "onderhoudsmatch_type",
-    "onderhoudsmatch_uitleg",
     "beoordeling_databeheerder",
     "afhandelstatus",
     "actiehouder",
@@ -127,16 +124,6 @@ class MaintenanceControlResult:
     object_differences: pd.DataFrame = field(default_factory=pd.DataFrame)
     action_list: pd.DataFrame = field(default_factory=pd.DataFrame)
     warnings: list[str] = field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class ProjectNameParts:
-    """Genormaliseerde onderdelen uit een onderhoudsprojectnaam."""
-
-    road: str = ""
-    category: str = ""
-    hm_start: float | None = None
-    hm_end: float | None = None
 
 
 MAINTENANCE_COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
@@ -668,184 +655,6 @@ def normalize_project_name(value: Any) -> str:
     text = re.sub(r"\s*-\s*", "-", text)
     text = re.sub(r"\s+", " ", text)
     return text.upper()
-
-
-
-def parse_project_name_parts(value: Any) -> ProjectNameParts:
-    """
-    Haal wegnummer, projectcategorie en hm-bereik uit een onderhoudsprojectnaam.
-
-    Voorbeelden die we ondersteunen:
-    - N354-HRB-11.5-12.8
-    - N354-PWR-21,5-21,6
-    - N353-HRBR-05.6-07.8
-
-    Als de naam afwijkt, geven we een leeg object terug. De controle mag nooit
-    crashen op handmatig getypte projectnamen.
-    """
-    text = normalize_project_name(value)
-    if not text:
-        return ProjectNameParts()
-
-    match = re.search(
-        r"\b(N\d{3,4})-([A-Z0-9]+)-(\d+(?:[.,]\d+)?)-(\d+(?:[.,]\d+)?)\b",
-        text,
-    )
-    if not match:
-        return ProjectNameParts(road=_extract_road_from_text(text))
-
-    start = parse_hm_sort(match.group(3), fallback=float("nan"))
-    end = parse_hm_sort(match.group(4), fallback=float("nan"))
-    if pd.isna(start) or pd.isna(end):
-        return ProjectNameParts(road=match.group(1), category=match.group(2))
-
-    hm_start, hm_end = sorted((float(start), float(end)))
-    return ProjectNameParts(
-        road=match.group(1),
-        category=match.group(2),
-        hm_start=hm_start,
-        hm_end=hm_end,
-    )
-
-
-def _project_category_family(category: Any) -> str:
-    """
-    Groepeer projectcategorieën voor voorzichtige matchvoorstellen.
-
-    HRBR/HRBL horen bij de HRB-familie, PWR/PWL bij PW, enzovoort. Exacte
-    categorie krijgt in de score nog steeds voorrang; deze familie is alleen een
-    terugval om nuttige suggesties niet te missen.
-    """
-    text = clean_display_value(category).upper()
-    if text.startswith("HRB"):
-        return "HRB"
-    if text.startswith("PWR") or text.startswith("PWL") or text == "PW":
-        return "PW"
-    if text.startswith("FPR") or text.startswith("FPL") or text == "FP":
-        return "FP"
-    if text.startswith("LBP"):
-        return "LBP"
-    if text.startswith("BB"):
-        return "BB"
-    return re.sub(r"[LR]$", "", text)
-
-
-def _hm_overlap_and_gap(a: ProjectNameParts, b: ProjectNameParts) -> tuple[float, float]:
-    """Bereken hm-overlap en hm-afstand tussen twee projectnamen."""
-    if a.hm_start is None or a.hm_end is None or b.hm_start is None or b.hm_end is None:
-        return 0.0, float("inf")
-
-    overlap = max(0.0, min(a.hm_end, b.hm_end) - max(a.hm_start, b.hm_start))
-    if overlap > 0:
-        return overlap, 0.0
-
-    gap = max(0.0, max(a.hm_start, b.hm_start) - min(a.hm_end, b.hm_end))
-    return 0.0, gap
-
-
-def _suggest_maintenance_project_match(
-    missing_project_name: Any,
-    maintenance_projects: pd.DataFrame | None,
-    *,
-    max_suggestions: int = 3,
-) -> dict[str, Any]:
-    """
-    Zoek een mogelijke bestaande onderhoudsprojectnaam voor een ontbrekende paspoortnaam.
-
-    Dit is géén automatische correctie. Het is alleen een leesbare hint voor de
-    databeheerder wanneer een project in de paspoortexport ontbreekt in de
-    onderhoudsexport. We vergelijken bewust conservatief op wegnummer,
-    projectcategorie en hm-bereik.
-    """
-    empty = {
-        "mogelijke_onderhoudsmatch": "",
-        "onderhoudsmatch_type": "",
-        "onderhoudsmatch_score": 0,
-        "onderhoudsmatch_uitleg": "",
-    }
-
-    parts = parse_project_name_parts(missing_project_name)
-    if not parts.road or maintenance_projects is None or maintenance_projects.empty:
-        return empty
-
-    candidates: list[dict[str, Any]] = []
-
-    for _, candidate_row in maintenance_projects.iterrows():
-        candidate_name = clean_display_value(candidate_row.get("onderhoudsproject", ""))
-        candidate_parts = parse_project_name_parts(candidate_name)
-        if not candidate_parts.road or candidate_parts.road != parts.road:
-            continue
-
-        exact_category = bool(parts.category and candidate_parts.category and parts.category == candidate_parts.category)
-        same_family = bool(
-            parts.category
-            and candidate_parts.category
-            and _project_category_family(parts.category) == _project_category_family(candidate_parts.category)
-        )
-        if parts.category and candidate_parts.category and not (exact_category or same_family):
-            continue
-
-        overlap, gap = _hm_overlap_and_gap(parts, candidate_parts)
-        score = 40  # zelfde weg
-        match_type = "zelfde_weg"
-
-        if exact_category:
-            score += 30
-            match_type = "zelfde_categorie"
-        elif same_family:
-            score += 20
-            match_type = "zelfde_categoriefamilie"
-
-        if overlap > 0:
-            score += 30
-            match_type = "hm_overlap_zelfde_categorie" if exact_category else "hm_overlap_zelfde_categoriefamilie"
-        elif gap <= 0.2:
-            score += 18
-            match_type = "hm_aangrenzend_zelfde_categorie" if exact_category else "hm_aangrenzend_zelfde_categoriefamilie"
-        elif gap <= 1.0:
-            score += 8
-            match_type = "hm_dichtbij_zelfde_categorie" if exact_category else "hm_dichtbij_zelfde_categoriefamilie"
-
-        if score < 70:
-            continue
-
-        candidates.append(
-            {
-                "project": candidate_name,
-                "score": int(score),
-                "type": match_type,
-                "overlap": overlap,
-                "gap": gap,
-            }
-        )
-
-    if not candidates:
-        return empty
-
-    candidates.sort(key=lambda item: (item["score"], item["overlap"], -item["gap"], item["project"]), reverse=True)
-    selected = candidates[:max_suggestions]
-    match_text = "; ".join(f"{item['project']} ({item['type']}, score {item['score']})" for item in selected)
-    best = selected[0]
-
-    if best["overlap"] > 0:
-        uitleg = (
-            f"Mogelijke match op basis van hetzelfde wegnummer, vergelijkbare categorie en "
-            f"overlappend hm-bereik: {best['project']}."
-        )
-    elif best["gap"] != float("inf"):
-        uitleg = (
-            f"Mogelijke match op basis van hetzelfde wegnummer, vergelijkbare categorie en "
-            f"nabij hm-bereik: {best['project']}."
-        )
-    else:
-        uitleg = f"Mogelijke match op basis van hetzelfde wegnummer en vergelijkbare categorie: {best['project']}."
-
-    return {
-        "mogelijke_onderhoudsmatch": match_text,
-        "onderhoudsmatch_type": best["type"],
-        "onderhoudsmatch_score": best["score"],
-        "onderhoudsmatch_uitleg": uitleg,
-    }
 
 
 def _first_existing_column(df: pd.DataFrame, candidates: Iterable[str]) -> str | None:
@@ -1451,17 +1260,6 @@ def compare_passport_and_maintenance(
             severity = "waarschuwing"
             message = "Project staat in de onderhoudsexport, maar er zijn geen paspoortobjecten met deze projectnaam."
 
-        match_suggestion = (
-            _suggest_maintenance_project_match(project_name, maintenance_projects)
-            if status == "ONTBREEKT_IN_ONDERHOUD"
-            else {
-                "mogelijke_onderhoudsmatch": "",
-                "onderhoudsmatch_type": "",
-                "onderhoudsmatch_score": 0,
-                "onderhoudsmatch_uitleg": "",
-            }
-        )
-
         record = {
             "status": status,
             "ernst": severity,
@@ -1472,7 +1270,6 @@ def compare_passport_and_maintenance(
             "in_onderhoudsexport": in_maintenance,
             "projectnaam_in_beide_exports": bool(in_passport and in_maintenance),
             **diff_counts,
-            **match_suggestion,
         }
         record.update({column: passport_record.get(column, "") for column in passport_projects.columns if column not in {"project_norm", "onderhoudsproject"}} if passport_projects is not None and not passport_projects.empty else {})
         record.update({column: maintenance_record.get(column, "") for column in maintenance_projects.columns if column not in {"project_norm", "onderhoudsproject"}} if maintenance_projects is not None and not maintenance_projects.empty else {})
@@ -1763,8 +1560,6 @@ def filter_action_work_queue(
                 "status",
                 "praktische_categorie",
                 "betrokken_objecten",
-                "mogelijke_onderhoudsmatch",
-                "onderhoudsmatch_uitleg",
                 "uitleg",
                 "mogelijke_oorzaak",
                 "voorgestelde_actie",
@@ -1861,22 +1656,17 @@ def _action_text_for_status(status: str, row: dict[str, Any], involved_objects: 
 
     if status == "ONTBREEKT_IN_ONDERHOUD":
         category = "Project ontbreekt in onderhoudsexport"
-        match_text = clean_display_value(row.get("mogelijke_onderhoudsmatch", ""))
-        match_hint = f" Mogelijke onderhoudsmatch: {match_text}." if match_text else ""
         explanation = (
             f"{project_name} staat bij {paspoort_count} paspoortobject(en), "
             "maar komt niet voor in de onderhoudsexport."
-            f"{match_hint}"
         )
         cause = (
             "Het onderhoudsproject is mogelijk nog niet aangemaakt, niet mee-geëxporteerd, "
-            "of de projectnaam wijkt in iASSET net anders af. Als er een mogelijke match is, "
-            "kan het ook gaan om een oude projectnaam die nog bij objecten staat."
+            "of de projectnaam wijkt in iASSET net anders af."
         )
         action = (
             "Zoek het onderhoudsproject exact op in iASSET Onderhoud. Controleer daarna of "
-            "de projectnaam gelijk gespeld is en of het project in de onderhoudsexportfilter zit. "
-            "Bekijk eventuele mogelijke onderhoudsmatch als hint, niet als automatische correctie."
+            "de projectnaam gelijk gespeld is en of het project in de onderhoudsexportfilter zit."
         )
     elif status == "GEEN_PASPOORTOBJECTEN":
         category = "Onderhoudsproject zonder paspoortobjecten"
@@ -1962,10 +1752,6 @@ def build_action_list(
         "praktische_categorie",
         "aantal_objecten",
         "betrokken_objecten",
-        "mogelijke_onderhoudsmatch",
-        "onderhoudsmatch_type",
-        "onderhoudsmatch_score",
-        "onderhoudsmatch_uitleg",
         "uitleg",
         "mogelijke_oorzaak",
         "voorgestelde_actie",
@@ -2023,10 +1809,6 @@ def build_action_list(
                 "praktische_categorie": practical_category,
                 "aantal_objecten": len(involved_objects),
                 "betrokken_objecten": _preview_objects_for_action_list(involved_objects),
-                "mogelijke_onderhoudsmatch": clean_display_value(row.get("mogelijke_onderhoudsmatch", "")),
-                "onderhoudsmatch_type": clean_display_value(row.get("onderhoudsmatch_type", "")),
-                "onderhoudsmatch_score": _safe_int_value(row.get("onderhoudsmatch_score", 0)),
-                "onderhoudsmatch_uitleg": clean_display_value(row.get("onderhoudsmatch_uitleg", "")),
                 "uitleg": explanation,
                 "mogelijke_oorzaak": cause,
                 "voorgestelde_actie": action,
@@ -2096,7 +1878,6 @@ def build_maintenance_control(
             "objectverschillen_regels": 0,
             "acties": 0,
             "acties_met_overgenomen_beoordeling": 0,
-            "acties_met_mogelijke_projectmatch": 0,
         }
     else:
         summary = {
@@ -2114,9 +1895,6 @@ def build_maintenance_control(
             "objectverschillen_regels": int(len(object_differences)),
             "acties": int(len(action_list)),
             "acties_met_overgenomen_beoordeling": int(copied_follow_up),
-            "acties_met_mogelijke_projectmatch": int(
-                action_list.get("mogelijke_onderhoudsmatch", pd.Series(dtype=str)).fillna("").astype(str).str.strip().ne("").sum()
-            ),
         }
 
     return MaintenanceControlResult(

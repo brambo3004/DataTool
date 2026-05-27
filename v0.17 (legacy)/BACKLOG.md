@@ -1,15 +1,5 @@
 # Takenlijst iASSET Advisor
 
-## Klaar in v0.17.1
-
-1. **Mogelijke onderhoudsmatch bij ontbrekende projectnaam**
-   - Bij `ONTBREEKT_IN_ONDERHOUD` zoekt de Fase-4-controle naar mogelijke bestaande projectnamen in de onderhoudsexport.
-   - Matchvoorstellen zijn conservatief: zelfde wegnummer, vergelijkbare categorie en overlappend of nabij hm-bereik.
-   - De actielijst toont `mogelijke_onderhoudsmatch`, `onderhoudsmatch_type`, `onderhoudsmatch_score` en `onderhoudsmatch_uitleg`.
-   - In de app wordt een melding getoond als er controlepunten met mogelijke matches zijn.
-   - Matchvoorstellen zijn alleen hints; de app voert geen automatische correcties uit.
-
-
 ## Klaar in v0.17.0
 
 1. **Fase-4-werkvoorraad in de app**

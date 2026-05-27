@@ -1,4 +1,4 @@
-# iASSET Advisor - refactor v0.17.1
+# iASSET Advisor - refactor v0.17.0
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
@@ -106,21 +106,6 @@ pytest
 
 
 
-
-
-## Nieuw in v0.17.1
-
-Deze versie helpt bij ontbrekende onderhoudsprojecten door mogelijke bestaande onderhoudsprojecten als **hint** te tonen.
-
-- Bij `ONTBREEKT_IN_ONDERHOUD` zoekt de tool voorzichtig naar een mogelijke match in de onderhoudsexport.
-- De match kijkt naar hetzelfde wegnummer, vergelijkbare projectcategorie en overlappend of nabij hm-bereik.
-- Nieuwe kolommen in de Fase-4-controle en actielijst:
-  - `mogelijke_onderhoudsmatch`;
-  - `onderhoudsmatch_type`;
-  - `onderhoudsmatch_score`;
-  - `onderhoudsmatch_uitleg`.
-- De hint wordt ook in de detailweergave van de werkvoorraad getoond.
-- De app corrigeert niets automatisch; de databeheerder beoordeelt of de match echt klopt.
 
 
 ## Nieuw in v0.17.0
