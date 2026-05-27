@@ -1,4 +1,4 @@
-# iASSET Advisor - refactor v0.16.3
+# iASSET Advisor - refactor v0.16.2
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
@@ -107,19 +107,6 @@ pytest
 
 
 
-
-## Nieuw in v0.16.3
-
-Deze versie maakt de **Fase-4-actielijst** geschikt als werkvoorraad voor afhandeling door databeheer.
-
-- Nieuwe kolom `praktische_categorie`, zodat technische meldingen praktischer gegroepeerd kunnen worden.
-- Nieuwe standaardkolommen voor opvolging:
-  - `beoordeling_databeheerder`;
-  - `afhandelstatus`;
-  - `actiehouder`;
-  - `opmerking_afhandeling`.
-- Nieuwe actieregels starten met `afhandelstatus = nieuw`.
-- De actielijst blijft een veilige controle-export: de app voert géén mutaties uit in iASSET of het maatregeltoetsdocument.
 
 ## Nieuw in v0.16.2
 

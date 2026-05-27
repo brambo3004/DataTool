@@ -1,14 +1,5 @@
 # Takenlijst iASSET Advisor
 
-## Klaar in v0.16.3
-
-1. **Fase-4-actielijst geschikt gemaakt als afhandelwerkvoorraad**
-   - Nieuwe kolom `praktische_categorie` toegevoegd aan de actielijst.
-   - Nieuwe opvolgkolommen toegevoegd: `beoordeling_databeheerder`, `afhandelstatus`, `actiehouder` en `opmerking_afhandeling`.
-   - Nieuwe actieregels krijgen standaard `afhandelstatus = nieuw`.
-   - De extra kolommen maken het mogelijk om controlepunten direct vanuit de export inhoudelijk te beoordelen en op te volgen.
-   - Testdekking toegevoegd voor praktische categorieën en afhandelkolommen.
-
 ## Klaar in v0.16.2
 
 1. **Fase-4-actielijst toegevoegd**
@@ -69,7 +60,7 @@
    - Diagnoseberichten zijn versie-onafhankelijk gemaakt.
    - Testdekking uitgebreid voor route-mid versus route-sort, outliers, primaire/all-routeverschillen en versie-onafhankelijke waarschuwingen.
 
-## Gepland na v0.16.3
+## Gepland na v0.16.2
 
 1. **Fase-4-controle verdiepen**
    - Naamvarianten slimmer herkennen, bijvoorbeeld `01.2` versus `1.2`.

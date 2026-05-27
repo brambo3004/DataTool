@@ -11,14 +11,14 @@ from pathlib import Path
 # --- Bestanden -------------------------------------------------------------
 
 # Versie die in de Streamlit-interface zichtbaar wordt getoond.
-APP_VERSION = "v0.16.3"
+APP_VERSION = "v0.16.2"
 
 # Versie van het sorteerdiagnose-frame in session_state.
 # Waarom apart?
 # Streamlit kan session_state bewaren terwijl de code al is bijgewerkt.
 # Zonder deze sleutel kan de app na een deploy nog een oude diagnose-tabel
 # exporteren, terwijl het versienummer al nieuw toont.
-SORT_DIAGNOSTICS_SCHEMA_VERSION = "sortdiag-v0.16.3"
+SORT_DIAGNOSTICS_SCHEMA_VERSION = "sortdiag-v0.16.2"
 
 DATA_DIR = Path(".")
 FILE_NIET_RIJSTROOK = DATA_DIR / "N-allemaal-niet-rijstrook.csv"

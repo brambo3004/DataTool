@@ -1164,28 +1164,6 @@ def _safe_int_value(value: Any, default: int = 0) -> int:
         return default
 
 
-def _practical_category_for_status(status: str, row: dict[str, Any], involved_objects: list[str]) -> str:
-    """
-    Vertaal een technische status naar een praktische afhandelcategorie.
-
-    Deze categorie is bewust iets breder dan de technische status. De tool kan
-    signaleren dat iets verdacht is, maar de databeheerder bepaalt uiteindelijk
-    of het bijvoorbeeld een echte fout, een grensgeval of een verklaarbare
-    uitzondering is.
-    """
-    if status == "OBJECT_WEGNUMMER_VERDACHT":
-        return "wegnummer_objectpaspoort_of_grensgeval_controleren"
-    if status == "ONTBREEKT_IN_ONDERHOUD":
-        return "oude_of_ontbrekende_projectnaam_controleren"
-    if status == "OBJECTVERSCHIL":
-        return "objectset_of_projecttype_controleren"
-    if status == "HM_BEREIK_VERDACHT":
-        return "metrering_paspoort_corrigeren"
-    if status == "GEEN_PASPOORTOBJECTEN":
-        return "onderhoudsproject_zonder_paspoortobjecten_controleren"
-    return "controlepunt_handmatig_beoordelen"
-
-
 def _action_text_for_status(status: str, row: dict[str, Any], involved_objects: list[str]) -> tuple[str, str, str, str]:
     """Vertaal een technische Fase-4-status naar begrijpelijke controle-instructies."""
     project_name = clean_display_value(row.get("onderhoudsproject", "")) or "dit onderhoudsproject"
@@ -1291,16 +1269,11 @@ def build_action_list(
         "status",
         "ernst",
         "controlecategorie",
-        "praktische_categorie",
         "aantal_objecten",
         "betrokken_objecten",
         "uitleg",
         "mogelijke_oorzaak",
         "voorgestelde_actie",
-        "beoordeling_databeheerder",
-        "afhandelstatus",
-        "actiehouder",
-        "opmerking_afhandeling",
         "project_norm",
     ]
 
@@ -1340,7 +1313,6 @@ def build_action_list(
             ]
 
         category, explanation, cause, action = _action_text_for_status(status, row, involved_objects)
-        practical_category = _practical_category_for_status(status, row, involved_objects)
 
         records.append(
             {
@@ -1348,16 +1320,11 @@ def build_action_list(
                 "status": status,
                 "ernst": clean_display_value(row.get("ernst", "")),
                 "controlecategorie": category,
-                "praktische_categorie": practical_category,
                 "aantal_objecten": len(involved_objects),
                 "betrokken_objecten": _preview_objects_for_action_list(involved_objects),
                 "uitleg": explanation,
                 "mogelijke_oorzaak": cause,
                 "voorgestelde_actie": action,
-                "beoordeling_databeheerder": "",
-                "afhandelstatus": "nieuw",
-                "actiehouder": "",
-                "opmerking_afhandeling": "",
                 "project_norm": project_key,
             }
         )
