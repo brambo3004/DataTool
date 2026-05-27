@@ -1,17 +1,5 @@
 # Takenlijst iASSET Advisor
 
-## Klaar in v0.17.0
-
-1. **Fase-4-werkvoorraad in de app**
-   - De Fase-4-actielijst wordt nu als werkvoorraad in Streamlit getoond.
-   - Dashboard toegevoegd met aantallen controlepunten, open, nieuw, afgehandeld, waarschuwingen en aandachtspunten.
-   - Filters toegevoegd voor ernst, technische status, praktische categorie, afhandelstatus, actiehouder en zoektekst.
-   - Opvolgvelden zijn direct in de app bewerkbaar via `st.data_editor`.
-   - De bijgewerkte actielijst kan als CSV worden gedownload.
-   - Detailweergave toegevoegd voor uitleg, mogelijke oorzaak en voorgestelde actie.
-   - Testdekking toegevoegd voor werkvoorraadsamenvatting, filters en terugzetten van bewerkingen uit een gefilterde tabel.
-
-
 ## Klaar in v0.16.4
 
 1. **Eerdere beoordelingen opnieuw meenemen in Fase-4-actielijst**
@@ -92,7 +80,7 @@
    - Diagnoseberichten zijn versie-onafhankelijk gemaakt.
    - Testdekking uitgebreid voor route-mid versus route-sort, outliers, primaire/all-routeverschillen en versie-onafhankelijke waarschuwingen.
 
-## Gepland na v0.17.0
+## Gepland na v0.16.4
 
 1. **Fase-4-controle verdiepen**
    - Naamvarianten slimmer herkennen, bijvoorbeeld `01.2` versus `1.2`.

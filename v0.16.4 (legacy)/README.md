@@ -1,4 +1,4 @@
-# iASSET Advisor - refactor v0.17.0
+# iASSET Advisor - refactor v0.16.4
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
@@ -106,22 +106,6 @@ pytest
 
 
 
-
-
-## Nieuw in v0.17.0
-
-Deze versie maakt de **Fase-4-actielijst** in de app zelf bruikbaar als filterbare en bewerkbare werkvoorraad.
-
-- Nieuw werkvoorraadoverzicht met aantallen voor controlepunten, open, nieuw, afgehandeld, waarschuwingen en aandachtspunten.
-- Filters toegevoegd voor ernst, technische status, praktische categorie, afhandelstatus, actiehouder en vrije zoektekst.
-- De opvolgvelden kunnen direct in de Streamlit-tabel worden bewerkt:
-  - `beoordeling_databeheerder`;
-  - `afhandelstatus`;
-  - `actiehouder`;
-  - `opmerking_afhandeling`.
-- De download `Fase4_Actielijst_[weg].csv` bevat de bijgewerkte opvolgvelden.
-- Detailweergave toegevoegd met uitleg, mogelijke oorzaak en voorgestelde actie per controlepunt.
-- De controle voert nog steeds géén mutaties uit in iASSET of het maatregeltoetsdocument.
 
 
 ## Nieuw in v0.16.4

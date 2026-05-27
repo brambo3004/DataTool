@@ -31,16 +31,7 @@ from iasset_tool.config import APP_VERSION, AUTOSAVE_FILE, DEFAULT_EXPORT_PROFIL
 from iasset_tool.data_loader import LoadResult, load_iasset_data
 from iasset_tool.geometry import build_graph_from_geometry
 from iasset_tool.map_view import build_road_map
-from iasset_tool.maintenance_control import (
-    ACTION_FOLLOW_UP_COLUMNS,
-    ACTION_FOLLOW_UP_STATUS_OPTIONS,
-    action_work_queue_summary,
-    build_maintenance_control,
-    filter_action_work_queue,
-    merge_action_work_queue_edits,
-    read_action_lists_safely,
-    read_maintenance_exports,
-)
+from iasset_tool.maintenance_control import build_maintenance_control, read_action_lists_safely, read_maintenance_exports
 from iasset_tool.object_editor import (
     editable_fields_for_profile,
     missing_profile_columns,
@@ -1056,156 +1047,15 @@ with col_inspector:
                     if action_list.empty:
                         st.success("Geen Fase-4-acties nodig: alle gecontroleerde projecten zijn volledig akkoord.")
                     else:
-                        st.markdown("#### Fase-4 werkvoorraad")
+                        st.markdown("#### Fase-4 actielijst")
                         st.caption(
-                            "Deze werkvoorraad vertaalt de technische controles naar concrete controlewerkzaamheden. "
-                            "Je kunt de opvolgvelden direct in de tabel invullen en daarna de bijgewerkte actielijst downloaden."
+                            "Deze lijst vertaalt de technische controles naar concrete controlewerkzaamheden "
+                            "voor iASSET en de onderhoudsexport."
                         )
-
-                        queue_summary = action_work_queue_summary(action_list)
-                        q_total, q_open, q_new, q_done = st.columns(4)
-                        q_total.metric("Controlepunten", queue_summary.get("controlepunten", 0))
-                        q_open.metric("Open", queue_summary.get("open", 0))
-                        q_new.metric("Nieuw", queue_summary.get("nieuw", 0))
-                        q_done.metric("Afgehandeld", queue_summary.get("afgehandeld", 0))
-
-                        q_warn, q_attention, q_investigate, q_fix = st.columns(4)
-                        q_warn.metric("Waarschuwingen", queue_summary.get("waarschuwingen", 0))
-                        q_attention.metric("Aandachtspunten", queue_summary.get("aandachtspunten", 0))
-                        q_investigate.metric("In onderzoek", queue_summary.get("in_onderzoek", 0))
-                        q_fix.metric("Te corrigeren", queue_summary.get("te_corrigeren", 0))
-
-                        filter_row_1 = st.columns(3)
-                        with filter_row_1[0]:
-                            severity_options = ["Alle ernstniveaus", *sorted(action_list["ernst"].dropna().astype(str).unique())]
-                            selected_action_severity = st.selectbox(
-                                "Filter ernst",
-                                severity_options,
-                                key=f"fase4_action_severity_{selected_road}",
-                            )
-                        with filter_row_1[1]:
-                            action_status_options = ["Alle technische statussen", *sorted(action_list["status"].dropna().astype(str).unique())]
-                            selected_action_status = st.selectbox(
-                                "Filter technische status",
-                                action_status_options,
-                                key=f"fase4_action_status_{selected_road}",
-                            )
-                        with filter_row_1[2]:
-                            practical_options = [
-                                "Alle praktische categorieën",
-                                *sorted(action_list["praktische_categorie"].dropna().astype(str).unique()),
-                            ]
-                            selected_practical_category = st.selectbox(
-                                "Filter praktische categorie",
-                                practical_options,
-                                key=f"fase4_practical_category_{selected_road}",
-                            )
-
-                        filter_row_2 = st.columns(3)
-                        with filter_row_2[0]:
-                            follow_up_options = [
-                                "Alle afhandelstatussen",
-                                *sorted(action_list["afhandelstatus"].dropna().astype(str).unique()),
-                            ]
-                            selected_follow_up_status = st.selectbox(
-                                "Filter afhandelstatus",
-                                follow_up_options,
-                                key=f"fase4_followup_status_{selected_road}",
-                            )
-                        with filter_row_2[1]:
-                            owner_values = [
-                                value
-                                for value in sorted(action_list["actiehouder"].fillna("").astype(str).unique())
-                                if value.strip()
-                            ]
-                            selected_owner = st.selectbox(
-                                "Filter actiehouder",
-                                ["Alle actiehouders", *owner_values],
-                                key=f"fase4_owner_{selected_road}",
-                            )
-                        with filter_row_2[2]:
-                            action_search = st.text_input(
-                                "Zoek in werkvoorraad",
-                                value="",
-                                placeholder="Project, objectnummer, oorzaak, actie...",
-                                key=f"fase4_action_search_{selected_road}",
-                            )
-
-                        visible_action_list = filter_action_work_queue(
-                            action_list,
-                            ernst=selected_action_severity,
-                            status=selected_action_status,
-                            praktische_categorie=selected_practical_category,
-                            afhandelstatus=selected_follow_up_status,
-                            actiehouder=selected_owner,
-                            zoektekst=action_search,
-                        )
-
-                        st.caption(
-                            f"{len(visible_action_list)} van {len(action_list)} controlepunt(en) zichtbaar met deze filters."
-                        )
-
-                        if visible_action_list.empty:
-                            st.info("Geen controlepunten gevonden met deze filterinstelling.")
-                            edited_action_list = action_list
-                        else:
-                            disabled_columns = [
-                                column
-                                for column in visible_action_list.columns
-                                if column not in ACTION_FOLLOW_UP_COLUMNS
-                            ]
-                            edited_visible_action_list = st.data_editor(
-                                visible_action_list,
-                                use_container_width=True,
-                                hide_index=True,
-                                num_rows="fixed",
-                                disabled=disabled_columns,
-                                column_config={
-                                    "afhandelstatus": st.column_config.SelectboxColumn(
-                                        "afhandelstatus",
-                                        options=list(ACTION_FOLLOW_UP_STATUS_OPTIONS),
-                                        help="Kies een gedeelde afhandelstatus voor dit controlepunt.",
-                                    ),
-                                    "beoordeling_databeheerder": st.column_config.TextColumn(
-                                        "beoordeling_databeheerder",
-                                        help="Korte inhoudelijke beoordeling van de databeheerder.",
-                                    ),
-                                    "actiehouder": st.column_config.TextColumn(
-                                        "actiehouder",
-                                        help="Naam of rol die de actie oppakt.",
-                                    ),
-                                    "opmerking_afhandeling": st.column_config.TextColumn(
-                                        "opmerking_afhandeling",
-                                        help="Vrije toelichting of vervolgafspraak.",
-                                    ),
-                                },
-                                key=f"fase4_action_editor_{selected_road}_{current_data_revision_key()}",
-                            )
-                            edited_action_list = merge_action_work_queue_edits(action_list, edited_visible_action_list)
-
-                            detail_options = list(range(len(visible_action_list)))
-                            selected_detail_index = st.selectbox(
-                                "Detail controlepunt",
-                                detail_options,
-                                format_func=lambda idx: (
-                                    f"{visible_action_list.iloc[idx].get('onderhoudsproject', '')} — "
-                                    f"{visible_action_list.iloc[idx].get('controlecategorie', '')}"
-                                ),
-                                key=f"fase4_action_detail_{selected_road}",
-                            )
-                            detail_row = visible_action_list.iloc[int(selected_detail_index)]
-                            with st.expander("Leesbare toelichting bij geselecteerd controlepunt", expanded=False):
-                                st.markdown(f"**Onderhoudsproject:** {clean_display_value(detail_row.get('onderhoudsproject', ''))}")
-                                st.markdown(f"**Status:** {clean_display_value(detail_row.get('status', ''))}")
-                                st.markdown(f"**Praktische categorie:** {clean_display_value(detail_row.get('praktische_categorie', ''))}")
-                                st.markdown(f"**Betrokken objecten:** {clean_display_value(detail_row.get('betrokken_objecten', ''))}")
-                                st.markdown(f"**Uitleg:** {clean_display_value(detail_row.get('uitleg', ''))}")
-                                st.markdown(f"**Mogelijke oorzaak:** {clean_display_value(detail_row.get('mogelijke_oorzaak', ''))}")
-                                st.markdown(f"**Voorgestelde actie:** {clean_display_value(detail_row.get('voorgestelde_actie', ''))}")
-
-                        action_csv = edited_action_list.to_csv(index=False, sep=";").encode("utf-8-sig")
+                        st.dataframe(action_list, use_container_width=True, hide_index=True)
+                        action_csv = action_list.to_csv(index=False, sep=";").encode("utf-8-sig")
                         st.download_button(
-                            "📥 Download bijgewerkte Fase-4 actielijst",
+                            "📥 Download Fase-4 actielijst",
                             data=action_csv,
                             file_name=f"Fase4_Actielijst_{sanitize_filename(selected_road)}.csv",
                             mime="text/csv",
