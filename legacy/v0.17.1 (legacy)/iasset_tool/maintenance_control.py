@@ -74,23 +74,6 @@ ACTION_WORK_QUEUE_DISPLAY_COLUMNS: tuple[str, ...] = (
     "project_norm",
 )
 
-
-MUTATION_SUGGESTION_COLUMNS: tuple[str, ...] = (
-    "onderhoudsproject",
-    "voorsteltype",
-    "ernst",
-    "bron_export",
-    "objectnummer",
-    "veld",
-    "huidige_waarde",
-    "voorgestelde_waarde",
-    "zekerheid",
-    "toelichting",
-    "voorgestelde_controle",
-    "alleen_na_controle",
-    "project_norm",
-)
-
 ACTION_MATCH_COLUMNS: tuple[str, ...] = (
     "project_norm",
     "status",
@@ -143,7 +126,6 @@ class MaintenanceControlResult:
     maintenance_projects: pd.DataFrame = field(default_factory=pd.DataFrame)
     object_differences: pd.DataFrame = field(default_factory=pd.DataFrame)
     action_list: pd.DataFrame = field(default_factory=pd.DataFrame)
-    mutation_suggestions: pd.DataFrame = field(default_factory=pd.DataFrame)
     warnings: list[str] = field(default_factory=list)
 
 
@@ -888,24 +870,6 @@ def _join_preview(values: Iterable[Any], max_items: int = 6) -> str:
     if len(cleaned) > max_items:
         return ", ".join(cleaned[:max_items]) + f" (+{len(cleaned) - max_items})"
     return ", ".join(cleaned)
-
-
-def _first_project_from_match_text(value: Any) -> str:
-    """
-    Haal de eerste projectnaam uit een mogelijke-matchtekst.
-
-    ``mogelijke_onderhoudsmatch`` kan meerdere kandidaten bevatten, inclusief
-    score-uitleg tussen haakjes. Voor mutatievoorstellen willen we alleen de
-    projectnaam als voorgestelde waarde tonen.
-    """
-    text = clean_display_value(value)
-    if not text:
-        return ""
-
-    first = text.split(";")[0].strip()
-    first = re.sub(r"\s+\([^)]*\)\s*$", "", first).strip()
-    return first
-
 
 
 
@@ -2084,271 +2048,6 @@ def build_action_list(
     return result
 
 
-
-def _empty_mutation_suggestions() -> pd.DataFrame:
-    """Geef een lege mutatievoorsteltabel met vaste kolommen terug."""
-    return pd.DataFrame(columns=list(MUTATION_SUGGESTION_COLUMNS))
-
-
-def _append_mutation_suggestion(
-    records: list[dict[str, Any]],
-    *,
-    onderhoudsproject: Any,
-    project_norm: Any,
-    voorsteltype: str,
-    ernst: str,
-    bron_export: str,
-    objectnummer: Any = "",
-    veld: str = "",
-    huidige_waarde: Any = "",
-    voorgestelde_waarde: Any = "",
-    zekerheid: str = "controle_nodig",
-    toelichting: str = "",
-    voorgestelde_controle: str = "",
-    alleen_na_controle: bool = True,
-) -> None:
-    """
-    Voeg één veilige voorstelregel toe.
-
-    Dit is nadrukkelijk géén automatische mutatie. De tabel helpt de
-    databeheerder om de juiste correctie in iASSET of de exportselectie te
-    bepalen.
-    """
-    records.append(
-        {
-            "onderhoudsproject": clean_display_value(onderhoudsproject),
-            "voorsteltype": voorsteltype,
-            "ernst": ernst,
-            "bron_export": bron_export,
-            "objectnummer": clean_display_value(objectnummer),
-            "veld": veld,
-            "huidige_waarde": clean_display_value(huidige_waarde),
-            "voorgestelde_waarde": clean_display_value(voorgestelde_waarde),
-            "zekerheid": zekerheid,
-            "toelichting": toelichting,
-            "voorgestelde_controle": voorgestelde_controle,
-            "alleen_na_controle": bool(alleen_na_controle),
-            "project_norm": clean_display_value(project_norm),
-        }
-    )
-
-
-def build_mutation_suggestions(
-    comparison: pd.DataFrame,
-    object_differences: pd.DataFrame | None = None,
-) -> pd.DataFrame:
-    """
-    Vertaal Fase-4-controlepunten naar veilige mutatievoorstellen.
-
-    De voorstellen zijn bedoeld als werklijst voor iASSET-correcties. De tool
-    schrijft niets terug naar iASSET en zet geen waarden automatisch om. Een
-    voorstelregel zegt alleen: "controleer dit veld en overweeg deze actie".
-    """
-    if comparison is None or comparison.empty:
-        return _empty_mutation_suggestions()
-
-    records: list[dict[str, Any]] = []
-
-    diffs = object_differences if object_differences is not None else pd.DataFrame()
-    if diffs is None or diffs.empty:
-        diffs = pd.DataFrame(columns=[
-            "onderhoudsproject",
-            "project_norm",
-            "objectnummer",
-            "verschiltype",
-            "bron",
-            "metrering",
-            "melding",
-        ])
-
-    for _, row_series in comparison.iterrows():
-        row = row_series.to_dict()
-        status = clean_display_value(row.get("status", ""))
-        if status in {"", "OK", "OK_VOLLEDIG"}:
-            continue
-
-        project_name = clean_display_value(row.get("onderhoudsproject", ""))
-        project_key = clean_display_value(row.get("project_norm", ""))
-        project_diffs = diffs[diffs.get("project_norm", pd.Series(dtype=str)).astype(str) == project_key]
-
-        if status == "ONTBREEKT_IN_ONDERHOUD":
-            suggested_project = _first_project_from_match_text(row.get("mogelijke_onderhoudsmatch", ""))
-            if suggested_project:
-                _append_mutation_suggestion(
-                    records,
-                    onderhoudsproject=project_name,
-                    project_norm=project_key,
-                    voorsteltype="PROJECTNAAM_PASPOORT_CONTROLEREN",
-                    ernst="waarschuwing",
-                    bron_export="paspoortexport",
-                    veld="Onderhoudsproject",
-                    huidige_waarde=project_name,
-                    voorgestelde_waarde=suggested_project,
-                    zekerheid="match_hint",
-                    toelichting=(
-                        "Dit project staat bij paspoortobjecten, maar ontbreekt in de onderhoudsexport. "
-                        "Er is wel een mogelijke bestaande onderhoudsmatch gevonden."
-                    ),
-                    voorgestelde_controle=(
-                        "Controleer of de paspoortobjecten aan de voorgestelde onderhoudsmatch moeten hangen. "
-                        "Pas de projectnaam alleen aan als dit inhoudelijk klopt."
-                    ),
-                )
-            else:
-                _append_mutation_suggestion(
-                    records,
-                    onderhoudsproject=project_name,
-                    project_norm=project_key,
-                    voorsteltype="ONDERHOUDSPROJECT_AANMAKEN_OF_EXPORTFILTER_CONTROLEREN",
-                    ernst="waarschuwing",
-                    bron_export="onderhoudsexport",
-                    veld="Onderhoudsproject",
-                    huidige_waarde="",
-                    voorgestelde_waarde=project_name,
-                    zekerheid="controle_nodig",
-                    toelichting=(
-                        "Dit project staat bij paspoortobjecten, maar ontbreekt in de onderhoudsexport."
-                    ),
-                    voorgestelde_controle=(
-                        "Zoek het project exact op in iASSET Onderhoud. Controleer of het project moet worden "
-                        "aangemaakt, hernoemd, of dat de onderhoudsexport/selectie onvolledig was."
-                    ),
-                )
-
-        elif status == "GEEN_PASPOORTOBJECTEN":
-            _append_mutation_suggestion(
-                records,
-                onderhoudsproject=project_name,
-                project_norm=project_key,
-                voorsteltype="ONDERHOUDSPROJECT_ZONDER_PASPOORTOBJECTEN_CONTROLEREN",
-                ernst="waarschuwing",
-                bron_export="onderhoudsexport",
-                veld="Onderhoudsproject",
-                huidige_waarde=project_name,
-                voorgestelde_waarde="",
-                zekerheid="controle_nodig",
-                toelichting=(
-                    "Dit project staat in de onderhoudsexport, maar heeft geen objecten in de paspoortexport."
-                ),
-                voorgestelde_controle=(
-                    "Controleer of het onderhoudsproject verouderd is, of dat de paspoortexport niet dezelfde "
-                    "objectselectie bevat. Verwijder of herstel het project alleen na inhoudelijke controle."
-                ),
-            )
-
-        if not project_diffs.empty:
-            for _, diff_series in project_diffs.iterrows():
-                diff = diff_series.to_dict()
-                diff_type = clean_display_value(diff.get("verschiltype", ""))
-                objectnummer = clean_display_value(diff.get("objectnummer", ""))
-
-                if diff_type == "ALLEEN_IN_PASPOORT":
-                    _append_mutation_suggestion(
-                        records,
-                        onderhoudsproject=project_name,
-                        project_norm=project_key,
-                        voorsteltype="OBJECTKOPPELING_ONDERHOUD_CONTROLEREN",
-                        ernst="waarschuwing",
-                        bron_export="paspoortexport",
-                        objectnummer=objectnummer,
-                        veld="Onderhoudsproject",
-                        huidige_waarde=project_name,
-                        voorgestelde_waarde=clean_display_value(row.get("mogelijke_onderhoudsmatch", "")),
-                        zekerheid="controle_nodig",
-                        toelichting=(
-                            "Dit object hangt in de paspoortexport aan dit project, maar komt niet voor in de "
-                            "onderhoudsexport voor hetzelfde project."
-                        ),
-                        voorgestelde_controle=(
-                            "Controleer of het object aan het juiste onderhoudsproject hangt en of het project "
-                            "in de onderhoudsexport hoort terug te komen."
-                        ),
-                    )
-                elif diff_type == "ALLEEN_IN_ONDERHOUD":
-                    _append_mutation_suggestion(
-                        records,
-                        onderhoudsproject=project_name,
-                        project_norm=project_key,
-                        voorsteltype="OBJECTKOPPELING_PASPOORT_OF_ONDERHOUD_CONTROLEREN",
-                        ernst="waarschuwing",
-                        bron_export="onderhoudsexport",
-                        objectnummer=objectnummer,
-                        veld="Onderhoudsproject",
-                        huidige_waarde="",
-                        voorgestelde_waarde=project_name,
-                        zekerheid="controle_nodig",
-                        toelichting=(
-                            "Dit object staat in de onderhoudsexport bij dit project, maar niet in de "
-                            "paspoortexport voor hetzelfde project."
-                        ),
-                        voorgestelde_controle=(
-                            "Zoek het object in iASSET. Controleer of het paspoortproject moet worden aangepast, "
-                            "of dat de onderhoudsregel/exportselectie niet klopt."
-                        ),
-                    )
-                elif diff_type == "OBJECT_WEGNUMMER_VERDACHT":
-                    road_guess = clean_display_value(diff.get("object_wegnummer_vermoed", ""))
-                    selected_road = clean_display_value(diff.get("geselecteerde_weg", ""))
-                    _append_mutation_suggestion(
-                        records,
-                        onderhoudsproject=project_name,
-                        project_norm=project_key,
-                        voorsteltype="WEGNUMMER_OBJECT_CONTROLEREN",
-                        ernst="waarschuwing",
-                        bron_export=clean_display_value(diff.get("bron", "onderhoudsexport")),
-                        objectnummer=objectnummer,
-                        veld="Wegnummer",
-                        huidige_waarde=road_guess,
-                        voorgestelde_waarde=selected_road,
-                        zekerheid="controle_nodig",
-                        toelichting=(
-                            f"Het objectnummer lijkt bij {road_guess or 'een andere weg'} te horen, "
-                            f"terwijl de controle voor {selected_road or 'de geselecteerde weg'} draait."
-                        ),
-                        voorgestelde_controle=(
-                            "Controleer of dit een fout wegnummer, een grensgeval of een exportselectieprobleem is. "
-                            "Pas het objectpaspoort of de onderhoudskoppeling alleen aan na controle op kaart/iASSET."
-                        ),
-                    )
-                elif diff_type == "ONGELDIGE_METRERING_PASPOORT":
-                    _append_mutation_suggestion(
-                        records,
-                        onderhoudsproject=project_name,
-                        project_norm=project_key,
-                        voorsteltype="METRERING_PASPOORT_CORRIGEREN",
-                        ernst="aandachtspunt",
-                        bron_export="paspoortexport",
-                        objectnummer=objectnummer,
-                        veld="Metrering",
-                        huidige_waarde=diff.get("metrering", ""),
-                        voorgestelde_waarde="",
-                        zekerheid="handmatig_bepalen",
-                        toelichting=(
-                            "De metrering is ongeldig en is daarom niet meegenomen in hm_min/hm_max."
-                        ),
-                        voorgestelde_controle=(
-                            "Controleer de juiste metrering in iASSET/StreetSmart en vul een geldige waarde in."
-                        ),
-                    )
-
-    if not records:
-        return _empty_mutation_suggestions()
-
-    result = pd.DataFrame(records)
-    for column in MUTATION_SUGGESTION_COLUMNS:
-        if column not in result.columns:
-            result[column] = ""
-    sort_order = {"waarschuwing": 0, "aandachtspunt": 1, "info": 2, "ok": 3}
-    result["_sort_ernst"] = result["ernst"].map(sort_order).fillna(9)
-    result = (
-        result[list(MUTATION_SUGGESTION_COLUMNS) + ["_sort_ernst"]]
-        .sort_values(["_sort_ernst", "onderhoudsproject", "voorsteltype", "objectnummer"])
-        .drop(columns=["_sort_ernst"])
-        .reset_index(drop=True)
-    )
-    return result
-
-
 def build_maintenance_control(
     passport_df: pd.DataFrame,
     maintenance_df: pd.DataFrame,
@@ -2375,7 +2074,6 @@ def build_maintenance_control(
     comparison = compare_passport_and_maintenance(passport_projects, maintenance_projects, object_differences)
     action_list = build_action_list(comparison, object_differences)
     action_list, copied_follow_up = merge_previous_action_follow_up(action_list, previous_action_list)
-    mutation_suggestions = build_mutation_suggestions(comparison, object_differences)
 
     if copied_follow_up:
         warnings.append(
@@ -2399,7 +2097,6 @@ def build_maintenance_control(
             "acties": 0,
             "acties_met_overgenomen_beoordeling": 0,
             "acties_met_mogelijke_projectmatch": 0,
-            "mutatievoorstellen": 0,
         }
     else:
         summary = {
@@ -2420,7 +2117,6 @@ def build_maintenance_control(
             "acties_met_mogelijke_projectmatch": int(
                 action_list.get("mogelijke_onderhoudsmatch", pd.Series(dtype=str)).fillna("").astype(str).str.strip().ne("").sum()
             ),
-            "mutatievoorstellen": int(len(mutation_suggestions)),
         }
 
     return MaintenanceControlResult(
@@ -2430,6 +2126,5 @@ def build_maintenance_control(
         maintenance_projects=maintenance_projects,
         object_differences=object_differences,
         action_list=action_list,
-        mutation_suggestions=mutation_suggestions,
         warnings=warnings,
     )

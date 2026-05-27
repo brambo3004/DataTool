@@ -1034,12 +1034,6 @@ with col_inspector:
                 if summary.get("acties", 0):
                     st.warning(f"{summary.get('acties', 0)} controleactie(s) in de Fase-4-actielijst.")
 
-                if summary.get("mutatievoorstellen", 0):
-                    st.info(
-                        f"{summary.get('mutatievoorstellen', 0)} veilige mutatievoorstelregel(s) beschikbaar. "
-                        "Deze voeren niets automatisch door; gebruik ze als controlelijst voor iASSET."
-                    )
-
                 if summary.get("hm_bereik_verdacht", 0):
                     st.info(
                         f"{summary.get('hm_bereik_verdacht', 0)} project(en) hebben een verdacht hm-bereik "
@@ -1231,24 +1225,6 @@ with col_inspector:
                             "📥 Download bijgewerkte Fase-4 actielijst",
                             data=action_csv,
                             file_name=f"Fase4_Actielijst_{sanitize_filename(selected_road)}.csv",
-                            mime="text/csv",
-                        )
-
-                    mutation_suggestions = control_result.mutation_suggestions
-                    if mutation_suggestions.empty:
-                        st.success("Geen mutatievoorstellen nodig op basis van de huidige Fase-4-controle.")
-                    else:
-                        st.markdown("#### Veilige mutatievoorstellen")
-                        st.caption(
-                            "Deze tabel vertaalt controlepunten naar mogelijke correctieregels. "
-                            "De app voert niets automatisch door in iASSET; elke regel blijft alleen-na-controle."
-                        )
-                        st.dataframe(mutation_suggestions, use_container_width=True, hide_index=True)
-                        mutation_suggestions_csv = mutation_suggestions.to_csv(index=False, sep=";").encode("utf-8-sig")
-                        st.download_button(
-                            "📥 Download Fase-4 mutatievoorstellen",
-                            data=mutation_suggestions_csv,
-                            file_name=f"Fase4_Mutatievoorstellen_{sanitize_filename(selected_road)}.csv",
                             mime="text/csv",
                         )
 

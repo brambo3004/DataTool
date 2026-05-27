@@ -9,7 +9,6 @@ from iasset_tool.maintenance_control import (
     ensure_action_work_queue_columns,
     merge_action_work_queue_edits,
     merge_previous_action_follow_up,
-    build_mutation_suggestions,
     normalize_project_name,
     read_action_lists_safely,
     read_maintenance_exports,
@@ -739,101 +738,3 @@ def test_action_work_queue_keeps_possible_match_columns():
     assert "mogelijke_onderhoudsmatch" in queue.columns
     assert "onderhoudsmatch_type" in queue.columns
     assert queue.iloc[0]["mogelijke_onderhoudsmatch"] == "N354-HRB-10.8-20.2"
-
-
-
-def test_mutation_suggestions_are_created_for_missing_project_with_match_hint():
-    passport_df = pd.DataFrame(
-        [
-            {
-                "nummer": "VV-N354-100",
-                "Wegnummer": "N354",
-                "subthema": "rijstrook",
-                "Onderhoudsproject": "N354-HRB-11.5-12.8",
-                "Metrering": "11,5",
-            }
-        ]
-    )
-    maintenance_df = pd.DataFrame(
-        [
-            {
-                "objectnummer": "VV-N354-200",
-                "Onderhoudsproject": "N354-HRB-10.8-20.2",
-                "maatregel": "DGD",
-            }
-        ]
-    )
-
-    result = build_maintenance_control(passport_df, maintenance_df, selected_road="N354")
-    suggestions = result.mutation_suggestions
-
-    project_suggestion = suggestions[
-        suggestions["voorsteltype"] == "PROJECTNAAM_PASPOORT_CONTROLEREN"
-    ].iloc[0]
-
-    assert project_suggestion["huidige_waarde"] == "N354-HRB-11.5-12.8"
-    assert project_suggestion["voorgestelde_waarde"] == "N354-HRB-10.8-20.2"
-    assert project_suggestion["zekerheid"] == "match_hint"
-    assert bool(project_suggestion["alleen_na_controle"]) is True
-    assert result.summary["mutatievoorstellen"] == len(suggestions)
-
-
-def test_mutation_suggestions_include_invalid_hm_and_wrong_road_object():
-    passport_df = pd.DataFrame(
-        [
-            {
-                "nummer": "VV-N398-38214",
-                "Wegnummer": "N398",
-                "subthema": "inrit en doorsteek",
-                "Onderhoudsproject": "N398-HRB-04.8-04.9",
-                "Metrering": "4,,9",
-            },
-            {
-                "nummer": "VV-N398-26704",
-                "Wegnummer": "N398",
-                "subthema": "rijstrook",
-                "Onderhoudsproject": "N398-HRB-00.8-01.1",
-                "Metrering": "0,8",
-            },
-        ]
-    )
-
-    maintenance_df = pd.DataFrame(
-        [
-            {
-                "objectnummer": "VV-N398-38214",
-                "Onderhoudsproject": "N398-HRB-04.8-04.9",
-                "maatregel": "DGD",
-            },
-            {
-                "objectnummer": "VV-N398-26704",
-                "Onderhoudsproject": "N398-HRB-00.8-01.1",
-                "maatregel": "OAB",
-            },
-            {
-                "objectnummer": "VV-N389-00000008",
-                "Onderhoudsproject": "N398-HRB-00.8-01.1",
-                "maatregel": "OAB",
-            },
-        ]
-    )
-
-    result = build_maintenance_control(passport_df, maintenance_df, selected_road="N398")
-    voorsteltypes = set(result.mutation_suggestions["voorsteltype"])
-
-    assert "METRERING_PASPOORT_CORRIGEREN" in voorsteltypes
-    assert "WEGNUMMER_OBJECT_CONTROLEREN" in voorsteltypes
-
-    hm_row = result.mutation_suggestions[
-        result.mutation_suggestions["voorsteltype"] == "METRERING_PASPOORT_CORRIGEREN"
-    ].iloc[0]
-    assert hm_row["objectnummer"] == "VV-N398-38214"
-    assert hm_row["huidige_waarde"] == "4,,9"
-    assert hm_row["zekerheid"] == "handmatig_bepalen"
-
-    road_row = result.mutation_suggestions[
-        result.mutation_suggestions["voorsteltype"] == "WEGNUMMER_OBJECT_CONTROLEREN"
-    ].iloc[0]
-    assert road_row["objectnummer"] == "VV-N389-00000008"
-    assert road_row["huidige_waarde"] == "N389"
-    assert road_row["voorgestelde_waarde"] == "N398"

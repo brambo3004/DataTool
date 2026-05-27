@@ -1,4 +1,4 @@
-# iASSET Advisor - refactor v0.18.0
+# iASSET Advisor - refactor v0.17.1
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
@@ -107,26 +107,6 @@ pytest
 
 
 
-
-
-## Nieuw in v0.18.0
-
-Deze versie voegt **veilige mutatievoorstellen** toe aan de Fase-4-controle.
-
-- Nieuwe export: `Fase4_Mutatievoorstellen_[weg].csv`.
-- De tool vertaalt controlepunten naar voorstelregels voor correctie of controle in iASSET.
-- Voorstellen bevatten onder andere:
-  - `voorsteltype`;
-  - `bron_export`;
-  - `objectnummer`;
-  - `veld`;
-  - `huidige_waarde`;
-  - `voorgestelde_waarde`;
-  - `zekerheid`;
-  - `voorgestelde_controle`;
-  - `alleen_na_controle`.
-- De app voert nog steeds géén mutaties uit. Elk voorstel blijft een controle-/werkregel voor de databeheerder.
-- De bestaande Fase-4-actielijst, filters, eerdere beoordelingen en mogelijke onderhoudsmatches blijven behouden.
 
 ## Nieuw in v0.17.1
 

@@ -1,15 +1,5 @@
 # Takenlijst iASSET Advisor
 
-## Klaar in v0.18.0
-
-1. **Veilige mutatievoorstellen voor Fase-4-controle**
-   - Nieuwe export `Fase4_Mutatievoorstellen_[weg].csv`.
-   - Controlepunten worden vertaald naar voorstelregels voor iASSET-controle/correctie.
-   - Voorstellen bevatten onder meer voorsteltype, objectnummer, veld, huidige waarde, voorgestelde waarde, zekerheid en voorgestelde controle.
-   - De app voert geen automatische mutaties uit; elke regel blijft `alleen_na_controle`.
-   - De tabel helpt bij het voorbereiden van correcties in paspoortdata, onderhoudskoppelingen en exportselecties.
-
-
 ## Klaar in v0.17.1
 
 1. **Mogelijke onderhoudsmatch bij ontbrekende projectnaam**
