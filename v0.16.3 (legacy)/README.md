@@ -1,4 +1,4 @@
-# iASSET Advisor - refactor v0.16.4
+# iASSET Advisor - refactor v0.16.3
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
@@ -106,21 +106,6 @@ pytest
 
 
 
-
-
-## Nieuw in v0.16.4
-
-Deze versie maakt de **Fase-4-actielijst herbruikbaar** bij herhaalde controles.
-
-- In de zijbalk kan optioneel een eerder ingevulde `Fase4_Actielijst` worden geüpload.
-- Als dezelfde controlepunten opnieuw voorkomen, neemt de app deze opvolgvelden opnieuw mee:
-  - `beoordeling_databeheerder`;
-  - `afhandelstatus`;
-  - `actiehouder`;
-  - `opmerking_afhandeling`.
-- Nieuwe of gewijzigde controlepunten blijven op `afhandelstatus = nieuw` staan.
-- De app meldt hoeveel eerdere beoordelingen opnieuw zijn overgenomen.
-- De technische controle blijft leidend: alleen de beoordeling/afhandeling wordt meegenomen, niet de oude status zelf.
 
 
 ## Nieuw in v0.16.3

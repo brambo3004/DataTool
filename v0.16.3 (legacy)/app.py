@@ -31,7 +31,7 @@ from iasset_tool.config import APP_VERSION, AUTOSAVE_FILE, DEFAULT_EXPORT_PROFIL
 from iasset_tool.data_loader import LoadResult, load_iasset_data
 from iasset_tool.geometry import build_graph_from_geometry
 from iasset_tool.map_view import build_road_map
-from iasset_tool.maintenance_control import build_maintenance_control, read_action_lists_safely, read_maintenance_exports
+from iasset_tool.maintenance_control import build_maintenance_control, read_maintenance_exports
 from iasset_tool.object_editor import (
     editable_fields_for_profile,
     missing_profile_columns,
@@ -127,17 +127,6 @@ def cached_load_maintenance_exports(file_payloads: tuple[tuple[str, bytes], ...]
     gewone iASSET-geometrielader te lopen.
     """
     return read_maintenance_exports(file_payloads)
-
-
-@st.cache_data(show_spinner=False)
-def cached_load_previous_action_lists(file_payloads: tuple[tuple[str, bytes], ...]):
-    """
-    Laad eerder ingevulde Fase-4-actielijsten.
-
-    Deze upload is optioneel. De inhoud wordt alleen gebruikt om
-    databeheerdervelden opnieuw in de nieuwe actielijst te zetten.
-    """
-    return read_action_lists_safely(file_payloads)
 
 
 def build_data_source_key(file_payloads: tuple[tuple[str, bytes], ...]) -> str:
@@ -503,34 +492,6 @@ with st.sidebar.expander("Onderhoudsexport voor controle", expanded=False):
         )
     else:
         st.caption("Geen onderhoudsexport geüpload.")
-
-
-    previous_action_files = st.file_uploader(
-        "Optioneel: oude ingevulde Fase-4-actielijst",
-        type=["csv", "xlsx", "xls", "xlsm"],
-        accept_multiple_files=True,
-        key="previous_action_list_uploads",
-        help=(
-            "Upload hier een eerder ingevulde Fase4_Actielijst. Als dezelfde "
-            "controlepunten opnieuw voorkomen, neemt de tool beoordeling, "
-            "afhandelstatus, actiehouder en opmerkingen opnieuw mee."
-        ),
-    )
-
-    previous_action_payloads: tuple[tuple[str, bytes], ...] = tuple(
-        (uploaded_file.name, uploaded_file.getvalue()) for uploaded_file in previous_action_files
-    ) if previous_action_files else tuple()
-
-    st.session_state["previous_action_list_payloads"] = previous_action_payloads
-
-    if previous_action_payloads:
-        st.caption(
-            "Eerdere actielijst klaar voor overname: "
-            + ", ".join(name for name, _ in previous_action_payloads[:3])
-            + (" ..." if len(previous_action_payloads) > 3 else "")
-        )
-    else:
-        st.caption("Geen eerdere actielijst geüpload.")
 
 
 # --- Applicatie-initialisatie ---------------------------------------------
@@ -981,18 +942,6 @@ with col_inspector:
             for warning in maintenance_read.warnings:
                 st.warning(warning)
 
-            previous_action_payloads = tuple(st.session_state.get("previous_action_list_payloads") or ())
-            previous_action_list = pd.DataFrame()
-            if previous_action_payloads:
-                previous_action_list, previous_action_warnings = measure_step(
-                    get_performance_log(),
-                    "Eerdere actielijst lezen",
-                    cached_load_previous_action_lists,
-                    previous_action_payloads,
-                )
-                for warning in previous_action_warnings:
-                    st.info(warning)
-
             if maintenance_read.dataframe.empty:
                 st.error("De onderhoudsexport bevat geen herkenbare projectregels.")
             else:
@@ -1003,7 +952,6 @@ with col_inspector:
                     road_gdf,
                     maintenance_read.dataframe,
                     selected_road,
-                    previous_action_list,
                 )
 
                 for warning in control_result.warnings:
@@ -1015,12 +963,6 @@ with col_inspector:
                 c_object.metric("Objectverschil", summary.get("objectverschillen", 0) + summary.get("object_wegnummer_verdacht", 0))
                 c_missing.metric("Ontbreekt/verweesd", summary.get("ontbreekt_in_onderhoud", 0) + summary.get("geen_paspoortobjecten", 0))
                 c_total.metric("Totaal gecontroleerd", summary.get("projecten_totaal", 0))
-
-                if summary.get("acties_met_overgenomen_beoordeling", 0):
-                    st.success(
-                        f"{summary.get('acties_met_overgenomen_beoordeling', 0)} eerdere beoordeling(en) "
-                        "opnieuw meegenomen in de actielijst."
-                    )
 
                 if summary.get("acties", 0):
                     st.warning(f"{summary.get('acties', 0)} controleactie(s) in de Fase-4-actielijst.")

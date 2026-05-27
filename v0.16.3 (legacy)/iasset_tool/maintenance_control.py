@@ -33,48 +33,6 @@ from .utils import clean_display_value, is_empty_value, normalize_text, parse_hm
 # ("bestandsnaam.csv", b"...inhoud...").
 FileInput = str | Path | tuple[str, bytes]
 
-# Kolommen die door de databeheerder mogen worden ingevuld en die in v0.16.4
-# opnieuw kunnen worden meegenomen bij een nieuwe controle.
-ACTION_FOLLOW_UP_COLUMNS: tuple[str, ...] = (
-    "beoordeling_databeheerder",
-    "afhandelstatus",
-    "actiehouder",
-    "opmerking_afhandeling",
-)
-
-ACTION_MATCH_COLUMNS: tuple[str, ...] = (
-    "project_norm",
-    "status",
-    "controlecategorie",
-    "praktische_categorie",
-)
-
-ACTION_LIST_COLUMN_ALIASES: dict[str, str] = {
-    "beoordeling databeheerder": "beoordeling_databeheerder",
-    "beoordeling_databeheerder": "beoordeling_databeheerder",
-    "afhandelstatus": "afhandelstatus",
-    "afhandel status": "afhandelstatus",
-    "actiehouder": "actiehouder",
-    "actie houder": "actiehouder",
-    "opmerking afhandeling": "opmerking_afhandeling",
-    "opmerking_afhandeling": "opmerking_afhandeling",
-    "praktische categorie": "praktische_categorie",
-    "praktische_categorie": "praktische_categorie",
-    "controle categorie": "controlecategorie",
-    "controlecategorie": "controlecategorie",
-    "project norm": "project_norm",
-    "project_norm": "project_norm",
-}
-
-
-def _canonical_action_list_column(value: Any) -> str:
-    """Vertaal handmatig aangepaste actielijst-kolommen naar de appnaam."""
-    text = clean_display_value(value).strip()
-    key = _normalize_header_key(text)
-    return ACTION_LIST_COLUMN_ALIASES.get(key, text)
-
-
-
 
 @dataclass
 class MaintenanceReadResult:
@@ -510,103 +468,6 @@ def read_maintenance_exports(input_files: Sequence[FileInput | Any]) -> Maintena
 
     combined = pd.concat(frames, ignore_index=True)
     return MaintenanceReadResult(dataframe=combined, warnings=warnings)
-
-
-def read_action_list_safely(input_file: FileInput | Any) -> tuple[pd.DataFrame, list[str]]:
-    """
-    Lees een eerder ingevulde Fase-4-actielijst veilig in.
-
-    Waarom apart van de onderhoudsexport?
-    De actielijst is geen iASSET-bronbestand, maar een werkdocument. We lezen
-    daarom alleen de tabel en proberen geen onderhoudsproject-kopregels te
-    interpreteren.
-    """
-    name, path, content = _resolve_input_file(input_file)
-    warnings: list[str] = []
-    suffix = Path(name).suffix.lower()
-
-    if path is not None and not path.exists():
-        return pd.DataFrame(), [f"Eerdere actielijst niet gevonden: {name}"]
-    if content is not None and len(content) == 0:
-        return pd.DataFrame(), [f"Eerdere actielijst {Path(name).name} is leeg en is overgeslagen."]
-
-    try:
-        if suffix in {".xlsx", ".xls", ".xlsm"}:
-            df = pd.read_excel(_open_for_pandas(path, content), dtype=str, keep_default_na=False)
-        else:
-            # Actielijsten worden door de app als puntkomma-CSV geëxporteerd.
-            # We proberen eerst die vorm en vallen daarna terug op komma-CSV.
-            last_exc: Exception | None = None
-            df = pd.DataFrame()
-            for encoding in ("utf-8-sig", "utf-8", "latin1"):
-                for separator in (";", ",", "\t"):
-                    try:
-                        df_candidate = pd.read_csv(
-                            _open_for_pandas(path, content),
-                            sep=separator,
-                            dtype=str,
-                            keep_default_na=False,
-                            encoding=encoding,
-                        )
-                    except Exception as exc:
-                        last_exc = exc
-                        continue
-
-                    if len(df_candidate.columns) > 1:
-                        df = df_candidate
-                        break
-                if not df.empty or len(df.columns) > 1:
-                    break
-
-            if df.empty and len(df.columns) <= 1 and last_exc is not None:
-                raise last_exc
-    except Exception as exc:
-        return pd.DataFrame(), [f"Kon eerdere actielijst {Path(name).name} niet lezen: {exc}"]
-
-    if df is None or df.empty:
-        return pd.DataFrame(), [f"Eerdere actielijst {Path(name).name} bevat geen regels."]
-
-    df = df.copy()
-    df.columns = [_canonical_action_list_column(column) for column in df.columns]
-    df = _drop_fully_empty_rows(df)
-
-    required = {"onderhoudsproject", "status"}
-    missing_required = sorted(required - set(df.columns))
-    if missing_required:
-        warnings.append(
-            "Eerdere actielijst mist herkenbare kolommen: "
-            + ", ".join(missing_required)
-            + ". Beoordelingen worden niet overgenomen."
-        )
-        return pd.DataFrame(), warnings
-
-    missing_follow_up = [column for column in ACTION_FOLLOW_UP_COLUMNS if column not in df.columns]
-    if missing_follow_up:
-        warnings.append(
-            "Eerdere actielijst mist opvolgkolommen: "
-            + ", ".join(missing_follow_up)
-            + ". Alleen beschikbare opvolgvelden worden meegenomen."
-        )
-
-    warnings.append(f"Eerdere actielijst {Path(name).name}: {len(df)} regel(s) gelezen.")
-    return df, warnings
-
-
-def read_action_lists_safely(input_files: Sequence[FileInput | Any]) -> tuple[pd.DataFrame, list[str]]:
-    """Lees één of meer eerder ingevulde actielijsten samen in."""
-    warnings: list[str] = []
-    frames: list[pd.DataFrame] = []
-
-    for input_file in input_files:
-        df_part, file_warnings = read_action_list_safely(input_file)
-        warnings.extend(file_warnings)
-        if df_part is not None and not df_part.empty:
-            frames.append(df_part)
-
-    if not frames:
-        return pd.DataFrame(), warnings
-
-    return pd.concat(frames, ignore_index=True), warnings
 
 
 def normalize_project_name(value: Any) -> str:
@@ -1303,116 +1164,6 @@ def _safe_int_value(value: Any, default: int = 0) -> int:
         return default
 
 
-def _normalize_action_match_value(value: Any) -> str:
-    """Normaliseer één waarde voor het herkennen van dezelfde actieregel."""
-    return re.sub(r"\s+", " ", clean_display_value(value)).strip().upper()
-
-
-def _action_match_key(
-    row: dict[str, Any] | pd.Series,
-    *,
-    include_practical_category: bool = True,
-) -> tuple[str, str, str, str]:
-    """
-    Maak een stabiele sleutel voor een Fase-4-actieregel.
-
-    We matchen bewust niet op vrije tekst zoals uitleg of voorgestelde actie,
-    want die teksten kunnen tussen versies verbeteren. De combinatie project,
-    status en categorie is stabiel genoeg voor de huidige actielijst waarin
-    maximaal één actie per project/status staat.
-    """
-    if isinstance(row, pd.Series):
-        row_dict = row.to_dict()
-    else:
-        row_dict = dict(row)
-
-    project_key = clean_display_value(row_dict.get("project_norm", ""))
-    if not project_key:
-        project_key = normalize_project_name(row_dict.get("onderhoudsproject", ""))
-
-    practical_category = (
-        _normalize_action_match_value(row_dict.get("praktische_categorie", ""))
-        if include_practical_category
-        else ""
-    )
-
-    return (
-        _normalize_action_match_value(project_key),
-        _normalize_action_match_value(row_dict.get("status", "")),
-        _normalize_action_match_value(row_dict.get("controlecategorie", "")),
-        practical_category,
-    )
-
-
-def _action_match_candidate_keys(row: dict[str, Any] | pd.Series) -> list[tuple[str, str, str, str]]:
-    """
-    Geef strikte én terugval-matchsleutels.
-
-    Hiermee kunnen actielijsten uit v0.16.2 of handmatig aangepaste Excel/CSV's
-    zonder ``praktische_categorie`` toch nog gekoppeld worden aan v0.16.4.
-    """
-    strict = _action_match_key(row, include_practical_category=True)
-    relaxed = _action_match_key(row, include_practical_category=False)
-    return [strict] if strict == relaxed else [strict, relaxed]
-
-
-def merge_previous_action_follow_up(
-    action_list: pd.DataFrame,
-    previous_action_list: pd.DataFrame | None,
-) -> tuple[pd.DataFrame, int]:
-    """
-    Neem eerdere beoordeling/afhandeling over in een nieuwe actielijst.
-
-    De technische controles blijven leidend. We kopiëren alleen de
-    databeheerdervelden wanneer dezelfde actieregel opnieuw gevonden wordt.
-    Nieuwe of gewijzigde meldingen blijven dus gewoon op ``afhandelstatus =
-    nieuw`` staan.
-    """
-    if action_list is None:
-        return pd.DataFrame(), 0
-
-    result = action_list.copy()
-    for column in ACTION_FOLLOW_UP_COLUMNS:
-        if column not in result.columns:
-            result[column] = ""
-
-    if previous_action_list is None or previous_action_list.empty or result.empty:
-        return result, 0
-
-    previous_lookup: dict[tuple[str, str, str, str], dict[str, str]] = {}
-    for _, previous_row in previous_action_list.iterrows():
-        key = _action_match_key(previous_row)
-        if not any(key):
-            continue
-
-        follow_up_values: dict[str, str] = {}
-        for column in ACTION_FOLLOW_UP_COLUMNS:
-            if column in previous_action_list.columns:
-                value = clean_display_value(previous_row.get(column, ""))
-                if value:
-                    follow_up_values[column] = value
-
-        if follow_up_values:
-            for candidate_key in _action_match_candidate_keys(previous_row):
-                previous_lookup.setdefault(candidate_key, follow_up_values)
-
-    copied = 0
-    for index, row in result.iterrows():
-        values = None
-        for candidate_key in _action_match_candidate_keys(row):
-            values = previous_lookup.get(candidate_key)
-            if values:
-                break
-        if not values:
-            continue
-
-        copied += 1
-        for column, value in values.items():
-            result.at[index, column] = value
-
-    return result, copied
-
-
 def _practical_category_for_status(status: str, row: dict[str, Any], involved_objects: list[str]) -> str:
     """
     Vertaal een technische status naar een praktische afhandelcategorie.
@@ -1625,7 +1376,6 @@ def build_maintenance_control(
     passport_df: pd.DataFrame,
     maintenance_df: pd.DataFrame,
     selected_road: str | None = None,
-    previous_action_list: pd.DataFrame | None = None,
 ) -> MaintenanceControlResult:
     """
     Bouw de volledige Fase-4-controle.
@@ -1646,12 +1396,6 @@ def build_maintenance_control(
     object_differences = build_object_differences(passport_df, maintenance_df, selected_road=selected_road)
     comparison = compare_passport_and_maintenance(passport_projects, maintenance_projects, object_differences)
     action_list = build_action_list(comparison, object_differences)
-    action_list, copied_follow_up = merge_previous_action_follow_up(action_list, previous_action_list)
-
-    if copied_follow_up:
-        warnings.append(
-            f"{copied_follow_up} eerdere beoordeling(en) overgenomen in de Fase-4-actielijst."
-        )
 
     if comparison.empty:
         summary = {
@@ -1668,7 +1412,6 @@ def build_maintenance_control(
             "aandachtspunten": 0,
             "objectverschillen_regels": 0,
             "acties": 0,
-            "acties_met_overgenomen_beoordeling": 0,
         }
     else:
         summary = {
@@ -1685,7 +1428,6 @@ def build_maintenance_control(
             "aandachtspunten": int((comparison["ernst"] == "aandachtspunt").sum()),
             "objectverschillen_regels": int(len(object_differences)),
             "acties": int(len(action_list)),
-            "acties_met_overgenomen_beoordeling": int(copied_follow_up),
         }
 
     return MaintenanceControlResult(

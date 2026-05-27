@@ -1,16 +1,5 @@
 # Takenlijst iASSET Advisor
 
-## Klaar in v0.16.4
-
-1. **Eerdere beoordelingen opnieuw meenemen in Fase-4-actielijst**
-   - Optionele upload toegevoegd voor een eerder ingevulde Fase-4-actielijst.
-   - De tool herkent bestaande controlepunten opnieuw op basis van project, status en categorie.
-   - Bij een match worden `beoordeling_databeheerder`, `afhandelstatus`, `actiehouder` en `opmerking_afhandeling` overgenomen.
-   - Nieuwe of gewijzigde controlepunten blijven duidelijk nieuw.
-   - De samenvatting meldt hoeveel eerdere beoordelingen zijn overgenomen.
-   - Testdekking toegevoegd voor matchende en gewijzigde actieregels en voor het veilig lezen van actielijst-CSV's.
-
-
 ## Klaar in v0.16.3
 
 1. **Fase-4-actielijst geschikt gemaakt als afhandelwerkvoorraad**
@@ -80,7 +69,7 @@
    - Diagnoseberichten zijn versie-onafhankelijk gemaakt.
    - Testdekking uitgebreid voor route-mid versus route-sort, outliers, primaire/all-routeverschillen en versie-onafhankelijke waarschuwingen.
 
-## Gepland na v0.16.4
+## Gepland na v0.16.3
 
 1. **Fase-4-controle verdiepen**
    - Naamvarianten slimmer herkennen, bijvoorbeeld `01.2` versus `1.2`.
