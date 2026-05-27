@@ -1,4 +1,4 @@
-# iASSET Advisor - refactor v0.16.2
+# iASSET Advisor - refactor v0.16.1
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
@@ -107,24 +107,6 @@ pytest
 
 
 
-
-## Nieuw in v0.16.2
-
-Deze versie maakt de **Fase 4-controle** praktischer voor dagelijks gebruik door een actielijst toe te voegen.
-
-- Nieuwe downloadbare tabel:
-  - `Fase4_Actielijst_[weg].csv`.
-- De actielijst vertaalt technische statussen naar controlewerk:
-  - wat is er aan de hand;
-  - welke objecten zijn betrokken;
-  - wat is een mogelijke oorzaak;
-  - welke controleactie ligt voor de hand.
-- De technische exports blijven bestaan:
-  - `Fase4_Controle_[weg].csv`;
-  - `Fase4_Paspoortprojecten_[weg].csv`;
-  - `Fase4_Onderhoudsexport_[weg].csv`;
-  - `Fase4_Objectverschillen_[weg].csv`.
-- De controle voert nog steeds géén mutaties uit. Hij is bedoeld als overleg- en acceptatiecontrole vóór verwerking in iASSET/maatregeltoets.
 
 ## Nieuw in v0.16.1
 

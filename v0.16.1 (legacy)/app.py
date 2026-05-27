@@ -964,9 +964,6 @@ with col_inspector:
                 c_missing.metric("Ontbreekt/verweesd", summary.get("ontbreekt_in_onderhoud", 0) + summary.get("geen_paspoortobjecten", 0))
                 c_total.metric("Totaal gecontroleerd", summary.get("projecten_totaal", 0))
 
-                if summary.get("acties", 0):
-                    st.warning(f"{summary.get('acties', 0)} controleactie(s) in de Fase-4-actielijst.")
-
                 if summary.get("hm_bereik_verdacht", 0):
                     st.info(
                         f"{summary.get('hm_bereik_verdacht', 0)} project(en) hebben een verdacht hm-bereik "
@@ -984,24 +981,6 @@ with col_inspector:
                     visible_comparison = comparison
                     if selected_status != "Alle statussen":
                         visible_comparison = comparison[comparison["status"].astype(str) == selected_status]
-
-                    action_list = control_result.action_list
-                    if action_list.empty:
-                        st.success("Geen Fase-4-acties nodig: alle gecontroleerde projecten zijn volledig akkoord.")
-                    else:
-                        st.markdown("#### Fase-4 actielijst")
-                        st.caption(
-                            "Deze lijst vertaalt de technische controles naar concrete controlewerkzaamheden "
-                            "voor iASSET en de onderhoudsexport."
-                        )
-                        st.dataframe(action_list, use_container_width=True, hide_index=True)
-                        action_csv = action_list.to_csv(index=False, sep=";").encode("utf-8-sig")
-                        st.download_button(
-                            "📥 Download Fase-4 actielijst",
-                            data=action_csv,
-                            file_name=f"Fase4_Actielijst_{sanitize_filename(selected_road)}.csv",
-                            mime="text/csv",
-                        )
 
                     st.markdown("#### Vergelijking paspoortexport ↔ onderhoudsexport")
                     st.dataframe(visible_comparison, use_container_width=True, hide_index=True)

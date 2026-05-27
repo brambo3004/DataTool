@@ -1,14 +1,5 @@
 # Takenlijst iASSET Advisor
 
-## Klaar in v0.16.2
-
-1. **Fase-4-actielijst toegevoegd**
-   - Nieuwe export: `Fase4_Actielijst_[weg].csv`.
-   - Technische Fase-4-statussen worden vertaald naar controlewerk voor de databeheerder.
-   - De actielijst bevat per controlepunt: categorie, betrokken objecten, uitleg, mogelijke oorzaak en voorgestelde actie.
-   - De bestaande controle-, samenvattings- en objectverschillenexports blijven beschikbaar.
-   - Testdekking toegevoegd voor ontbrekende projecten, verdachte objectnummers en ongeldige metrering in de actielijst.
-
 ## Klaar in v0.16.1
 
 1. **Fase-4-controle verdiept naar objectinhoudcontrole**
@@ -60,7 +51,7 @@
    - Diagnoseberichten zijn versie-onafhankelijk gemaakt.
    - Testdekking uitgebreid voor route-mid versus route-sort, outliers, primaire/all-routeverschillen en versie-onafhankelijke waarschuwingen.
 
-## Gepland na v0.16.2
+## Gepland na v0.16.1
 
 1. **Fase-4-controle verdiepen**
    - Naamvarianten slimmer herkennen, bijvoorbeeld `01.2` versus `1.2`.

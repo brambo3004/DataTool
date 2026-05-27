@@ -51,7 +51,6 @@ class MaintenanceControlResult:
     passport_projects: pd.DataFrame = field(default_factory=pd.DataFrame)
     maintenance_projects: pd.DataFrame = field(default_factory=pd.DataFrame)
     object_differences: pd.DataFrame = field(default_factory=pd.DataFrame)
-    action_list: pd.DataFrame = field(default_factory=pd.DataFrame)
     warnings: list[str] = field(default_factory=list)
 
 
@@ -1117,228 +1116,6 @@ def compare_passport_and_maintenance(
     result = result.sort_values(["_sort_ernst", "onderhoudsproject"]).drop(columns=["_sort_ernst"]).reset_index(drop=True)
     return result
 
-
-def _objects_for_project_from_diffs(
-    object_differences: pd.DataFrame | None,
-    project_key: str,
-    difference_types: set[str] | None = None,
-) -> list[str]:
-    """Geef betrokken objectnummers voor één project terug.
-
-    Deze helper houdt de actielijst compact: de databeheerder ziet direct welke
-    objecten nagekeken moeten worden, zonder eerst door de technische
-    objectverschillenexport te hoeven filteren.
-    """
-    if object_differences is None or object_differences.empty:
-        return []
-
-    project_diffs = object_differences[object_differences["project_norm"].astype(str) == str(project_key)]
-    if difference_types:
-        project_diffs = project_diffs[project_diffs["verschiltype"].isin(difference_types)]
-
-    objects: list[str] = []
-    seen: set[str] = set()
-    for value in project_diffs.get("objectnummer", pd.Series(dtype=str)):
-        text = clean_display_value(value)
-        if not text or text in seen:
-            continue
-        seen.add(text)
-        objects.append(text)
-
-    return objects
-
-
-def _preview_objects_for_action_list(objects: Iterable[Any], max_items: int = 12) -> str:
-    """Maak een objectlijst die lang genoeg is voor controlewerk, maar niet eindeloos."""
-    return _join_preview(objects, max_items=max_items)
-
-
-def _safe_int_value(value: Any, default: int = 0) -> int:
-    """Zet een mogelijke lege/NaN-waarde veilig om naar int."""
-    numeric = pd.to_numeric(value, errors="coerce")
-    if pd.isna(numeric):
-        return default
-    try:
-        return int(numeric)
-    except (TypeError, ValueError, OverflowError):
-        return default
-
-
-def _action_text_for_status(status: str, row: dict[str, Any], involved_objects: list[str]) -> tuple[str, str, str, str]:
-    """Vertaal een technische Fase-4-status naar begrijpelijke controle-instructies."""
-    project_name = clean_display_value(row.get("onderhoudsproject", "")) or "dit onderhoudsproject"
-    paspoort_count = _safe_int_value(row.get("paspoort_unieke_objecten", 0))
-    onderhoud_count = _safe_int_value(row.get("onderhoud_unieke_objecten", 0))
-    only_passport = _safe_int_value(row.get("alleen_in_paspoort", 0))
-    only_maintenance = _safe_int_value(row.get("alleen_in_onderhoud", 0))
-    wrong_road = _safe_int_value(row.get("onderhoud_object_wegnummer_verdacht", 0))
-    invalid_hm = _safe_int_value(row.get("ongeldige_metrering_paspoort", 0))
-
-    if status == "ONTBREEKT_IN_ONDERHOUD":
-        category = "Project ontbreekt in onderhoudsexport"
-        explanation = (
-            f"{project_name} staat bij {paspoort_count} paspoortobject(en), "
-            "maar komt niet voor in de onderhoudsexport."
-        )
-        cause = (
-            "Het onderhoudsproject is mogelijk nog niet aangemaakt, niet mee-geëxporteerd, "
-            "of de projectnaam wijkt in iASSET net anders af."
-        )
-        action = (
-            "Zoek het onderhoudsproject exact op in iASSET Onderhoud. Controleer daarna of "
-            "de projectnaam gelijk gespeld is en of het project in de onderhoudsexportfilter zit."
-        )
-    elif status == "GEEN_PASPOORTOBJECTEN":
-        category = "Onderhoudsproject zonder paspoortobjecten"
-        explanation = (
-            f"{project_name} staat in de onderhoudsexport met {onderhoud_count} uniek(e) object(en), "
-            "maar er zijn geen paspoortobjecten met deze projectnaam."
-        )
-        cause = (
-            "Het project kan verouderd zijn, verkeerd gespeld zijn, of objecten bevatten die niet "
-            "in de gebruikte paspoortexport/selectie zitten."
-        )
-        action = (
-            "Controleer of het onderhoudsproject nog actueel is. Zoek de betrokken objectnummers "
-            "in iASSET en vergelijk de projectnaam met de paspoortexport."
-        )
-    elif status == "OBJECT_WEGNUMMER_VERDACHT":
-        category = "Objectnummer lijkt bij andere N-weg te horen"
-        explanation = (
-            f"De onderhoudsexport voor {project_name} bevat {wrong_road} objectnummer(s) "
-            "die bij een ander wegnummer lijken te horen."
-        )
-        cause = (
-            "Het object kan foutief aan dit onderhoudsproject hangen, de export kan objecten van "
-            "meerdere wegen bevatten, of het objectnummer is historisch/administratief afwijkend."
-        )
-        action = (
-            "Controleer de betrokken objectnummers in iASSET. Bevestig of ze echt bij deze weg en "
-            "dit onderhoudsproject horen; corrigeer anders de koppeling of de exportselectie."
-        )
-    elif status == "OBJECTVERSCHIL":
-        category = "Objectsets verschillen"
-        explanation = (
-            f"{project_name} bestaat in beide exports, maar de objectsets verschillen: "
-            f"{only_passport} alleen in paspoort en {only_maintenance} alleen in onderhoud."
-        )
-        cause = (
-            "De paspoortexport en onderhoudsexport zijn mogelijk niet op hetzelfde moment gemaakt, "
-            "of één of meer objecten zijn verkeerd gekoppeld."
-        )
-        action = (
-            "Controleer de objectverschillenlijst. Bepaal per object of de paspoortkoppeling of de "
-            "onderhoudsexport leidend is en werk daarna iASSET of de exportselectie bij."
-        )
-    elif status == "HM_BEREIK_VERDACHT":
-        category = "Ongeldige metrering in paspoort"
-        explanation = (
-            f"{project_name} heeft {invalid_hm} paspoortobject(en) met ongeldige metrering. "
-            "Die waarden zijn niet gebruikt voor hm_min/hm_max."
-        )
-        cause = (
-            "De metrering bevat waarschijnlijk een typfout of een niet-parseerbare waarde, "
-            "bijvoorbeeld een dubbele komma."
-        )
-        action = (
-            "Controleer en corrigeer de metrering van de genoemde objecten in iASSET. Draai daarna "
-            "de Fase-4-controle opnieuw om te zien of het hm-bereik weer betrouwbaar is."
-        )
-    else:
-        category = "Controlepunt"
-        explanation = clean_display_value(row.get("controle_bericht", "")) or "Controleer dit onderhoudsproject."
-        cause = "De technische controle heeft een afwijking gevonden die menselijke beoordeling vraagt."
-        action = "Open het onderhoudsproject en de betrokken objecten in iASSET en beoordeel de koppeling."
-
-    return category, explanation, cause, action
-
-
-def build_action_list(
-    comparison: pd.DataFrame,
-    object_differences: pd.DataFrame | None = None,
-) -> pd.DataFrame:
-    """
-    Maak een werkbare actielijst uit de Fase-4-controle.
-
-    De vergelijkingstabellen zijn bewust volledig en technisch. Deze actielijst
-    vertaalt dezelfde signalen naar controlewerk voor de databeheerder:
-    wat controleren, waarom, welke objecten en welke actie ligt voor de hand?
-    """
-    columns = [
-        "onderhoudsproject",
-        "status",
-        "ernst",
-        "controlecategorie",
-        "aantal_objecten",
-        "betrokken_objecten",
-        "uitleg",
-        "mogelijke_oorzaak",
-        "voorgestelde_actie",
-        "project_norm",
-    ]
-
-    if comparison is None or comparison.empty:
-        return pd.DataFrame(columns=columns)
-
-    records: list[dict[str, Any]] = []
-    diff_type_map = {
-        "OBJECT_WEGNUMMER_VERDACHT": {"OBJECT_WEGNUMMER_VERDACHT"},
-        "OBJECTVERSCHIL": {"ALLEEN_IN_PASPOORT", "ALLEEN_IN_ONDERHOUD"},
-        "HM_BEREIK_VERDACHT": {"ONGELDIGE_METRERING_PASPOORT"},
-        "ONTBREEKT_IN_ONDERHOUD": {"ALLEEN_IN_PASPOORT"},
-        "GEEN_PASPOORTOBJECTEN": {"ALLEEN_IN_ONDERHOUD", "OBJECT_WEGNUMMER_VERDACHT"},
-    }
-
-    for _, row_series in comparison.iterrows():
-        row = row_series.to_dict()
-        status = clean_display_value(row.get("status", ""))
-        if status in {"OK", "OK_VOLLEDIG"}:
-            continue
-
-        project_key = clean_display_value(row.get("project_norm", ""))
-        involved_types = diff_type_map.get(status)
-        involved_objects = _objects_for_project_from_diffs(object_differences, project_key, involved_types)
-
-        if not involved_objects and status == "ONTBREEKT_IN_ONDERHOUD":
-            involved_objects = [
-                value.strip()
-                for value in clean_display_value(row.get("paspoort_objectvoorbeeld", "")).split(",")
-                if value.strip()
-            ]
-        elif not involved_objects and status == "GEEN_PASPOORTOBJECTEN":
-            involved_objects = [
-                value.strip()
-                for value in clean_display_value(row.get("onderhoud_objectvoorbeeld", "")).split(",")
-                if value.strip()
-            ]
-
-        category, explanation, cause, action = _action_text_for_status(status, row, involved_objects)
-
-        records.append(
-            {
-                "onderhoudsproject": clean_display_value(row.get("onderhoudsproject", "")),
-                "status": status,
-                "ernst": clean_display_value(row.get("ernst", "")),
-                "controlecategorie": category,
-                "aantal_objecten": len(involved_objects),
-                "betrokken_objecten": _preview_objects_for_action_list(involved_objects),
-                "uitleg": explanation,
-                "mogelijke_oorzaak": cause,
-                "voorgestelde_actie": action,
-                "project_norm": project_key,
-            }
-        )
-
-    if not records:
-        return pd.DataFrame(columns=columns)
-
-    sort_order = {"waarschuwing": 0, "aandachtspunt": 1, "info": 2, "ok": 3}
-    result = pd.DataFrame(records)
-    result["_sort_ernst"] = result["ernst"].map(sort_order).fillna(9)
-    result = result.sort_values(["_sort_ernst", "onderhoudsproject", "controlecategorie"]).drop(columns=["_sort_ernst"]).reset_index(drop=True)
-    return result
-
-
 def build_maintenance_control(
     passport_df: pd.DataFrame,
     maintenance_df: pd.DataFrame,
@@ -1362,7 +1139,6 @@ def build_maintenance_control(
 
     object_differences = build_object_differences(passport_df, maintenance_df, selected_road=selected_road)
     comparison = compare_passport_and_maintenance(passport_projects, maintenance_projects, object_differences)
-    action_list = build_action_list(comparison, object_differences)
 
     if comparison.empty:
         summary = {
@@ -1378,7 +1154,6 @@ def build_maintenance_control(
             "waarschuwingen": 0,
             "aandachtspunten": 0,
             "objectverschillen_regels": 0,
-            "acties": 0,
         }
     else:
         summary = {
@@ -1394,7 +1169,6 @@ def build_maintenance_control(
             "waarschuwingen": int((comparison["ernst"] == "waarschuwing").sum()),
             "aandachtspunten": int((comparison["ernst"] == "aandachtspunt").sum()),
             "objectverschillen_regels": int(len(object_differences)),
-            "acties": int(len(action_list)),
         }
 
     return MaintenanceControlResult(
@@ -1403,6 +1177,5 @@ def build_maintenance_control(
         passport_projects=passport_projects,
         maintenance_projects=maintenance_projects,
         object_differences=object_differences,
-        action_list=action_list,
         warnings=warnings,
     )
