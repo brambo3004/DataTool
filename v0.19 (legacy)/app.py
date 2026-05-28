@@ -36,7 +36,6 @@ from iasset_tool.maintenance_control import (
     ACTION_FOLLOW_UP_STATUS_OPTIONS,
     action_work_queue_summary,
     build_maintenance_control,
-    build_maintenance_control_workbook,
     filter_action_work_queue,
     merge_action_work_queue_edits,
     read_action_lists_safely,
@@ -1087,7 +1086,6 @@ with col_inspector:
                         visible_comparison = comparison[comparison["status"].astype(str) == selected_status]
 
                     action_list = control_result.action_list
-                    edited_action_list = action_list
                     if action_list.empty:
                         st.success("Geen onderhoudscontrole-acties nodig: alle gecontroleerde projecten zijn volledig akkoord.")
                     else:
@@ -1336,23 +1334,6 @@ with col_inspector:
                             file_name=f"Onderhoudscontrole_Mutatievoorstellen{control_file_suffix}.csv",
                             mime="text/csv",
                         )
-
-                    control_package_bytes = build_maintenance_control_workbook(
-                        control_result,
-                        action_list=edited_action_list,
-                        scope_label=control_label,
-                    )
-                    st.download_button(
-                        "📦 Download Onderhoudscontrole controlepakket (Excel)",
-                        data=control_package_bytes,
-                        file_name=f"Onderhoudscontrole_Controlepakket{control_file_suffix}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        help=(
-                            "Excelbestand met samenvatting, werkvoorraad, mutatievoorstellen, "
-                            "resultaten en objectverschillen. Dit is alleen een controlepakket; "
-                            "de tool voert niets automatisch door."
-                        ),
-                    )
 
                     st.markdown("#### Vergelijking paspoortexport ↔ onderhoudsexport")
                     st.dataframe(visible_comparison, use_container_width=True, hide_index=True)

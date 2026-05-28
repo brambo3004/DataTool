@@ -1,15 +1,5 @@
 # Takenlijst iASSET Advisor
 
-## Klaar in v0.19.1
-
-1. **Excel-controlepakket voor Onderhoudscontrole**
-   - Nieuwe download `Onderhoudscontrole_Controlepakket*.xlsx`.
-   - Het controlepakket bevat tabbladen voor samenvatting, werkvoorraad, mutatievoorstellen, resultaten, objectverschillen, paspoortprojecten en onderhoudsexport.
-   - De samenvatting bevat kerncijfers en verdelingen per weg, duidingsgroep, afhandelstatus en actiehouder.
-   - Bijgewerkte opvolgvelden uit de app worden meegenomen in het Excelpakket.
-   - Het controlepakket is alleen bedoeld voor overleg, controle en archivering; de tool voert nooit automatische wijzigingen door.
-
-
 ## Klaar in v0.19.0
 
 1. **Onderhoudscontrole als netwerkbrede controle**

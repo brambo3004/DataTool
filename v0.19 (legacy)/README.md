@@ -1,4 +1,4 @@
-# iASSET Advisor - refactor v0.19.1
+# iASSET Advisor - refactor v0.19.0
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
@@ -107,24 +107,6 @@ pytest
 
 
 
-
-## Nieuw in v0.19.1
-
-Deze versie voegt een netwerkbreed **Onderhoudscontrole-controlepakket in Excel** toe.
-
-- Nieuwe downloadknop: `Onderhoudscontrole_Controlepakket*.xlsx`.
-- Het Excelbestand bundelt de belangrijkste controle-output in één deelbaar bestand.
-- Tabbladen:
-  - `Samenvatting`;
-  - `Werkvoorraad`;
-  - `Mutatievoorstellen`;
-  - `Resultaten`;
-  - `Objectverschillen`;
-  - `Paspoortprojecten`;
-  - `Onderhoudsexport`.
-- De samenvatting bevat kerncijfers en verdelingen per weg, duidingsgroep, afhandelstatus en actiehouder.
-- Bijgewerkte opvolgvelden uit de app worden meegenomen in het Excelpakket.
-- De tool voert nooit automatisch wijzigingen door; het Excelpakket is alleen bedoeld voor controle, overleg en archivering.
 
 ## Nieuw in v0.19.0
 
