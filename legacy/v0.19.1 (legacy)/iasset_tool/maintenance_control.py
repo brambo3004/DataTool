@@ -63,8 +63,6 @@ ACTION_WORK_QUEUE_DISPLAY_COLUMNS: tuple[str, ...] = (
     "duiding",
     "duiding_groep",
     "duiding_uitleg",
-    "voortgang_status",
-    "voortgang_uitleg",
     "aantal_objecten",
     "betrokken_objecten",
     "mogelijke_onderhoudsmatch",
@@ -113,11 +111,6 @@ ACTION_MATCH_COLUMNS: tuple[str, ...] = (
     "praktische_categorie",
 )
 
-ACTION_PROGRESS_COLUMNS: tuple[str, ...] = (
-    "voortgang_status",
-    "voortgang_uitleg",
-)
-
 ACTION_LIST_COLUMN_ALIASES: dict[str, str] = {
     "beoordeling databeheerder": "beoordeling_databeheerder",
     "beoordeling_databeheerder": "beoordeling_databeheerder",
@@ -140,10 +133,6 @@ ACTION_LIST_COLUMN_ALIASES: dict[str, str] = {
     "project_norm": "project_norm",
     "wegnummer": "wegnummer",
     "weg": "wegnummer",
-    "voortgang status": "voortgang_status",
-    "voortgang_status": "voortgang_status",
-    "voortgang uitleg": "voortgang_uitleg",
-    "voortgang_uitleg": "voortgang_uitleg",
 }
 
 
@@ -175,7 +164,6 @@ class MaintenanceControlResult:
     object_differences: pd.DataFrame = field(default_factory=pd.DataFrame)
     action_list: pd.DataFrame = field(default_factory=pd.DataFrame)
     mutation_suggestions: pd.DataFrame = field(default_factory=pd.DataFrame)
-    resolved_actions: pd.DataFrame = field(default_factory=pd.DataFrame)
     warnings: list[str] = field(default_factory=list)
 
 
@@ -1746,108 +1734,6 @@ def merge_previous_action_follow_up(
     return result, copied
 
 
-
-def apply_action_progress_tracking(
-    action_list: pd.DataFrame,
-    previous_action_list: pd.DataFrame | None,
-) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, int]]:
-    """
-    Markeer voortgang ten opzichte van een vorige onderhoudscontrole-actielijst.
-
-    Dit is bedoeld voor periodiek beheer. Een controlepunt kan:
-    - nieuw zijn: staat nu wel in de actielijst, maar zat niet in de vorige;
-    - bestaand zijn: stond ook in de vorige actielijst;
-    - opgelost/niet meer gevonden zijn: stond in de vorige actielijst, maar komt
-      nu niet meer terug.
-
-    De functie voert geen correcties uit. Hij geeft alleen voortgangsinformatie
-    terug voor dashboard, export en overleg.
-    """
-    current = ensure_action_work_queue_columns(action_list)
-    if current.empty:
-        current = ensure_action_work_queue_columns(action_list)
-
-    for column in ACTION_PROGRESS_COLUMNS:
-        if column not in current.columns:
-            current[column] = ""
-
-    previous = ensure_action_work_queue_columns(previous_action_list)
-    if previous_action_list is None or previous.empty:
-        if not current.empty:
-            current["voortgang_status"] = "nieuw_controlepunt"
-            current["voortgang_uitleg"] = (
-                "Geen vorige actielijst gebruikt; dit controlepunt staat als nieuw in deze controle."
-            )
-        counts = {
-            "controlepunten_nieuw": int(len(current)),
-            "controlepunten_bestaand": 0,
-            "controlepunten_opgelost": 0,
-        }
-        return current, pd.DataFrame(columns=list(current.columns)), counts
-
-    previous_keys: dict[tuple[str, str, str, str], pd.Series] = {}
-    for _, previous_row in previous.iterrows():
-        for candidate_key in _action_match_candidate_keys(previous_row):
-            if any(candidate_key):
-                previous_keys.setdefault(candidate_key, previous_row)
-
-    current_candidate_keys: set[tuple[str, str, str, str]] = set()
-    new_count = 0
-    existing_count = 0
-
-    for index, row in current.iterrows():
-        matched = False
-        for candidate_key in _action_match_candidate_keys(row):
-            if any(candidate_key):
-                current_candidate_keys.add(candidate_key)
-            if candidate_key in previous_keys:
-                matched = True
-
-        if matched:
-            existing_count += 1
-            current.at[index, "voortgang_status"] = "bestaand_controlepunt"
-            current.at[index, "voortgang_uitleg"] = (
-                "Dit controlepunt stond ook in de vorige actielijst. Eerdere beoordeling en afhandelstatus zijn waar mogelijk overgenomen."
-            )
-        else:
-            new_count += 1
-            current.at[index, "voortgang_status"] = "nieuw_controlepunt"
-            current.at[index, "voortgang_uitleg"] = (
-                "Dit controlepunt stond niet in de vorige actielijst en vraagt om nieuwe beoordeling."
-            )
-
-    resolved_records: list[dict[str, Any]] = []
-    seen_resolved: set[tuple[str, str, str, str]] = set()
-    for _, previous_row in previous.iterrows():
-        candidate_keys = [key for key in _action_match_candidate_keys(previous_row) if any(key)]
-        if not candidate_keys:
-            continue
-
-        if any(key in current_candidate_keys for key in candidate_keys):
-            continue
-
-        strict_key = candidate_keys[0]
-        if strict_key in seen_resolved:
-            continue
-        seen_resolved.add(strict_key)
-
-        record = previous_row.to_dict()
-        record["voortgang_status"] = "opgelost_of_niet_meer_gevonden"
-        record["voortgang_uitleg"] = (
-            "Dit controlepunt stond in de vorige actielijst, maar komt niet terug in de nieuwe controle. "
-            "Controleer of het daadwerkelijk is opgelost of dat het buiten de nieuwe exportselectie valt."
-        )
-        resolved_records.append(record)
-
-    resolved = ensure_action_work_queue_columns(pd.DataFrame(resolved_records)) if resolved_records else pd.DataFrame(columns=list(current.columns))
-    counts = {
-        "controlepunten_nieuw": int(new_count),
-        "controlepunten_bestaand": int(existing_count),
-        "controlepunten_opgelost": int(len(resolved)),
-    }
-    return current, resolved, counts
-
-
 def ensure_action_work_queue_columns(action_list: pd.DataFrame | None) -> pd.DataFrame:
     """
     Maak een actielijst geschikt voor de werkvoorraadweergave.
@@ -1926,7 +1812,6 @@ def filter_action_work_queue(
     praktische_categorie: str | None = None,
     duiding: str | None = None,
     duiding_groep: str | None = None,
-    voortgang_status: str | None = None,
     afhandelstatus: str | None = None,
     actiehouder: str | None = None,
     zoektekst: str | None = None,
@@ -1951,7 +1836,6 @@ def filter_action_work_queue(
         "praktische_categorie": praktische_categorie,
         "duiding": duiding,
         "duiding_groep": duiding_groep,
-        "voortgang_status": voortgang_status,
         "afhandelstatus": afhandelstatus,
         "actiehouder": actiehouder,
     }
@@ -1977,8 +1861,6 @@ def filter_action_work_queue(
                 "duiding",
                 "duiding_groep",
                 "duiding_uitleg",
-                "voortgang_status",
-                "voortgang_uitleg",
                 "betrokken_objecten",
                 "mogelijke_onderhoudsmatch",
                 "onderhoudsmatch_uitleg",
@@ -2683,7 +2565,6 @@ def build_maintenance_control(
     comparison = compare_passport_and_maintenance(passport_projects, maintenance_projects, object_differences)
     action_list = build_action_list(comparison, object_differences)
     action_list, copied_follow_up = merge_previous_action_follow_up(action_list, previous_action_list)
-    action_list, resolved_actions, progress_counts = apply_action_progress_tracking(action_list, previous_action_list)
     mutation_suggestions = build_mutation_suggestions(comparison, object_differences)
 
     if copied_follow_up:
@@ -2715,9 +2596,6 @@ def build_maintenance_control(
             "acties_export_of_naamkwestie": 0,
             "acties_objectkoppeling_controleren": 0,
             "acties_verweesd_project_of_exportselectie": 0,
-            "controlepunten_nieuw": 0,
-            "controlepunten_bestaand": 0,
-            "controlepunten_opgelost": 0,
         }
     else:
         summary = {
@@ -2757,9 +2635,6 @@ def build_maintenance_control(
             "acties_verweesd_project_of_exportselectie": int(
                 (action_list.get("duiding_groep", pd.Series(dtype=str)).fillna("").astype(str) == "verweesd_project_of_exportselectie").sum()
             ),
-            "controlepunten_nieuw": int(progress_counts.get("controlepunten_nieuw", 0)),
-            "controlepunten_bestaand": int(progress_counts.get("controlepunten_bestaand", 0)),
-            "controlepunten_opgelost": int(progress_counts.get("controlepunten_opgelost", 0)),
         }
 
     return MaintenanceControlResult(
@@ -2770,7 +2645,6 @@ def build_maintenance_control(
         object_differences=object_differences,
         action_list=action_list,
         mutation_suggestions=mutation_suggestions,
-        resolved_actions=resolved_actions,
         warnings=warnings,
     )
 
@@ -2832,9 +2706,6 @@ def _summary_dataframe(summary: dict[str, Any], scope_label: str = "") -> pd.Dat
         ("Waarschuwingen", summary.get("waarschuwingen", 0)),
         ("Aandachtspunten", summary.get("aandachtspunten", 0)),
         ("Controlepunten in werkvoorraad", summary.get("acties", 0)),
-        ("Nieuwe controlepunten", summary.get("controlepunten_nieuw", 0)),
-        ("Bestaande controlepunten", summary.get("controlepunten_bestaand", 0)),
-        ("Opgelost/niet meer gevonden", summary.get("controlepunten_opgelost", 0)),
         ("Mutatievoorstellen", summary.get("mutatievoorstellen", 0)),
         ("Eerdere beoordelingen overgenomen", summary.get("acties_met_overgenomen_beoordeling", 0)),
     ]
@@ -2877,7 +2748,6 @@ def build_maintenance_control_workbook(
     object_differences = pd.DataFrame() if result.object_differences is None else result.object_differences.copy()
     passport_projects = pd.DataFrame() if result.passport_projects is None else result.passport_projects.copy()
     maintenance_projects = pd.DataFrame() if result.maintenance_projects is None else result.maintenance_projects.copy()
-    resolved_actions = ensure_action_work_queue_columns(result.resolved_actions)
 
     summary = result.summary or {}
     action_summary = action_work_queue_summary(package_action_list)
@@ -2888,10 +2758,7 @@ def build_maintenance_control_workbook(
             [
                 ("Controlepunten", action_summary.get("controlepunten", 0)),
                 ("Open", action_summary.get("open", 0)),
-                ("Nieuw sinds vorige controle", summary.get("controlepunten_nieuw", 0)),
-                ("Bestaand sinds vorige controle", summary.get("controlepunten_bestaand", 0)),
-                ("Opgelost/niet meer gevonden", summary.get("controlepunten_opgelost", 0)),
-                ("Afhandelstatus nieuw", action_summary.get("nieuw", 0)),
+                ("Nieuw", action_summary.get("nieuw", 0)),
                 ("In onderzoek", action_summary.get("in_onderzoek", 0)),
                 ("Te corrigeren", action_summary.get("te_corrigeren", 0)),
                 ("Verklaarbare uitzondering", action_summary.get("verklaarbare_uitzondering", 0)),
@@ -2902,7 +2769,6 @@ def build_maintenance_control_workbook(
         "Per weg": _count_table(package_action_list, "wegnummer", "wegnummer", "controlepunten"),
         "Per duidingsgroep": _count_table(package_action_list, "duiding_groep", "duiding_groep", "controlepunten"),
         "Per afhandelstatus": _count_table(package_action_list, "afhandelstatus", "afhandelstatus", "controlepunten"),
-        "Per voortgang": _count_table(package_action_list, "voortgang_status", "voortgang_status", "controlepunten"),
         "Per actiehouder": _count_table(package_action_list, "actiehouder", "actiehouder", "controlepunten"),
     }
 
@@ -2925,7 +2791,6 @@ def build_maintenance_control_workbook(
             start_row += max(len(table), 1) + 3
 
         _write_dataframe_sheet(writer, package_action_list, "Werkvoorraad", used_sheet_names)
-        _write_dataframe_sheet(writer, resolved_actions, "Opgelost", used_sheet_names)
         _write_dataframe_sheet(writer, mutation_suggestions, "Mutatievoorstellen", used_sheet_names)
         _write_dataframe_sheet(writer, comparison, "Resultaten", used_sheet_names)
         _write_dataframe_sheet(writer, object_differences, "Objectverschillen", used_sheet_names)

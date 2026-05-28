@@ -1,4 +1,4 @@
-# iASSET Advisor - refactor v0.19.2
+# iASSET Advisor - refactor v0.19.1
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
@@ -107,20 +107,6 @@ pytest
 
 
 
-
-## Nieuw in v0.19.2
-
-Deze versie voegt voortgangsbewaking toe aan de Onderhoudscontrole.
-
-- Wanneer een eerdere actielijst wordt meegegeven, markeert de tool controlepunten als:
-  - `nieuw_controlepunt`;
-  - `bestaand_controlepunt`;
-  - `opgelost_of_niet_meer_gevonden`.
-- De werkvoorraad krijgt nieuwe kolommen `voortgang_status` en `voortgang_uitleg`.
-- Het dashboard toont hoeveel controlepunten nieuw, bestaand of opgelost/niet meer gevonden zijn.
-- Er is een aparte download voor controlepunten die in de vorige actielijst stonden, maar nu niet meer terugkomen: `Onderhoudscontrole_Opgelost*.csv`.
-- Het Excel-controlepakket krijgt een extra tabblad `Opgelost`.
-- De tool voert nooit automatisch wijzigingen door; een verdwenen controlepunt moet altijd nog inhoudelijk worden beoordeeld.
 
 ## Nieuw in v0.19.1
 

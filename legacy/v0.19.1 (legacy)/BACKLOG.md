@@ -1,17 +1,5 @@
 # Takenlijst iASSET Advisor
 
-## Klaar in v0.19.2
-
-1. **Voortgangsbewaking voor terugkerende Onderhoudscontrole**
-   - Nieuwe kolommen `voortgang_status` en `voortgang_uitleg` in de werkvoorraad.
-   - Controlepunten worden gemarkeerd als `nieuw_controlepunt`, `bestaand_controlepunt` of `opgelost_of_niet_meer_gevonden`.
-   - De app toont voortgangsmetrics wanneer een eerdere actielijst is meegegeven.
-   - De werkvoorraad kan op voortgangsstatus worden gefilterd.
-   - Er is een aparte download `Onderhoudscontrole_Opgelost*.csv` voor oude controlepunten die niet meer terugkomen.
-   - Het Excel-controlepakket bevat een extra tabblad `Opgelost`.
-   - De tool voert nooit automatisch wijzigingen door; een verdwenen controlepunt is een signaal voor controle, geen automatische conclusie.
-
-
 ## Klaar in v0.19.1
 
 1. **Excel-controlepakket voor Onderhoudscontrole**
@@ -20,6 +8,7 @@
    - De samenvatting bevat kerncijfers en verdelingen per weg, duidingsgroep, afhandelstatus en actiehouder.
    - Bijgewerkte opvolgvelden uit de app worden meegenomen in het Excelpakket.
    - Het controlepakket is alleen bedoeld voor overleg, controle en archivering; de tool voert nooit automatische wijzigingen door.
+
 
 ## Klaar in v0.19.0
 

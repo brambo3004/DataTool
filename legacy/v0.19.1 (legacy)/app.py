@@ -1059,17 +1059,6 @@ with col_inspector:
                         "opnieuw meegenomen in de actielijst."
                     )
 
-                if previous_action_payloads:
-                    p_new, p_existing, p_resolved = st.columns(3)
-                    p_new.metric("Nieuw sinds vorige controle", summary.get("controlepunten_nieuw", 0))
-                    p_existing.metric("Bestaand", summary.get("controlepunten_bestaand", 0))
-                    p_resolved.metric("Opgelost/niet meer gevonden", summary.get("controlepunten_opgelost", 0))
-                    if summary.get("controlepunten_opgelost", 0):
-                        st.info(
-                            "Er zijn controlepunten uit de vorige actielijst die niet meer terugkomen. "
-                            "Controleer of ze echt zijn opgelost of buiten de nieuwe exportselectie vallen."
-                        )
-
                 if summary.get("acties", 0):
                     st.warning(f"{summary.get('acties', 0)} controleactie(s) in de Onderhoudscontrole-actielijst.")
 
@@ -1208,7 +1197,7 @@ with col_inspector:
                                 key=f"fase4_duiding_group_{control_key_suffix}",
                             )
 
-                        filter_row_2 = st.columns(4)
+                        filter_row_2 = st.columns(3)
                         with filter_row_2[0]:
                             follow_up_options = [
                                 "Alle afhandelstatussen",
@@ -1220,16 +1209,6 @@ with col_inspector:
                                 key=f"fase4_followup_status_{control_key_suffix}",
                             )
                         with filter_row_2[1]:
-                            progress_options = [
-                                "Alle voortgangsstatussen",
-                                *sorted(action_list.get("voortgang_status", pd.Series(dtype=str)).dropna().astype(str).unique()),
-                            ]
-                            selected_progress_status = st.selectbox(
-                                "Filter voortgang",
-                                progress_options,
-                                key=f"maintenance_progress_status_{control_key_suffix}",
-                            )
-                        with filter_row_2[2]:
                             owner_values = [
                                 value
                                 for value in sorted(action_list["actiehouder"].fillna("").astype(str).unique())
@@ -1240,7 +1219,7 @@ with col_inspector:
                                 ["Alle actiehouders", *owner_values],
                                 key=f"fase4_owner_{control_key_suffix}",
                             )
-                        with filter_row_2[3]:
+                        with filter_row_2[2]:
                             action_search = st.text_input(
                                 "Zoek in werkvoorraad",
                                 value="",
@@ -1254,7 +1233,6 @@ with col_inspector:
                             status=selected_action_status,
                             praktische_categorie=selected_practical_category,
                             duiding_groep=selected_duiding_group,
-                            voortgang_status=selected_progress_status,
                             afhandelstatus=selected_follow_up_status,
                             actiehouder=selected_owner,
                             zoektekst=action_search,
@@ -1321,8 +1299,6 @@ with col_inspector:
                                 st.markdown(f"**Duiding:** {clean_display_value(detail_row.get('duiding', ''))}")
                                 st.markdown(f"**Duidingsgroep:** {clean_display_value(detail_row.get('duiding_groep', ''))}")
                                 st.markdown(f"**Duiding uitleg:** {clean_display_value(detail_row.get('duiding_uitleg', ''))}")
-                                st.markdown(f"**Voortgang:** {clean_display_value(detail_row.get('voortgang_status', ''))}")
-                                st.markdown(f"**Voortgang uitleg:** {clean_display_value(detail_row.get('voortgang_uitleg', ''))}")
                                 st.markdown(f"**Betrokken objecten:** {clean_display_value(detail_row.get('betrokken_objecten', ''))}")
                                 if clean_display_value(detail_row.get("mogelijke_onderhoudsmatch", "")):
                                     st.markdown(f"**Mogelijke onderhoudsmatch:** {clean_display_value(detail_row.get('mogelijke_onderhoudsmatch', ''))}")
@@ -1338,19 +1314,6 @@ with col_inspector:
                             file_name=f"Onderhoudscontrole_Actielijst{control_file_suffix}.csv",
                             mime="text/csv",
                         )
-
-                        if not control_result.resolved_actions.empty:
-                            resolved_csv = control_result.resolved_actions.to_csv(index=False, sep=";").encode("utf-8-sig")
-                            st.download_button(
-                                "📥 Download opgeloste/niet meer gevonden controlepunten",
-                                data=resolved_csv,
-                                file_name=f"Onderhoudscontrole_Opgelost{control_file_suffix}.csv",
-                                mime="text/csv",
-                                help=(
-                                    "Controlepunten uit de vorige actielijst die niet meer terugkomen in de nieuwe controle. "
-                                    "Controleer of ze echt zijn opgelost of buiten de nieuwe exportselectie vallen."
-                                ),
-                            )
 
                     mutation_suggestions = control_result.mutation_suggestions
                     if mutation_suggestions.empty:
