@@ -4,7 +4,6 @@ import pandas as pd
 
 from iasset_tool.maintenance_control import (
     action_work_queue_summary,
-    build_control_point_object_details,
     build_maintenance_control,
     build_maintenance_control_workbook,
     filter_action_work_queue,
@@ -1358,85 +1357,3 @@ def test_workbook_contains_resolved_action_sheet_when_previous_point_disappears(
     header = list(rows[0])
     assert "voortgang_status" in header
     assert rows[1][header.index("voortgang_status")] == "opgelost_of_niet_meer_gevonden"
-
-
-def test_build_control_point_object_details_shows_passport_and_maintenance_sources():
-    passport_df = pd.DataFrame(
-        [
-            {
-                "nummer": "VV-N354-1",
-                "Wegnummer": "N354",
-                "subthema": "rijstrook",
-                "Metrering": "1,0",
-                "Situering": "Links",
-                "Onderhoudsproject": "N354-HRB-01.0-02.0",
-                "geometry": None,
-            },
-            {
-                "nummer": "VV-N354-2",
-                "Wegnummer": "N354",
-                "subthema": "rijstrook",
-                "Metrering": "1,1",
-                "Situering": "Rechts",
-                "Onderhoudsproject": "N354-HRB-01.0-02.0",
-                "geometry": None,
-            },
-        ]
-    )
-    maintenance_df = pd.DataFrame(
-        [
-            {"objectnummer": "VV-N354-1", "Onderhoudsproject": "N354-HRB-01.0-02.0"},
-            {"objectnummer": "VV-N354-3", "Onderhoudsproject": "N354-HRB-01.0-02.0"},
-        ]
-    )
-
-    result = build_maintenance_control(passport_df, maintenance_df, selected_road="N354")
-    action_row = result.action_list.iloc[0]
-
-    details = build_control_point_object_details(
-        passport_df,
-        maintenance_df,
-        action_row,
-        result.object_differences,
-        selected_road="N354",
-    )
-
-    assert set(details["objectnummer"]) == {"VV-N354-2", "VV-N354-3"}
-    by_object = details.set_index("objectnummer")
-    assert bool(by_object.loc["VV-N354-2", "in_paspoortexport"]) is True
-    assert bool(by_object.loc["VV-N354-2", "in_onderhoudsexport"]) is False
-    assert bool(by_object.loc["VV-N354-3", "in_paspoortexport"]) is False
-    assert bool(by_object.loc["VV-N354-3", "in_onderhoudsexport"]) is True
-    assert "ALLEEN_IN_PASPOORT" in by_object.loc["VV-N354-2", "verschiltype"]
-    assert "ALLEEN_IN_ONDERHOUD" in by_object.loc["VV-N354-3", "verschiltype"]
-
-
-def test_build_control_point_object_details_for_missing_project_lists_passport_objects():
-    passport_df = pd.DataFrame(
-        [
-            {
-                "nummer": "VV-N398-1",
-                "Wegnummer": "N398",
-                "subthema": "rijstrook",
-                "Metrering": "1,0",
-                "Onderhoudsproject": "N398-HRB-01.0-02.0",
-                "geometry": None,
-            }
-        ]
-    )
-    maintenance_df = pd.DataFrame(columns=["objectnummer", "Onderhoudsproject"])
-
-    result = build_maintenance_control(passport_df, maintenance_df, selected_road="N398")
-    action_row = result.action_list.iloc[0]
-
-    details = build_control_point_object_details(
-        passport_df,
-        maintenance_df,
-        action_row,
-        result.object_differences,
-        selected_road="N398",
-    )
-
-    assert list(details["objectnummer"]) == ["VV-N398-1"]
-    assert bool(details.iloc[0]["in_paspoortexport"]) is True
-    assert bool(details.iloc[0]["in_onderhoudsexport"]) is False

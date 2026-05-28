@@ -1,4 +1,4 @@
-# iASSET Advisor - refactor v0.20.0
+# iASSET Advisor - refactor v0.19.2
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
@@ -39,7 +39,6 @@ De huidige functionaliteit blijft zoveel mogelijk gelijk:
 │   ├── object_editor.py
 │   ├── sorting_diagnostics.py
 │   ├── maintenance_control.py
-│   ├── maintenance_map.py
 │   ├── changes.py
 │   └── state.py
 └── tests/
@@ -52,7 +51,6 @@ De huidige functionaliteit blijft zoveel mogelijk gelijk:
     ├── test_object_editor.py
     ├── test_rules.py
     ├── test_sorting_diagnostics.py
-    ├── test_maintenance_map.py
     └── test_utils.py
 ```
 
@@ -104,21 +102,10 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-## Nieuw in v0.20.0
 
-Deze versie voegt detail- en kaartweergave toe aan de **Onderhoudscontrole**.
 
-- Bij een geselecteerd controlepunt kan de gebruiker nu een objectdetailtabel openen.
-- De detailtabel toont per betrokken object:
-  - of het object in de paspoortexport staat;
-  - of het object in de onderhoudsexport staat;
-  - verschiltype;
-  - subthema, metrering, situering en onderhoudsproject waar beschikbaar;
-  - of er paspoortgeometrie beschikbaar is voor kaartweergave.
-- De app toont de betrokken paspoortobjecten op een kaart.
-- Objecten die alleen in de onderhoudsexport staan blijven zichtbaar in de detailtabel, maar kunnen zonder paspoortgeometrie niet op kaart worden getekend.
-- Per controlepunt kan de objectdetailtabel als CSV worden gedownload.
-- De veiligheidsregel blijft ongewijzigd: de tool visualiseert en ondersteunt, maar voert nooit automatisch wijzigingen door.
+
+
 
 
 ## Nieuw in v0.19.2

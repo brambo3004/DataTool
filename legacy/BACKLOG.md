@@ -1,23 +1,5 @@
 # Takenlijst iASSET Advisor
 
-## Klaar in v0.20.0
-
-1. **Detailweergave bij Onderhoudscontrolepunten**
-   - Vanuit een geselecteerd controlepunt toont de app nu een objectdetailtabel.
-   - De detailtabel laat zien of een object in de paspoortexport en/of onderhoudsexport voorkomt.
-   - De tabel toont verschiltype, bron, subthema, metrering, situering, onderhoudsproject en geometriebeschikbaarheid.
-   - Per controlepunt kan de detailtabel als CSV worden gedownload.
-
-2. **Kaartweergave bij Onderhoudscontrolepunten**
-   - Betrokken paspoortobjecten worden op kaart getoond.
-   - Objecten zonder paspoortgeometrie blijven zichtbaar in de tabel, maar worden niet op kaart getekend.
-   - De kaart is alleen-lezen en voert geen mutaties uit.
-
-3. **Veiligheidsregel ongewijzigd**
-   - De tool signaleert, visualiseert, exporteert en doet conceptvoorstellen.
-   - De tool voert nooit automatisch wijzigingen door.
-
-
 ## Klaar in v0.19.2
 
 1. **Voortgangsbewaking voor terugkerende Onderhoudscontrole**

@@ -35,7 +35,6 @@ from iasset_tool.maintenance_control import (
     ACTION_FOLLOW_UP_COLUMNS,
     ACTION_FOLLOW_UP_STATUS_OPTIONS,
     action_work_queue_summary,
-    build_control_point_object_details,
     build_maintenance_control,
     build_maintenance_control_workbook,
     filter_action_work_queue,
@@ -43,7 +42,6 @@ from iasset_tool.maintenance_control import (
     read_action_lists_safely,
     read_maintenance_exports,
 )
-from iasset_tool.maintenance_map import build_maintenance_control_map
 from iasset_tool.object_editor import (
     editable_fields_for_profile,
     missing_profile_columns,
@@ -1332,49 +1330,6 @@ with col_inspector:
                                 st.markdown(f"**Uitleg:** {clean_display_value(detail_row.get('uitleg', ''))}")
                                 st.markdown(f"**Mogelijke oorzaak:** {clean_display_value(detail_row.get('mogelijke_oorzaak', ''))}")
                                 st.markdown(f"**Voorgestelde actie:** {clean_display_value(detail_row.get('voorgestelde_actie', ''))}")
-
-                            with st.expander("Objectdetails en kaart voor geselecteerd controlepunt", expanded=False):
-                                detail_objects = build_control_point_object_details(
-                                    control_passport_df,
-                                    maintenance_read.dataframe,
-                                    detail_row,
-                                    control_result.object_differences,
-                                    selected_road=control_selected_road,
-                                )
-                                if detail_objects.empty:
-                                    st.info("Geen objectdetails beschikbaar voor dit controlepunt.")
-                                else:
-                                    st.caption(
-                                        "Deze tabel toont de betrokken objecten uit paspoort- en onderhoudsexport. "
-                                        "Objecten zonder paspoortgeometrie kunnen niet op de kaart worden getekend."
-                                    )
-                                    st.dataframe(detail_objects, use_container_width=True, hide_index=True)
-
-                                    detail_csv = detail_objects.to_csv(index=False, sep=";").encode("utf-8-sig")
-                                    st.download_button(
-                                        "📥 Download objectdetails controlepunt",
-                                        data=detail_csv,
-                                        file_name=(
-                                            "Onderhoudscontrole_Objectdetails_"
-                                            f"{sanitize_filename(clean_display_value(detail_row.get('onderhoudsproject', 'controlepunt')))}.csv"
-                                        ),
-                                        mime="text/csv",
-                                    )
-
-                                    map_result = build_maintenance_control_map(control_passport_df, detail_objects)
-                                    if map_result.folium_map is None:
-                                        st.info(map_result.message or "Geen kaart beschikbaar voor deze objectselectie.")
-                                    else:
-                                        st.caption(
-                                            f"{map_result.mapped_object_count} object(en) op kaart getoond. "
-                                            f"{map_result.missing_passport_object_count} object(en) hebben geen paspoortgeometrie in deze export."
-                                        )
-                                        st_folium(
-                                            map_result.folium_map,
-                                            width="100%",
-                                            height=450,
-                                            key=f"maintenance_detail_map_{control_key_suffix}_{selected_detail_index}_{current_data_revision_key()}",
-                                        )
 
                         action_csv = edited_action_list.to_csv(index=False, sep=";").encode("utf-8-sig")
                         st.download_button(
