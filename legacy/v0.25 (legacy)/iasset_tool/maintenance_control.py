@@ -26,7 +26,7 @@ from typing import Any, Iterable, Sequence
 
 import pandas as pd
 
-from .config import BACKBONE_TYPES, PROJECT_CATEGORY_FAMILIES
+from .config import BACKBONE_TYPES
 from .domain import is_maintenance_project_exempt
 from .utils import clean_display_value, is_empty_value, normalize_text, parse_hm_sort
 
@@ -204,31 +204,6 @@ DATA_QUALITY_REPORT_COLUMNS: tuple[str, ...] = (
     "uitleg",
     "voorgestelde_actie",
     "impact_op_controle",
-)
-
-MAINTENANCE_CONTROL_PROFILES: dict[str, str] = {
-    "Volledige controle": (
-        "Alle onderdelen tonen en exporteren: datakwaliteit, werkvoorraad, "
-        "projectsamenvatting, voortgang, mutatievoorstellen en ruwe resultaatbladen."
-    ),
-    "Snelle controle": (
-        "Focus op eindoordeel, hoge prioriteiten en de belangrijkste projectgroepen. "
-        "Ruwe tabellen blijven beschikbaar in het controlepakket."
-    ),
-    "Alleen datakwaliteit": (
-        "Gebruik dit profiel wanneer je eerst wilt beoordelen of de paspoort- en "
-        "onderhoudsexports betrouwbaar genoeg zijn."
-    ),
-    "Werkvoorraadcontrole": (
-        "Focus op open controlepunten, afhandelstatus, actiehouder en voortgang ten "
-        "opzichte van een vorige controle."
-    ),
-}
-
-CONTROL_FRONT_SHEET_COLUMNS: tuple[str, ...] = (
-    "onderdeel",
-    "waarde",
-    "toelichting",
 )
 
 ACTION_LIST_COLUMN_ALIASES: dict[str, str] = {
@@ -909,29 +884,21 @@ def _project_category_family(category: Any) -> str:
     """
     Groepeer projectcategorieën voor voorzichtige matchvoorstellen.
 
-    De families komen vanaf v0.26 uit ``config/onderhoudsregels.json``. Daardoor
-    kunnen varianten zoals HRBR/HRBL, PWR/PWL of toekomstige lokale codes op één
-    plek worden beheerd. Als de configuratie een code niet kent, gebruiken we een
-    veilige fallback waarbij alleen een eindletter L/R wordt gestript.
+    HRBR/HRBL horen bij de HRB-familie, PWR/PWL bij PW, enzovoort. Exacte
+    categorie krijgt in de score nog steeds voorrang; deze familie is alleen een
+    terugval om nuttige suggesties niet te missen.
     """
     text = clean_display_value(category).upper()
-    if not text:
-        return ""
-
-    for family, variants in PROJECT_CATEGORY_FAMILIES.items():
-        family_text = clean_display_value(family).upper()
-        configured_variants = {clean_display_value(value).upper() for value in variants if clean_display_value(value)}
-        configured_variants.add(family_text)
-
-        if text in configured_variants:
-            return family_text
-
-        # Voor codes als HRB2 of LBP_R die logisch met een familieprefix beginnen.
-        # Dit is bewust alleen een terugval nadat de exacte configvarianten zijn
-        # geprobeerd, zodat rare historische codes niet te agressief worden gematcht.
-        if family_text and text.startswith(family_text):
-            return family_text
-
+    if text.startswith("HRB"):
+        return "HRB"
+    if text.startswith("PWR") or text.startswith("PWL") or text == "PW":
+        return "PW"
+    if text.startswith("FPR") or text.startswith("FPL") or text == "FP":
+        return "FP"
+    if text.startswith("LBP"):
+        return "LBP"
+    if text.startswith("BB"):
+        return "BB"
     return re.sub(r"[LR]$", "", text)
 
 
@@ -4644,204 +4611,6 @@ def _count_table(df: pd.DataFrame | None, column: str, label_column: str, count_
     return result
 
 
-def available_maintenance_control_profiles() -> dict[str, str]:
-    """Geef de beschikbare controleprofielen terug voor UI en documentatie.
-
-    Waarom een profiel?
-    De onderliggende controle blijft hetzelfde en veilig. Het profiel bepaalt
-    vooral hoe de resultaten worden gepresenteerd, zodat een databeheerder niet
-    steeds door alle ruwe tabellen hoeft te beginnen.
-    """
-    return dict(MAINTENANCE_CONTROL_PROFILES)
-
-
-def evaluate_maintenance_control_summary(summary: dict[str, Any] | None) -> dict[str, str]:
-    """Maak een menselijk eindoordeel bij een onderhoudscontrole.
-
-    De functie voert geen nieuwe inhoudelijke controle uit. Hij vertaalt de al
-    berekende tellingen naar een leesbare conclusie voor het voorblad van het
-    controlepakket.
-    """
-    summary = summary or {}
-    blocking = int(summary.get("datakwaliteit_blokkerend", 0) or 0)
-    quality_warnings = int(summary.get("datakwaliteit_waarschuwingen", 0) or 0)
-    high_priority = int(summary.get("acties_prioriteit_hoog", 0) or 0)
-    actions = int(summary.get("acties", 0) or 0)
-    mutations = int(summary.get("mutatievoorstellen", 0) or 0)
-    resolved = int(summary.get("controlepunten_opgelost", 0) or 0)
-
-    if blocking:
-        return {
-            "eindoordeel": "Onvoldoende betrouwbaar voor harde conclusies",
-            "statuskleur": "rood",
-            "toelichting": (
-                "De exportvoorcontrole bevat blokkerende datakwaliteitsproblemen. "
-                "Bekijk de bronexports en herstel of herexporteer voordat je conclusies trekt."
-            ),
-            "aanbevolen_eerste_stap": "Begin bij het tabblad Datakwaliteit.",
-        }
-
-    if high_priority:
-        return {
-            "eindoordeel": "Bruikbaar, maar met hoge-prioriteit controlepunten",
-            "statuskleur": "oranje",
-            "toelichting": (
-                "De exports zijn bruikbaar als controlebasis, maar er zijn controlepunten "
-                "met hoge prioriteit. Behandel eerst projectgroepen met primaire objecten."
-            ),
-            "aanbevolen_eerste_stap": "Begin bij Projectsamenvatting en filter op prioriteit hoog.",
-        }
-
-    if quality_warnings or actions:
-        return {
-            "eindoordeel": "Bruikbaar met aandachtspunten",
-            "statuskleur": "geel",
-            "toelichting": (
-                "De controle bevat aandachtspunten of open werkvoorraad, maar geen "
-                "blokkerende exportproblemen of hoge prioriteiten."
-            ),
-            "aanbevolen_eerste_stap": "Loop de werkvoorraad en datakwaliteitsmeldingen na.",
-        }
-
-    if mutations:
-        return {
-            "eindoordeel": "Bruikbaar, controleer conceptvoorstellen",
-            "statuskleur": "geel",
-            "toelichting": (
-                "Er zijn concept-mutatievoorstellen. Deze zijn alleen bedoeld als "
-                "controlelijst en worden nooit automatisch doorgevoerd."
-            ),
-            "aanbevolen_eerste_stap": "Controleer het tabblad Mutatievoorstellen handmatig.",
-        }
-
-    if resolved:
-        return {
-            "eindoordeel": "Geen open controlepunten, controleer voortgang",
-            "statuskleur": "groen",
-            "toelichting": (
-                "De huidige controle heeft geen open werkvoorraad, maar er zijn punten "
-                "uit een vorige actielijst die niet meer terugkomen."
-            ),
-            "aanbevolen_eerste_stap": "Controleer of opgeloste/niet gevonden punten echt zijn afgehandeld.",
-        }
-
-    return {
-        "eindoordeel": "Bruikbaar, geen urgente controlepunten gevonden",
-        "statuskleur": "groen",
-        "toelichting": (
-            "De controle heeft geen blokkerende datakwaliteitsproblemen en geen open "
-            "onderhoudscontrole-acties gevonden."
-        ),
-        "aanbevolen_eerste_stap": "Archiveer het controlepakket of gebruik het als nulmeting.",
-    }
-
-
-def build_control_front_sheet(
-    result: MaintenanceControlResult,
-    *,
-    action_list: pd.DataFrame | None = None,
-    scope_label: str = "",
-    profile_label: str = "Volledige controle",
-) -> pd.DataFrame:
-    """Maak het voorblad/eindrapport voor het Excel-controlepakket.
-
-    Dit is bewust een gewone tabel. Daardoor blijft het exporteerbaar, testbaar
-    en robuust, ook wanneer Streamlit niet beschikbaar is.
-    """
-    if result is None:
-        result = MaintenanceControlResult()
-
-    summary = result.summary or {}
-    profile_description = MAINTENANCE_CONTROL_PROFILES.get(
-        clean_display_value(profile_label),
-        MAINTENANCE_CONTROL_PROFILES["Volledige controle"],
-    )
-    package_action_list = ensure_action_work_queue_columns(
-        action_list if action_list is not None else result.action_list
-    )
-    action_summary = action_work_queue_summary(package_action_list)
-    conclusion = evaluate_maintenance_control_summary(summary)
-
-    rows = [
-        ("Controleprofiel", profile_label, profile_description),
-        ("Controlebereik", scope_label or "(niet opgegeven)", "Weg of dataset waarop het pakket is gebaseerd."),
-        ("Eindoordeel", conclusion["eindoordeel"], conclusion["toelichting"]),
-        ("Aanbevolen eerste stap", conclusion["aanbevolen_eerste_stap"], "Menselijke controle blijft verplicht."),
-        ("Automatisch doorvoeren", "Nee", "De tool wijzigt niets in iASSET en maakt geen mutaties aan."),
-        ("Datakwaliteit blokkerend", summary.get("datakwaliteit_blokkerend", 0), "Eerst oplossen of herexporteren."),
-        ("Datakwaliteit waarschuwingen", summary.get("datakwaliteit_waarschuwingen", 0), "Controleer voordat je conclusies trekt."),
-        ("Controlepunten totaal", action_summary.get("controlepunten", summary.get("acties", 0)), "Aantal regels in de werkvoorraad."),
-        ("Open controlepunten", action_summary.get("open", 0), "Nog niet afgehandeld volgens de werkvoorraad."),
-        ("Prioriteit hoog", action_summary.get("prioriteit_hoog", summary.get("acties_prioriteit_hoog", 0)), "Begin hier bij inhoudelijke controle."),
-        ("Prioriteit middel", action_summary.get("prioriteit_middel", summary.get("acties_prioriteit_middel", 0)), "Tweede controlelaag."),
-        ("Prioriteit laag", action_summary.get("prioriteit_laag", summary.get("acties_prioriteit_laag", 0)), "Meestal afronden na hoge/middel prioriteit."),
-        ("Mogelijke oude/nieuwe projectnamen", summary.get("acties_met_mogelijke_projectmatch", 0), "Alleen controlehint; niets automatisch hernoemen."),
-        ("Mutatievoorstellen", summary.get("mutatievoorstellen", 0), "Conceptvoorstellen met menselijke controle verplicht."),
-        ("Nieuwe controlepunten", summary.get("controlepunten_nieuw", 0), "Alleen gevuld als een vorige actielijst is ingelezen."),
-        ("Bestaande controlepunten", summary.get("controlepunten_bestaand", 0), "Controlepunten die terugkomen uit een vorige controle."),
-        ("Opgelost/niet meer gevonden", summary.get("controlepunten_opgelost", 0), "Controleer of dit echt opgelost is of buiten de selectie valt."),
-    ]
-
-    frame = pd.DataFrame(rows, columns=CONTROL_FRONT_SHEET_COLUMNS)
-    return frame
-
-
-def build_control_front_sheet_top_projects(
-    action_list: pd.DataFrame | None,
-    *,
-    limit: int = 10,
-) -> pd.DataFrame:
-    """Selecteer de belangrijkste projectgroepen voor het voorblad.
-
-    We tonen maximaal tien regels, zodat het voorblad overzichtelijk blijft.
-    De volledige lijst blijft beschikbaar op het tabblad Projectsamenvatting.
-    """
-    project_summary = summarize_action_projects(ensure_action_work_queue_columns(action_list))
-    if project_summary.empty:
-        return pd.DataFrame(
-            columns=[
-                "wegnummer",
-                "onderhoudsproject",
-                "prioriteit",
-                "hoogste_prioriteit_score",
-                "open_controlepunten",
-                "korte_conclusie",
-                "aanbevolen_volgende_stap",
-            ]
-        )
-
-    result = project_summary.copy()
-    result["_prioriteit_rank"] = (
-        result.get("prioriteit", pd.Series(dtype=str))
-        .fillna("")
-        .astype(str)
-        .str.lower()
-        .map({"hoog": 0, "middel": 1, "laag": 2})
-        .fillna(9)
-    )
-    result["_open"] = pd.to_numeric(result.get("open_controlepunten", 0), errors="coerce").fillna(0)
-    result["_score"] = pd.to_numeric(result.get("hoogste_prioriteit_score", 0), errors="coerce").fillna(0)
-
-    result = result.sort_values(
-        ["_prioriteit_rank", "_score", "_open", "wegnummer", "onderhoudsproject"],
-        ascending=[True, False, False, True, True],
-    ).head(max(int(limit), 0))
-
-    visible_columns = [
-        "wegnummer",
-        "onderhoudsproject",
-        "prioriteit",
-        "hoogste_prioriteit_score",
-        "open_controlepunten",
-        "korte_conclusie",
-        "aanbevolen_volgende_stap",
-    ]
-    for column in visible_columns:
-        if column not in result.columns:
-            result[column] = ""
-    return result.loc[:, visible_columns].reset_index(drop=True)
-
-
 def _summary_dataframe(summary: dict[str, Any], scope_label: str = "") -> pd.DataFrame:
     """Zet de belangrijkste onderhoudscontrole-metrics om naar een leesbare tabel."""
     rows = [
@@ -4883,7 +4652,6 @@ def build_maintenance_control_workbook(
     *,
     action_list: pd.DataFrame | None = None,
     scope_label: str = "",
-    profile_label: str = "Volledige controle",
 ) -> bytes:
     """
     Bouw een Excel-controlepakket voor de onderhoudscontrole.
@@ -4919,13 +4687,6 @@ def build_maintenance_control_workbook(
         if result.progress_report is None or result.progress_report.empty
         else result.progress_report.copy()
     )
-    front_sheet = build_control_front_sheet(
-        result,
-        action_list=package_action_list,
-        scope_label=scope_label,
-        profile_label=profile_label,
-    )
-    front_sheet_top_projects = build_control_front_sheet_top_projects(package_action_list)
 
     summary = result.summary or {}
     action_summary = action_work_queue_summary(package_action_list)
@@ -4978,24 +4739,6 @@ def build_maintenance_control_workbook(
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         used_sheet_names: set[str] = set()
-        front_sheet_name = _safe_excel_sheet_name("Voorblad", used_sheet_names)
-        front_sheet.to_excel(writer, sheet_name=front_sheet_name, index=False)
-
-        if not front_sheet_top_projects.empty:
-            start_row_front = len(front_sheet) + 3
-            pd.DataFrame([["Belangrijkste projectgroepen"]], columns=["Onderhoudscontrole"]).to_excel(
-                writer,
-                sheet_name=front_sheet_name,
-                startrow=start_row_front,
-                index=False,
-            )
-            front_sheet_top_projects.to_excel(
-                writer,
-                sheet_name=front_sheet_name,
-                startrow=start_row_front + 2,
-                index=False,
-            )
-
         summary_sheet = _safe_excel_sheet_name("Samenvatting", used_sheet_names)
         start_row = 0
         for title, table in summary_tables.items():

@@ -1,4 +1,4 @@
-# iASSET Advisor - refactor v0.27.0
+# iASSET Advisor - refactor v0.26.0
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
@@ -105,31 +105,6 @@ Optioneel voor ontwikkelaars:
 pip install -r requirements-dev.txt
 pytest
 ```
-
-## Nieuw in v0.27.0
-
-Deze versie maakt de **Onderhoudscontrole** meer geschikt als controledossier.
-
-- De app heeft nu een controleprofiel:
-  - Volledige controle;
-  - Snelle controle;
-  - Alleen datakwaliteit;
-  - Werkvoorraadcontrole.
-- Het profiel verandert niets automatisch in iASSET. Het bepaalt vooral hoe de resultaten worden gepresenteerd en waar de gebruiker begint.
-- De Onderhoudscontrole toont nu een duidelijk eindoordeel met aanbevolen eerste stap.
-- Het Excel-controlepakket bevat een nieuw tabblad `Voorblad`.
-- Het voorblad bevat:
-  - gekozen controleprofiel;
-  - controlebereik;
-  - eindoordeel;
-  - aanbevolen eerste stap;
-  - datakwaliteitscijfers;
-  - open controlepunten;
-  - prioriteiten;
-  - mogelijke oude/nieuwe projectnaam-hints;
-  - veiligheidsmelding dat niets automatisch wordt doorgevoerd.
-- Het voorblad toont daarnaast de belangrijkste projectgroepen, zodat het controlepakket direct bruikbaar is in overleg of archivering.
-- De veiligheidsregel blijft ongewijzigd: de tool signaleert, ordent en exporteert, maar voert geen mutaties door in iASSET.
 
 ## Nieuw in v0.26.0
 

@@ -27,17 +27,7 @@ from iasset_tool.changes import (
     save_autosave,
     summarize_export_profile,
 )
-from iasset_tool.config import (
-    APP_VERSION,
-    AUTOSAVE_FILE,
-    DEFAULT_EXPORT_PROFILE,
-    HIERARCHY_RANK,
-    ISSUE_CATEGORIES,
-    MAINTENANCE_RULES_WARNINGS,
-    SEGMENTATION_ATTRIBUTES,
-    SORT_DIAGNOSTICS_SCHEMA_VERSION,
-    maintenance_rules_summary,
-)
+from iasset_tool.config import APP_VERSION, AUTOSAVE_FILE, DEFAULT_EXPORT_PROFILE, HIERARCHY_RANK, ISSUE_CATEGORIES, SEGMENTATION_ATTRIBUTES, SORT_DIAGNOSTICS_SCHEMA_VERSION
 from iasset_tool.data_loader import LoadResult, load_iasset_data
 from iasset_tool.geometry import build_graph_from_geometry
 from iasset_tool.map_view import build_road_map
@@ -45,12 +35,9 @@ from iasset_tool.maintenance_control import (
     ACTION_FOLLOW_UP_COLUMNS,
     ACTION_FOLLOW_UP_STATUS_OPTIONS,
     action_work_queue_summary,
-    available_maintenance_control_profiles,
-    build_control_front_sheet,
     build_control_point_object_details,
     build_maintenance_control,
     build_maintenance_control_workbook,
-    evaluate_maintenance_control_summary,
     filter_action_work_queue,
     merge_action_work_queue_edits,
     summarize_action_projects,
@@ -96,32 +83,6 @@ def render_version_badge() -> None:
     versienummer maakt meteen duidelijk welke codeversie echt draait.
     """
     st.sidebar.caption(f"Versie {APP_VERSION}")
-
-    rules_summary = maintenance_rules_summary()
-    with st.sidebar.expander("Beheerregels", expanded=False):
-        st.caption(
-            "v0.26 gebruikt één configuratiebestand voor domeinregels zoals "
-            "primaire subthema's, uitzonderingen, categoriefamilies en knipvelden."
-        )
-        st.write(f"Bron: {rules_summary.get('bron', 'onbekend')}")
-        st.caption(str(rules_summary.get("pad", "")))
-
-        if MAINTENANCE_RULES_WARNINGS:
-            for warning in MAINTENANCE_RULES_WARNINGS:
-                st.warning(warning)
-        else:
-            st.success("Beheerregels geladen.")
-
-        st.write(
-            {
-                "primaire_subthema's": rules_summary.get("primaire_subthemas", 0),
-                "uitzonderingen": rules_summary.get("uitzonderingssubthemas", 0),
-                "categoriefamilies": rules_summary.get("categoriefamilies", 0),
-                "knipvelden": rules_summary.get("knipvelden_project_adviseur", 0),
-                "wegrichtingen": rules_summary.get("wegrichtingen", 0),
-            }
-        )
-
     st.markdown(
         f"""
         <style>
@@ -1026,20 +987,6 @@ with col_inspector:
             ),
             key="maintenance_control_scope",
         )
-
-        control_profiles = available_maintenance_control_profiles()
-        selected_control_profile = st.selectbox(
-            "Controleprofiel",
-            list(control_profiles.keys()),
-            index=0,
-            help=(
-                "Het profiel verandert niets automatisch in iASSET. Het bepaalt vooral "
-                "hoe het controlepakket en de uitleg worden gepresenteerd."
-            ),
-            key="maintenance_control_profile",
-        )
-        st.caption(control_profiles[selected_control_profile])
-
         network_scope = control_scope == "Hele dataset / wegennet"
         control_passport_df = raw_gdf if network_scope else road_gdf
         control_selected_road = None if network_scope else selected_road
@@ -1103,32 +1050,6 @@ with col_inspector:
 
                 summary = control_result.summary
 
-                front_sheet = build_control_front_sheet(
-                    control_result,
-                    scope_label=control_label,
-                    profile_label=selected_control_profile,
-                )
-                conclusion = evaluate_maintenance_control_summary(summary)
-                conclusion_message = (
-                    f"**{conclusion['eindoordeel']}** — {conclusion['toelichting']} "
-                    f"Eerste stap: {conclusion['aanbevolen_eerste_stap']}"
-                )
-                if conclusion["statuskleur"] == "rood":
-                    st.error(conclusion_message)
-                elif conclusion["statuskleur"] == "oranje":
-                    st.warning(conclusion_message)
-                elif conclusion["statuskleur"] == "geel":
-                    st.info(conclusion_message)
-                else:
-                    st.success(conclusion_message)
-
-                with st.expander("Voorblad en eindoordeel van het controlepakket", expanded=True):
-                    st.caption(
-                        "Deze v0.27-laag vat de controle samen als controledossier. "
-                        "De ruwe tabellen blijven beschikbaar; dit voorblad helpt bepalen waar je begint."
-                    )
-                    st.dataframe(front_sheet, use_container_width=True, hide_index=True)
-
                 data_quality_report = control_result.data_quality_report
                 if data_quality_report is not None and not data_quality_report.empty:
                     quality_issues = summary.get("datakwaliteit_issues", 0)
@@ -1150,10 +1071,7 @@ with col_inspector:
                     else:
                         st.success("Datakwaliteitsvoorcontrole: geen duidelijke exportproblemen gevonden.")
 
-                    with st.expander(
-                            "Datakwaliteitsrapport van de gebruikte exports",
-                            expanded=bool(quality_issues) or selected_control_profile == "Alleen datakwaliteit",
-                        ):
+                    with st.expander("Datakwaliteitsrapport van de gebruikte exports", expanded=bool(quality_issues)):
                         st.caption(
                             "Deze v0.23-voorcontrole controleert de invoerbestanden op risico's zoals ontbrekende kolommen, "
                             "lege objectnummers, afwijkende projectnamen, ongeldige metrering en ontbrekende geometrie. "
@@ -1200,10 +1118,7 @@ with col_inspector:
 
                     progress_report = control_result.progress_report
                     if progress_report is not None and not progress_report.empty:
-                        with st.expander(
-                            "Voortgangsrapport per weg en onderhoudsproject",
-                            expanded=selected_control_profile in ("Volledige controle", "Werkvoorraadcontrole"),
-                        ):
+                        with st.expander("Voortgangsrapport per weg en onderhoudsproject", expanded=True):
                             st.caption(
                                 "Deze v0.24-laag vergelijkt de huidige controle met de vorige actielijst. "
                                 "Zo zie je welke projectgroepen nieuw zijn, blijven terugkomen of mogelijk zijn opgelost. "
@@ -1276,10 +1191,7 @@ with col_inspector:
 
                         project_summary = summarize_action_projects(action_list)
                         if not project_summary.empty:
-                            with st.expander(
-                                "Samenvatting per onderhoudsproject",
-                                expanded=selected_control_profile in ("Volledige controle", "Snelle controle", "Werkvoorraadcontrole"),
-                            ):
+                            with st.expander("Samenvatting per onderhoudsproject", expanded=True):
                                 st.caption(
                                     "Deze v0.22-samenvatting groepeert de werkvoorraad per onderhoudsproject. "
                                     "Begin bij hoge prioriteit en bij projecten met primaire objecten."
@@ -1647,7 +1559,6 @@ with col_inspector:
                         control_result,
                         action_list=edited_action_list,
                         scope_label=control_label,
-                        profile_label=selected_control_profile,
                     )
                     st.download_button(
                         "📦 Download Onderhoudscontrole controlepakket (Excel)",

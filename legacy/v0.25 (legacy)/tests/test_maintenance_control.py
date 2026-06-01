@@ -5,13 +5,10 @@ import pandas as pd
 from iasset_tool.maintenance_control import (
     action_work_queue_summary,
     build_control_point_object_details,
-    available_maintenance_control_profiles,
-    build_control_front_sheet,
     build_maintenance_control,
     build_maintenance_control_workbook,
     build_data_quality_report,
     data_quality_summary,
-    evaluate_maintenance_control_summary,
     filter_action_work_queue,
     ensure_action_work_queue_columns,
     merge_action_work_queue_edits,
@@ -1887,89 +1884,3 @@ def test_v023_workbook_contains_data_quality_sheet():
     header = list(rows[0])
     assert "issue_code" in header
     assert any(row[header.index("issue_code")] == "PASPOORT_OBJECTNUMMER_LEEG" for row in rows[1:])
-
-
-
-def test_v027_front_sheet_gives_clear_conclusion_and_first_step():
-    """Het v0.27-voorblad vertaalt ruwe tellingen naar een menselijk controledossier."""
-    passport_df = pd.DataFrame(
-        [
-            {
-                "nummer": "VV-N398-1",
-                "Wegnummer": "N398",
-                "subthema": "rijstrook",
-                "Onderhoudsproject": "N398-HRB-01.0-02.0",
-                "Metrering": "1,0",
-            }
-        ]
-    )
-    maintenance_df = pd.DataFrame(
-        [{"objectnummer": "VV-N398-99", "Onderhoudsproject": "N398-HRB-09.0-09.1"}]
-    )
-
-    result = build_maintenance_control(passport_df, maintenance_df, selected_road="N398")
-    front_sheet = build_control_front_sheet(
-        result,
-        scope_label="N398",
-        profile_label="Snelle controle",
-    )
-
-    assert list(front_sheet.columns) == ["onderdeel", "waarde", "toelichting"]
-    values = dict(zip(front_sheet["onderdeel"], front_sheet["waarde"]))
-    assert values["Controleprofiel"] == "Snelle controle"
-    assert values["Controlebereik"] == "N398"
-    assert "Bruikbaar" in values["Eindoordeel"]
-    assert values["Automatisch doorvoeren"] == "Nee"
-
-
-def test_v027_available_profiles_and_summary_evaluation_are_safe():
-    """Controleprofielen bepalen presentatie, niet automatische mutaties."""
-    profiles = available_maintenance_control_profiles()
-    assert "Volledige controle" in profiles
-    assert "Alleen datakwaliteit" in profiles
-
-    conclusion = evaluate_maintenance_control_summary(
-        {
-            "datakwaliteit_blokkerend": 1,
-            "acties_prioriteit_hoog": 4,
-            "acties": 4,
-        }
-    )
-    assert conclusion["statuskleur"] == "rood"
-    assert "Datakwaliteit" in conclusion["aanbevolen_eerste_stap"]
-
-
-def test_v027_workbook_contains_front_sheet_with_profile_and_conclusion():
-    passport_df = pd.DataFrame(
-        [
-            {
-                "nummer": "VV-N398-1",
-                "Wegnummer": "N398",
-                "subthema": "rijstrook",
-                "Onderhoudsproject": "N398-HRB-01.0-02.0",
-                "Metrering": "1,0",
-            }
-        ]
-    )
-    maintenance_df = pd.DataFrame(columns=["objectnummer", "Onderhoudsproject"])
-
-    result = build_maintenance_control(passport_df, maintenance_df, selected_road="N398")
-    workbook_bytes = build_maintenance_control_workbook(
-        result,
-        scope_label="N398",
-        profile_label="Werkvoorraadcontrole",
-    )
-
-    from openpyxl import load_workbook
-
-    wb = load_workbook(io.BytesIO(workbook_bytes), read_only=True, data_only=True)
-    assert wb.sheetnames[0] == "Voorblad"
-
-    rows = list(wb["Voorblad"].iter_rows(values_only=True))
-    header = list(rows[0])
-    onderdeel_idx = header.index("onderdeel")
-    waarde_idx = header.index("waarde")
-    values = {row[onderdeel_idx]: row[waarde_idx] for row in rows[1:] if row[onderdeel_idx]}
-    assert values["Controleprofiel"] == "Werkvoorraadcontrole"
-    assert values["Controlebereik"] == "N398"
-    assert values["Automatisch doorvoeren"] == "Nee"
