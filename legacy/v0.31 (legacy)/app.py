@@ -71,10 +71,6 @@ from iasset_tool.overview_map import (
     render_overview_map_html,
 )
 from iasset_tool.pdok import get_pdok_hectopunten_visual_only
-from iasset_tool.reference_axis import (
-    REFERENCE_AXIS_SCHEMA_VERSION,
-    build_reference_axis_diagnostics,
-)
 from iasset_tool.performance import measure_step, performance_dataframe
 from iasset_tool.rules import category_counts, check_rules, violation_key
 from iasset_tool.sorting_diagnostics import build_sort_diagnostics
@@ -705,7 +701,7 @@ with col_inspector:
 
     mode = st.radio(
         "Modus:",
-        ["🔍 Data Kwaliteit", "🏗️ Project Adviseur", "🛠️ Onderhoudscontrole", "🧪 Referentieas / PDOK-proef", "🧾 Objectinspecteur", "🗺️ Overzicht"],
+        ["🔍 Data Kwaliteit", "🏗️ Project Adviseur", "🛠️ Onderhoudscontrole", "🧾 Objectinspecteur", "🗺️ Overzicht"],
         horizontal=True,
         on_change=lambda: reset_selection(st.session_state),
     )
@@ -1725,134 +1721,6 @@ with col_inspector:
                         )
 
 
-    elif mode == "🧪 Referentieas / PDOK-proef":
-        st.markdown("### 🧪 Referentieas / PDOK-proef")
-        st.caption(
-            "Experimentele diagnose naast iASSET. Deze proef gebruikt PDOK-hectometerpunten "
-            "alleen om te onderzoeken of begin- en eindmetrering preciezer te benaderen zijn. "
-            "De uitkomst past geen iASSET-data aan en wijzigt de bestaande Onderhoudscontrole "
-            "of Overzicht-hoeveelheden niet."
-        )
-
-        if selected_road not in {"N354", "N398"}:
-            st.warning(
-                "De eerste proef is bedoeld voor N354 en N398. Voor deze weg kan de diagnose "
-                "wel draaien, maar de uitkomst is extra indicatief."
-            )
-
-        max_offset_m = st.number_input(
-            "Maximale afstand tot referentieas voor groene status (meter)",
-            min_value=1.0,
-            max_value=250.0,
-            value=25.0,
-            step=5.0,
-            help=(
-                "Objecten verder dan deze afstand krijgen de status 'controleer'. "
-                "Ze worden niet weggegooid, zodat afwijkingen zichtbaar blijven."
-            ),
-        )
-
-        st.info(
-            "Scope v0.32: alleen rijstroken/HRB, alleen diagnose, bronkwaliteit 'experimenteel'. "
-            "Parallelwegen, fietspaden, rotondes en kruispunten blijven buiten deze eerste proef."
-        )
-
-        if st.button(
-            "Bereken referentieasdiagnose met PDOK-hectometerpunten",
-            key=f"build_reference_axis_{selected_road}",
-        ):
-            pdok_hm_for_diagnostics = get_pdok_hectopunten_cached(selected_road, road_gdf)
-            ref_diag = measure_step(
-                get_performance_log(),
-                "Referentieasdiagnose",
-                build_reference_axis_diagnostics,
-                road_gdf,
-                pdok_hm_for_diagnostics,
-                selected_road=selected_road,
-                max_offset_m=float(max_offset_m),
-            )
-            st.session_state["reference_axis_diagnostics"] = {
-                "road": selected_road,
-                "revision": current_data_revision_key(),
-                "schema_version": REFERENCE_AXIS_SCHEMA_VERSION,
-                "app_version": APP_VERSION,
-                "max_offset_m": float(max_offset_m),
-                "object_diagnostics": ref_diag.object_diagnostics,
-                "project_summary": ref_diag.project_summary,
-                "axis_source": ref_diag.axis_result.source,
-                "axis_anchor_count": ref_diag.axis_result.anchor_count,
-                "axis_warning": ref_diag.axis_result.warning,
-                "warning": ref_diag.warning,
-            }
-
-        ref_state = st.session_state.get("reference_axis_diagnostics") or {}
-        if (
-            ref_state.get("road") != selected_road
-            or ref_state.get("revision") != current_data_revision_key()
-            or ref_state.get("schema_version") != REFERENCE_AXIS_SCHEMA_VERSION
-        ):
-            st.info(
-                "Klik op de berekenknop om de referentieasdiagnose voor deze weg, "
-                "datasetrevisie en appversie te maken."
-            )
-        else:
-            st.caption(
-                f"Diagnose: {ref_state.get('app_version', APP_VERSION)} / "
-                f"{ref_state.get('schema_version', 'onbekend')}. "
-                f"Asbron: {ref_state.get('axis_source', 'onbekend')} met "
-                f"{ref_state.get('axis_anchor_count', 0)} ankerpunten. "
-                f"Maximale afstand: {ref_state.get('max_offset_m', max_offset_m):g} m."
-            )
-
-            for warning_text in [
-                ref_state.get("axis_warning", ""),
-                ref_state.get("warning", ""),
-            ]:
-                if warning_text:
-                    st.warning(warning_text, icon="⚠️")
-
-            project_summary = ref_state.get("project_summary")
-            object_diagnostics = ref_state.get("object_diagnostics")
-
-            if isinstance(project_summary, pd.DataFrame) and not project_summary.empty:
-                st.markdown("#### Samenvatting per onderhoudsproject")
-                st.dataframe(project_summary, use_container_width=True, hide_index=True)
-
-                project_csv = project_summary.to_csv(index=False, sep=";").encode("utf-8-sig")
-                st.download_button(
-                    "📥 Download referentieas-projectsamenvatting",
-                    data=project_csv,
-                    file_name=f"Referentieas_Projecten_{sanitize_filename(selected_road)}.csv",
-                    mime="text/csv",
-                )
-            else:
-                st.info("Geen projectsamenvatting beschikbaar. Controleer of er PDOK-hectometerpunten en rijstroken zijn.")
-
-            if isinstance(object_diagnostics, pd.DataFrame) and not object_diagnostics.empty:
-                with st.expander("Objectdiagnose", expanded=False):
-                    status_options = ["Alle statussen", *sorted(object_diagnostics["status"].dropna().unique().tolist())]
-                    status_filter = st.selectbox(
-                        "Statusfilter",
-                        status_options,
-                        key=f"reference_axis_status_filter_{selected_road}",
-                    )
-
-                    visible_objects = object_diagnostics
-                    if status_filter != "Alle statussen":
-                        visible_objects = visible_objects[visible_objects["status"] == status_filter]
-
-                    st.dataframe(visible_objects, use_container_width=True, hide_index=True)
-
-                    object_csv = visible_objects.to_csv(index=False, sep=";").encode("utf-8-sig")
-                    st.download_button(
-                        "📥 Download zichtbare objectdiagnose",
-                        data=object_csv,
-                        file_name=f"Referentieas_Objecten_{sanitize_filename(selected_road)}.csv",
-                        mime="text/csv",
-                    )
-
-
-
     elif mode == "🧾 Objectinspecteur":
         st.markdown("### 🧾 Objectinspecteur")
         st.caption(
@@ -2206,7 +2074,7 @@ with col_map:
         show_network = st.toggle("🕸️ Toon Netwerk (Lijnen & Bollen)", value=False)
         show_pdok = st.toggle(
             "📍 Toon hectometerpunten (PDOK)",
-            value=(mode == "🧪 Referentieas / PDOK-proef"),
+            value=False,
             help=(
                 "PDOK is alleen visuele ondersteuning en kan traag zijn. "
                 "De punten worden pas opgehaald wanneer deze optie aan staat."
@@ -2254,153 +2122,146 @@ with col_map:
             key="folium_map",
         )
 
-        if mode == "🧪 Referentieas / PDOK-proef":
-            st.divider()
-            st.markdown("### 🧪 Referentieas-kaart")
-            st.caption(
-                "De kaart toont dezelfde iASSET-objecten als de andere schermen. "
-                "Zet de PDOK-hectometerpunten aan om de gebruikte referentiepunten visueel te controleren."
-            )
+        st.divider()
+        st.markdown("### 🕵️ Sorteerdiagnose")
+
+        computed_groups = st.session_state.get("computed_groups") or {}
+        if not computed_groups:
+            st.caption("Project Adviseur is nog niet berekend. Open Project Adviseur om de groepsdiagnose te vullen.")
         else:
-            st.divider()
-            st.markdown("### 🕵️ Sorteerdiagnose")
+            active_diagnostic_groups = {
+                group_id: group_data
+                for group_id, group_data in computed_groups.items()
+                if group_id not in st.session_state["processed_groups"]
+            }
 
-            computed_groups = st.session_state.get("computed_groups") or {}
-            if not computed_groups:
-                st.caption("Project Adviseur is nog niet berekend. Open Project Adviseur om de groepsdiagnose te vullen.")
-            else:
-                active_diagnostic_groups = {
-                    group_id: group_data
-                    for group_id, group_data in computed_groups.items()
-                    if group_id not in st.session_state["processed_groups"]
-                }
+            with st.expander("Diagnose huidige projectvolgorde", expanded=False):
+                st.caption(
+                    "Deze diagnose verandert de Project Adviseur nog niet. Hij laat zien of de huidige "
+                    "volgorde vooral op metrering steunt, of dat binnen hetzelfde wegvak/metrering "
+                    "een extra controle nodig is."
+                )
 
-                with st.expander("Diagnose huidige projectvolgorde", expanded=False):
-                    st.caption(
-                        "Deze diagnose verandert de Project Adviseur nog niet. Hij laat zien of de huidige "
-                        "volgorde vooral op metrering steunt, of dat binnen hetzelfde wegvak/metrering "
-                        "een extra controle nodig is."
+                if st.button("Bereken sorteerdiagnose", key=f"build_sort_diag_{selected_road}"):
+                    object_diag, group_diag, axis_result = measure_step(
+                        get_performance_log(),
+                        "Sorteerdiagnose",
+                        build_sort_diagnostics,
+                        road_gdf,
+                        active_diagnostic_groups,
+                        selected_road=selected_road,
                     )
+                    st.session_state["sort_diagnostics"] = {
+                        "road": selected_road,
+                        "revision": current_data_revision_key(),
+                        "schema_version": SORT_DIAGNOSTICS_SCHEMA_VERSION,
+                        "app_version": APP_VERSION,
+                        "objects": object_diag,
+                        "groups": group_diag,
+                        "axis_source": axis_result.source,
+                        "axis_anchor_count": axis_result.anchor_count,
+                        "axis_warning": axis_result.warning,
+                    }
 
-                    if st.button("Bereken sorteerdiagnose", key=f"build_sort_diag_{selected_road}"):
-                        object_diag, group_diag, axis_result = measure_step(
-                            get_performance_log(),
-                            "Sorteerdiagnose",
-                            build_sort_diagnostics,
-                            road_gdf,
-                            active_diagnostic_groups,
-                            selected_road=selected_road,
-                        )
-                        st.session_state["sort_diagnostics"] = {
-                            "road": selected_road,
-                            "revision": current_data_revision_key(),
-                            "schema_version": SORT_DIAGNOSTICS_SCHEMA_VERSION,
-                            "app_version": APP_VERSION,
-                            "objects": object_diag,
-                            "groups": group_diag,
-                            "axis_source": axis_result.source,
-                            "axis_anchor_count": axis_result.anchor_count,
-                            "axis_warning": axis_result.warning,
-                        }
+                sort_diag = st.session_state.get("sort_diagnostics") or {}
+                if (
+                    sort_diag.get("road") != selected_road
+                    or sort_diag.get("revision") != current_data_revision_key()
+                    or sort_diag.get("schema_version") != SORT_DIAGNOSTICS_SCHEMA_VERSION
+                ):
+                    st.info(
+                        "Klik op 'Bereken sorteerdiagnose' om de diagnose voor deze weg, "
+                        "datasetrevisie en appversie te maken."
+                    )
+                else:
+                    axis_warning = sort_diag.get("axis_warning", "")
+                    st.caption(
+                        f"Diagnose: {sort_diag.get('app_version', APP_VERSION)} / "
+                        f"{sort_diag.get('schema_version', 'onbekend')}. "
+                        f"Lokale route-as: {sort_diag.get('axis_source', 'onbekend')} "
+                        f"met {sort_diag.get('axis_anchor_count', 0)} ankerpunten."
+                    )
+                    if axis_warning:
+                        st.warning(axis_warning, icon="⚠️")
 
-                    sort_diag = st.session_state.get("sort_diagnostics") or {}
-                    if (
-                        sort_diag.get("road") != selected_road
-                        or sort_diag.get("revision") != current_data_revision_key()
-                        or sort_diag.get("schema_version") != SORT_DIAGNOSTICS_SCHEMA_VERSION
-                    ):
-                        st.info(
-                            "Klik op 'Bereken sorteerdiagnose' om de diagnose voor deze weg, "
-                            "datasetrevisie en appversie te maken."
+                    group_diag = sort_diag.get("groups")
+                    if isinstance(group_diag, pd.DataFrame) and not group_diag.empty:
+                        st.markdown("#### Groepsdiagnose")
+                        st.dataframe(group_diag, use_container_width=True, hide_index=True)
+
+                        group_csv = group_diag.to_csv(index=False, sep=";").encode("utf-8-sig")
+                        st.download_button(
+                            "📥 Download groepsdiagnose",
+                            data=group_csv,
+                            file_name=f"Sorteerdiagnose_Groepen_{sanitize_filename(selected_road)}.csv",
+                            mime="text/csv",
                         )
                     else:
-                        axis_warning = sort_diag.get("axis_warning", "")
-                        st.caption(
-                            f"Diagnose: {sort_diag.get('app_version', APP_VERSION)} / "
-                            f"{sort_diag.get('schema_version', 'onbekend')}. "
-                            f"Lokale route-as: {sort_diag.get('axis_source', 'onbekend')} "
-                            f"met {sort_diag.get('axis_anchor_count', 0)} ankerpunten."
-                        )
-                        if axis_warning:
-                            st.warning(axis_warning, icon="⚠️")
+                        st.info("Geen groepsdiagnose beschikbaar.")
 
-                        group_diag = sort_diag.get("groups")
-                        if isinstance(group_diag, pd.DataFrame) and not group_diag.empty:
-                            st.markdown("#### Groepsdiagnose")
-                            st.dataframe(group_diag, use_container_width=True, hide_index=True)
+                    show_object_diag = st.checkbox(
+                        "Toon objectdiagnose",
+                        value=False,
+                        help=(
+                            "Objectniveau is vooral nuttig om dubbele objecten binnen hetzelfde "
+                            "wegvak/metrering te controleren."
+                        ),
+                    )
 
-                            group_csv = group_diag.to_csv(index=False, sep=";").encode("utf-8-sig")
-                            st.download_button(
-                                "📥 Download groepsdiagnose",
-                                data=group_csv,
-                                file_name=f"Sorteerdiagnose_Groepen_{sanitize_filename(selected_road)}.csv",
-                                mime="text/csv",
-                            )
-                        else:
-                            st.info("Geen groepsdiagnose beschikbaar.")
-
-                        show_object_diag = st.checkbox(
-                            "Toon objectdiagnose",
-                            value=False,
+                    object_diag = sort_diag.get("objects")
+                    if show_object_diag and isinstance(object_diag, pd.DataFrame) and not object_diag.empty:
+                        attention_filter = st.selectbox(
+                            "Objectdiagnose-filter",
+                            [
+                                "Alle aandachtspunten",
+                                "Alleen waarschuwingen",
+                                "Alleen info",
+                                "Alle objecten",
+                            ],
+                            index=0,
+                            key=f"sort_diag_attention_filter_{selected_road}",
                             help=(
-                                "Objectniveau is vooral nuttig om dubbele objecten binnen hetzelfde "
-                                "wegvak/metrering te controleren."
+                                "Aandachtspunten zijn regels met een INFO of WAARSCHUWING. "
+                                "Gebruik 'Alleen waarschuwingen' voor echte risico's."
                             ),
                         )
 
-                        object_diag = sort_diag.get("objects")
-                        if show_object_diag and isinstance(object_diag, pd.DataFrame) and not object_diag.empty:
-                            attention_filter = st.selectbox(
-                                "Objectdiagnose-filter",
-                                [
-                                    "Alle aandachtspunten",
-                                    "Alleen waarschuwingen",
-                                    "Alleen info",
-                                    "Alle objecten",
-                                ],
-                                index=0,
-                                key=f"sort_diag_attention_filter_{selected_road}",
-                                help=(
-                                    "Aandachtspunten zijn regels met een INFO of WAARSCHUWING. "
-                                    "Gebruik 'Alleen waarschuwingen' voor echte risico's."
-                                ),
-                            )
+                        display_object_diag = object_diag
+                        if "sort_severity" in display_object_diag.columns:
+                            severity_series = display_object_diag["sort_severity"].astype(str).str.strip().str.lower()
+                            if attention_filter == "Alle aandachtspunten":
+                                display_object_diag = display_object_diag[severity_series != ""]
+                            elif attention_filter == "Alleen waarschuwingen":
+                                display_object_diag = display_object_diag[severity_series == "waarschuwing"]
+                            elif attention_filter == "Alleen info":
+                                display_object_diag = display_object_diag[severity_series == "info"]
+                        elif attention_filter != "Alle objecten" and "sort_warning" in display_object_diag.columns:
+                            # Fallback voor oude diagnoseframes zonder sort_severity.
+                            warning_text = display_object_diag["sort_warning"].astype(str).str.strip()
+                            display_object_diag = display_object_diag[warning_text != ""]
 
-                            display_object_diag = object_diag
-                            if "sort_severity" in display_object_diag.columns:
-                                severity_series = display_object_diag["sort_severity"].astype(str).str.strip().str.lower()
-                                if attention_filter == "Alle aandachtspunten":
-                                    display_object_diag = display_object_diag[severity_series != ""]
-                                elif attention_filter == "Alleen waarschuwingen":
-                                    display_object_diag = display_object_diag[severity_series == "waarschuwing"]
-                                elif attention_filter == "Alleen info":
-                                    display_object_diag = display_object_diag[severity_series == "info"]
-                            elif attention_filter != "Alle objecten" and "sort_warning" in display_object_diag.columns:
-                                # Fallback voor oude diagnoseframes zonder sort_severity.
-                                warning_text = display_object_diag["sort_warning"].astype(str).str.strip()
-                                display_object_diag = display_object_diag[warning_text != ""]
+                        st.markdown("#### Objectdiagnose")
+                        st.dataframe(display_object_diag, use_container_width=True, hide_index=True)
 
-                            st.markdown("#### Objectdiagnose")
-                            st.dataframe(display_object_diag, use_container_width=True, hide_index=True)
+                        # Download exact dezelfde regels als zichtbaar zijn.
+                        object_csv = display_object_diag.to_csv(index=False, sep=";").encode("utf-8-sig")
+                        suffix_map = {
+                            "Alle aandachtspunten": "_Aandachtspunten",
+                            "Alleen waarschuwingen": "_Waarschuwingen",
+                            "Alleen info": "_Info",
+                            "Alle objecten": "",
+                        }
+                        export_suffix = suffix_map.get(attention_filter, "")
+                        st.download_button(
+                            "📥 Download zichtbare objectdiagnose",
+                            data=object_csv,
+                            file_name=(
+                                f"Sorteerdiagnose_Objecten_{sanitize_filename(selected_road)}"
+                                f"{export_suffix}.csv"
+                            ),
+                            mime="text/csv",
+                        )
 
-                            # Download exact dezelfde regels als zichtbaar zijn.
-                            object_csv = display_object_diag.to_csv(index=False, sep=";").encode("utf-8-sig")
-                            suffix_map = {
-                                "Alle aandachtspunten": "_Aandachtspunten",
-                                "Alleen waarschuwingen": "_Waarschuwingen",
-                                "Alleen info": "_Info",
-                                "Alle objecten": "",
-                            }
-                            export_suffix = suffix_map.get(attention_filter, "")
-                            st.download_button(
-                                "📥 Download zichtbare objectdiagnose",
-                                data=object_csv,
-                                file_name=(
-                                    f"Sorteerdiagnose_Objecten_{sanitize_filename(selected_road)}"
-                                    f"{export_suffix}.csv"
-                                ),
-                                mime="text/csv",
-                            )
 
 # --- Logboek en export -----------------------------------------------------
 

@@ -1,19 +1,6 @@
-# iASSET Advisor - refactor v0.32.0
+# iASSET Advisor - refactor v0.30.0
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
-
-
-## Nieuw in v0.32.0
-
-Deze versie voegt een afgeschermde experimentele **Referentieas / PDOK-proef** toe.
-
-- Nieuw scherm `🧪 Referentieas / PDOK-proef` naast de bestaande modi.
-- Nieuwe module `iasset_tool/reference_axis.py` voor diagnostiek op basis van PDOK-hectometerpunten.
-- De proef is bewust alleen-lezen: iASSET blijft de single source of truth.
-- De bestaande Onderhoudscontrole, Overzicht en v0.31-trajectlengtekeuze blijven ongemoeid.
-- Scope v0.32: eerst rijstroken/HRB, bedoeld voor N354 en N398.
-- Output: projectsamenvatting en objectdiagnose met ruwe referentiemetrering, vijfmeter-afleiding, afstand tot as en bronkwaliteit `experimenteel`.
-- Robuustheid: ontbrekende PDOK-data, lege geometrieën en schema-afwijkingen leveren waarschuwingen op in plaats van crashes.
 
 
 ## Nieuw in v0.30.0
@@ -73,7 +60,6 @@ De huidige functionaliteit blijft zoveel mogelijk gelijk:
 │   ├── fietspad.py
 │   ├── advisor.py
 │   ├── pdok.py
-│   ├── reference_axis.py
 │   ├── performance.py
 │   ├── map_view.py
 │   ├── overview_map.py
@@ -91,7 +77,6 @@ De huidige functionaliteit blijft zoveel mogelijk gelijk:
     ├── test_fietspad.py
     ├── test_overview_map.py
     ├── test_object_editor.py
-    ├── test_reference_axis.py
     ├── test_rules.py
     ├── test_sorting_diagnostics.py
     ├── test_maintenance_map.py
