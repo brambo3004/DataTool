@@ -1049,42 +1049,6 @@ with col_inspector:
                     st.warning(warning)
 
                 summary = control_result.summary
-
-                data_quality_report = control_result.data_quality_report
-                if data_quality_report is not None and not data_quality_report.empty:
-                    quality_issues = summary.get("datakwaliteit_issues", 0)
-                    q_blocking, q_warning, q_attention = st.columns(3)
-                    q_blocking.metric("Datakwaliteit blokkerend", summary.get("datakwaliteit_blokkerend", 0))
-                    q_warning.metric("Datakwaliteit waarschuwingen", summary.get("datakwaliteit_waarschuwingen", 0))
-                    q_attention.metric("Datakwaliteit aandachtspunten", summary.get("datakwaliteit_aandachtspunten", 0))
-
-                    if summary.get("datakwaliteit_blokkerend", 0):
-                        st.error(
-                            "De v0.23-voorcontrole ziet blokkerende exportproblemen. "
-                            "De tabellen kunnen nog worden opgebouwd, maar conclusies zijn beperkt betrouwbaar."
-                        )
-                    elif quality_issues:
-                        st.warning(
-                            f"De v0.23-voorcontrole ziet {quality_issues} datakwaliteitsmelding(en). "
-                            "Bekijk deze vóórdat je inhoudelijke conclusies trekt."
-                        )
-                    else:
-                        st.success("Datakwaliteitsvoorcontrole: geen duidelijke exportproblemen gevonden.")
-
-                    with st.expander("Datakwaliteitsrapport van de gebruikte exports", expanded=bool(quality_issues)):
-                        st.caption(
-                            "Deze v0.23-voorcontrole controleert de invoerbestanden op risico's zoals ontbrekende kolommen, "
-                            "lege objectnummers, afwijkende projectnamen, ongeldige metrering en ontbrekende geometrie. "
-                            "De tool wijzigt niets; dit rapport helpt bepalen hoe betrouwbaar de vervolgcontrole is."
-                        )
-                        st.dataframe(data_quality_report, use_container_width=True, hide_index=True)
-                        quality_csv = data_quality_report.to_csv(index=False, sep=";").encode("utf-8-sig")
-                        st.download_button(
-                            "📥 Download datakwaliteitsrapport",
-                            data=quality_csv,
-                            file_name=f"Onderhoudscontrole_Datakwaliteit{control_file_suffix}.csv",
-                            mime="text/csv",
-                        )
                 c_roads, c_ok, c_object, c_missing, c_total = st.columns(5)
                 c_roads.metric("Wegen", summary.get("wegen_gecontroleerd", 0))
                 c_ok.metric("OK volledig", summary.get("ok_volledig", summary.get("projecten_ok", 0)))
@@ -1103,35 +1067,11 @@ with col_inspector:
                     p_new.metric("Nieuw sinds vorige controle", summary.get("controlepunten_nieuw", 0))
                     p_existing.metric("Bestaand", summary.get("controlepunten_bestaand", 0))
                     p_resolved.metric("Opgelost/niet meer gevonden", summary.get("controlepunten_opgelost", 0))
-
-                    pg_new, pg_open, pg_resolved, pg_mixed = st.columns(4)
-                    pg_new.metric("Nieuwe projectgroepen", summary.get("voortgang_nieuwe_projectgroepen", 0))
-                    pg_open.metric("Blijft open", summary.get("voortgang_blijft_open_projectgroepen", 0))
-                    pg_resolved.metric("Projectgroepen opgelost/niet gevonden", summary.get("voortgang_opgeloste_projectgroepen", 0))
-                    pg_mixed.metric("Deels nieuw/deels bestaand", summary.get("voortgang_deels_nieuw_projectgroepen", 0))
-
                     if summary.get("controlepunten_opgelost", 0):
                         st.info(
                             "Er zijn controlepunten uit de vorige actielijst die niet meer terugkomen. "
                             "Controleer of ze echt zijn opgelost of buiten de nieuwe exportselectie vallen."
                         )
-
-                    progress_report = control_result.progress_report
-                    if progress_report is not None and not progress_report.empty:
-                        with st.expander("Voortgangsrapport per weg en onderhoudsproject", expanded=True):
-                            st.caption(
-                                "Deze v0.24-laag vergelijkt de huidige controle met de vorige actielijst. "
-                                "Zo zie je welke projectgroepen nieuw zijn, blijven terugkomen of mogelijk zijn opgelost. "
-                                "Ook dit is alleen controle-informatie; de tool voert niets automatisch door."
-                            )
-                            st.dataframe(progress_report, use_container_width=True, hide_index=True)
-                            progress_csv = progress_report.to_csv(index=False, sep=";").encode("utf-8-sig")
-                            st.download_button(
-                                "📥 Download voortgangsrapport",
-                                data=progress_csv,
-                                file_name=f"Onderhoudscontrole_Voortgangsrapport{control_file_suffix}.csv",
-                                mime="text/csv",
-                            )
 
                 if summary.get("acties", 0):
                     st.warning(f"{summary.get('acties', 0)} controleactie(s) in de Onderhoudscontrole-actielijst.")

@@ -1,4 +1,4 @@
-# iASSET Advisor - refactor v0.24.0
+# iASSET Advisor - refactor v0.22.0
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
@@ -103,32 +103,6 @@ Optioneel voor ontwikkelaars:
 pip install -r requirements-dev.txt
 pytest
 ```
-
-## Nieuw in v0.24.0
-
-Deze versie verdiept de **voortgangsvergelijking** tussen opeenvolgende Onderhoudscontroles.
-
-- Naast losse tellingen voor `nieuw`, `bestaand` en `opgelost_of_niet_meer_gevonden` maakt de tool nu een voortgangsrapport per weg en per onderhoudsproject.
-- Het rapport laat zien welke projectgroepen:
-  - nieuw zijn in deze controle;
-  - blijven terugkomen;
-  - blijven terugkomen met hoge prioriteit;
-  - deels nieuw en deels bestaand zijn;
-  - mogelijk opgelost zijn of buiten de nieuwe exportselectie vallen.
-- De app toont extra voortgangsmetrics zodra een vorige actielijst is ingelezen.
-- Er is een download beschikbaar voor `Onderhoudscontrole_Voortgangsrapport.csv`.
-- Het Excel-controlepakket bevat een extra tabblad `Voortgangsrapport`.
-- De veiligheidsregel blijft ongewijzigd: voortgangsconclusies zijn alleen controle-informatie. De tool voert niets automatisch door in iASSET.
-
-## Nieuw in v0.23.0
-
-Deze versie voegt een **Datakwaliteitsrapport** toe aan de Onderhoudscontrole.
-
-- Voor de inhoudelijke vergelijking controleert de tool of de gebruikte paspoort- en onderhoudsexports voldoende betrouwbaar zijn.
-- De voorcontrole signaleert onder meer ontbrekende verplichte kolommen, lege of dubbele objectnummers, ontbrekende projectnamen, afwijkende projectnaam-syntax, ongeldige metrering en ontbrekende geometrie.
-- De app toont dashboardcijfers voor blokkerende datakwaliteitsproblemen, waarschuwingen en aandachtspunten.
-- Het Excel-controlepakket bevat een extra tabblad `Datakwaliteit`.
-- De controle blijft veilig: het rapport signaleert alleen en past niets aan in iASSET.
 
 ## Nieuw in v0.22.0
 
@@ -405,10 +379,3 @@ Deze versie voegt de eerste **Fase 4-controle** toe: paspoortexport en onderhoud
   - samenvatting paspoortprojecten;
   - samenvatting onderhoudsexport.
 - De sorteerbasis uit v0.15.1 blijft ongewijzigd; deze versie voert geen automatische mutaties uit.
-
-
-## v0.23.0
-
-- Toegevoegd: datakwaliteitsrapport voor de Onderhoudscontrole.
-- Controleert de gebruikte paspoort- en onderhoudsexports op ontbrekende kolommen, lege waarden, dubbele objectnummers, afwijkende projectnamen, ongeldige metrering en geometrieproblemen.
-- Blijft alleen signalerend: de tool voert geen automatische wijzigingen door in iASSET.

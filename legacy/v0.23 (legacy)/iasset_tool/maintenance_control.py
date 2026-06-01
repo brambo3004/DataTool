@@ -134,24 +134,6 @@ ACTION_PROGRESS_COLUMNS: tuple[str, ...] = (
     "voortgang_uitleg",
 )
 
-ACTION_PROGRESS_SUMMARY_COLUMNS: tuple[str, ...] = (
-    "scope",
-    "wegnummer",
-    "onderhoudsproject",
-    "voortgang_conclusie",
-    "nieuw",
-    "bestaand",
-    "opgelost_of_niet_meer_gevonden",
-    "totaal_huidig",
-    "totaal_vorig_opgelost",
-    "prioriteit_hoog",
-    "open_controlepunten",
-    "actiehouders",
-    "belangrijkste_uitleg",
-    "aanbevolen_actie",
-    "project_norm",
-)
-
 ACTION_PROJECT_SUMMARY_COLUMNS: tuple[str, ...] = (
     "wegnummer",
     "onderhoudsproject",
@@ -278,7 +260,6 @@ class MaintenanceControlResult:
     object_differences: pd.DataFrame = field(default_factory=pd.DataFrame)
     data_quality_report: pd.DataFrame = field(default_factory=pd.DataFrame)
     action_list: pd.DataFrame = field(default_factory=pd.DataFrame)
-    progress_report: pd.DataFrame = field(default_factory=pd.DataFrame)
     mutation_suggestions: pd.DataFrame = field(default_factory=pd.DataFrame)
     resolved_actions: pd.DataFrame = field(default_factory=pd.DataFrame)
     warnings: list[str] = field(default_factory=list)
@@ -2501,224 +2482,6 @@ def apply_action_progress_tracking(
     return current, resolved, counts
 
 
-
-def _unique_non_empty_values(values: Iterable[Any]) -> list[str]:
-    """Geef unieke, niet-lege waarden terug in invoervolgorde."""
-    seen: set[str] = set()
-    result: list[str] = []
-    for value in values:
-        cleaned = clean_display_value(value)
-        if not cleaned:
-            continue
-        key = cleaned.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(cleaned)
-    return result
-
-
-def _progress_conclusion_and_action(
-    *,
-    new_count: int,
-    existing_count: int,
-    resolved_count: int,
-    current_count: int,
-    high_priority_count: int,
-    open_count: int,
-) -> tuple[str, str, str]:
-    """
-    Vertaal voortgangstellingen naar een korte conclusie en vervolgstap.
-
-    Deze tekst is bewust adviserend. Hij maakt geen inhoudelijke wijziging en is
-    bedoeld om de databeheerder snel te laten zien welke projectgroepen aandacht
-    vragen in een herhaalde onderhoudscontrole.
-    """
-    if resolved_count and not current_count:
-        return (
-            "opgelost_of_niet_meer_gevonden",
-            "Deze melding(en) stonden in de vorige actielijst, maar komen niet terug in de nieuwe controle.",
-            "Controleer of de punten echt zijn opgelost; zo ja, archiveer of sluit de oude actieregels af.",
-        )
-
-    if new_count and not existing_count:
-        return (
-            "nieuw_in_deze_controle",
-            "Deze projectgroep bevat alleen nieuwe controlepunten ten opzichte van de vorige actielijst.",
-            "Beoordeel de nieuwe punten inhoudelijk en wijs zo nodig een actiehouder toe.",
-        )
-
-    if existing_count and not new_count:
-        if high_priority_count:
-            return (
-                "blijft_open_met_hoge_prioriteit",
-                "Deze projectgroep stond al in de vorige controle en bevat nog steeds hoge-prioriteitspunten.",
-                "Pak deze groep vroeg op: controleer waarom de melding terugkomt en leg de vervolgstap vast.",
-            )
-        if open_count:
-            return (
-                "blijft_open",
-                "Deze projectgroep stond al in de vorige controle en is opnieuw gevonden.",
-                "Controleer of de eerdere beoordeling nog klopt en werk de afhandelstatus bij.",
-            )
-        return (
-            "teruggevonden_maar_afgehandeld",
-            "Deze projectgroep is opnieuw gevonden, maar de zichtbare opvolgstatus is afgehandeld.",
-            "Controleer of de afhandeling nog klopt of dat de technische melding opnieuw aandacht vraagt.",
-        )
-
-    if new_count and existing_count:
-        return (
-            "deels_nieuw_deels_bestaand",
-            "Deze projectgroep bevat zowel terugkerende als nieuwe controlepunten.",
-            "Behandel eerst de terugkerende punten en kijk daarna waardoor de nieuwe signalen zijn ontstaan.",
-        )
-
-    if resolved_count:
-        return (
-            "gedeeltelijk_opgelost",
-            "Een deel van de oude controlepunten is niet meer gevonden, terwijl er ook huidige punten overblijven.",
-            "Controleer per regel welke punten echt zijn opgelost en welke nog open staan.",
-        )
-
-    return (
-        "geen_voortgangsverschil",
-        "Geen duidelijk verschil ten opzichte van de vorige actielijst gevonden.",
-        "Geen aparte voortgangsactie nodig; gebruik de gewone werkvoorraadbeoordeling.",
-    )
-
-
-def summarize_action_progress(
-    action_list: pd.DataFrame | None,
-    resolved_actions: pd.DataFrame | None = None,
-) -> pd.DataFrame:
-    """
-    Maak een voortgangsrapport per weg en per onderhoudsproject.
-
-    v0.24 gebruikt dit als beheerlaag bovenop de bestaande actielijst. De
-    databeheerder ziet hiermee niet alleen losse regels, maar ook:
-    - welke projectgroepen nieuw zijn;
-    - welke projectgroepen blijven terugkomen;
-    - welke projectgroepen mogelijk zijn opgelost of buiten de nieuwe export
-      vallen.
-
-    De functie voert geen correcties uit en verandert geen iASSET-data.
-    """
-    current = ensure_action_work_queue_columns(action_list)
-    resolved = ensure_action_work_queue_columns(resolved_actions)
-
-    if current.empty and resolved.empty:
-        return pd.DataFrame(columns=list(ACTION_PROGRESS_SUMMARY_COLUMNS))
-
-    records: list[dict[str, Any]] = []
-
-    def build_records_for_scope(scope: str, group_columns: list[str]) -> None:
-        combined_parts: list[pd.DataFrame] = []
-
-        if not current.empty:
-            current_part = current.copy()
-            current_part["_progress_source"] = "huidig"
-            combined_parts.append(current_part)
-
-        if not resolved.empty:
-            resolved_part = resolved.copy()
-            resolved_part["_progress_source"] = "opgelost"
-            combined_parts.append(resolved_part)
-
-        if not combined_parts:
-            return
-
-        combined = pd.concat(combined_parts, ignore_index=True, sort=False)
-        for column in group_columns:
-            if column not in combined.columns:
-                combined[column] = ""
-
-        for group_key, group in combined.groupby(group_columns, dropna=False):
-            if not isinstance(group_key, tuple):
-                group_key = (group_key,)
-
-            key_map = dict(zip(group_columns, group_key, strict=False))
-            wegnummer = clean_display_value(key_map.get("wegnummer", ""))
-            onderhoudsproject = clean_display_value(key_map.get("onderhoudsproject", ""))
-            project_norm = clean_display_value(key_map.get("project_norm", ""))
-            if scope == "weg":
-                onderhoudsproject = "Alle onderhoudsprojecten"
-                project_norm = f"weg::{wegnummer}"
-
-            progress_status = group.get("voortgang_status", pd.Series("", index=group.index)).fillna("").astype(str)
-            source = group.get("_progress_source", pd.Series("", index=group.index)).fillna("").astype(str)
-            current_group = group[source == "huidig"]
-            resolved_group = group[source == "opgelost"]
-
-            new_count = int((current_group.get("voortgang_status", pd.Series("", index=current_group.index)).fillna("").astype(str) == "nieuw_controlepunt").sum())
-            existing_count = int((current_group.get("voortgang_status", pd.Series("", index=current_group.index)).fillna("").astype(str) == "bestaand_controlepunt").sum())
-            resolved_count = int((progress_status == "opgelost_of_niet_meer_gevonden").sum())
-            current_count = int(len(current_group))
-            high_priority_count = int(
-                (current_group.get("prioriteit", pd.Series("", index=current_group.index)).fillna("").astype(str).str.lower() == "hoog").sum()
-            )
-            follow_up = current_group.get("afhandelstatus", pd.Series("", index=current_group.index)).fillna("").astype(str).str.lower()
-            open_count = int((follow_up != "afgehandeld").sum()) if not current_group.empty else 0
-            actionholders = ", ".join(
-                _unique_non_empty_values(current_group.get("actiehouder", pd.Series(dtype=str)).tolist())
-            )
-
-            conclusion, explanation, action = _progress_conclusion_and_action(
-                new_count=new_count,
-                existing_count=existing_count,
-                resolved_count=resolved_count,
-                current_count=current_count,
-                high_priority_count=high_priority_count,
-                open_count=open_count,
-            )
-
-            records.append(
-                {
-                    "scope": scope,
-                    "wegnummer": wegnummer,
-                    "onderhoudsproject": onderhoudsproject,
-                    "voortgang_conclusie": conclusion,
-                    "nieuw": new_count,
-                    "bestaand": existing_count,
-                    "opgelost_of_niet_meer_gevonden": resolved_count,
-                    "totaal_huidig": current_count,
-                    "totaal_vorig_opgelost": int(len(resolved_group)),
-                    "prioriteit_hoog": high_priority_count,
-                    "open_controlepunten": open_count,
-                    "actiehouders": actionholders,
-                    "belangrijkste_uitleg": explanation,
-                    "aanbevolen_actie": action,
-                    "project_norm": project_norm,
-                }
-            )
-
-    if "wegnummer" in current.columns or "wegnummer" in resolved.columns:
-        build_records_for_scope("weg", ["wegnummer"])
-    build_records_for_scope("onderhoudsproject", ["wegnummer", "onderhoudsproject", "project_norm"])
-
-    result = pd.DataFrame(records, columns=list(ACTION_PROGRESS_SUMMARY_COLUMNS))
-    if result.empty:
-        return pd.DataFrame(columns=list(ACTION_PROGRESS_SUMMARY_COLUMNS))
-
-    conclusion_rank = {
-        "blijft_open_met_hoge_prioriteit": 0,
-        "deels_nieuw_deels_bestaand": 1,
-        "nieuw_in_deze_controle": 2,
-        "blijft_open": 3,
-        "gedeeltelijk_opgelost": 4,
-        "opgelost_of_niet_meer_gevonden": 5,
-        "teruggevonden_maar_afgehandeld": 6,
-        "geen_voortgangsverschil": 7,
-    }
-    result["_sort_conclusion"] = result["voortgang_conclusie"].map(conclusion_rank).fillna(99)
-    result = result.sort_values(
-        ["scope", "_sort_conclusion", "prioriteit_hoog", "nieuw", "bestaand", "wegnummer", "onderhoudsproject"],
-        ascending=[True, True, False, False, False, True, True],
-    ).drop(columns=["_sort_conclusion"])
-
-    return result.reset_index(drop=True)
-
-
 def ensure_action_work_queue_columns(action_list: pd.DataFrame | None) -> pd.DataFrame:
     """
     Maak een actielijst geschikt voor de werkvoorraadweergave.
@@ -4443,7 +4206,6 @@ def build_maintenance_control(
     action_list = build_action_list(comparison, object_differences)
     action_list, copied_follow_up = merge_previous_action_follow_up(action_list, previous_action_list)
     action_list, resolved_actions, progress_counts = apply_action_progress_tracking(action_list, previous_action_list)
-    progress_report = summarize_action_progress(action_list, resolved_actions)
     mutation_suggestions = build_mutation_suggestions(comparison, object_differences)
 
     if copied_follow_up:
@@ -4479,23 +4241,11 @@ def build_maintenance_control(
             "controlepunten_nieuw": 0,
             "controlepunten_bestaand": 0,
             "controlepunten_opgelost": 0,
-            "voortgang_rapportregels": 0,
-            "voortgang_nieuwe_projectgroepen": 0,
-            "voortgang_blijft_open_projectgroepen": 0,
-            "voortgang_opgeloste_projectgroepen": 0,
-            "voortgang_deels_nieuw_projectgroepen": 0,
             "acties_prioriteit_hoog": 0,
             "acties_prioriteit_middel": 0,
             "acties_prioriteit_laag": 0,
         }
     else:
-        project_progress = (
-            progress_report[progress_report["scope"] == "onderhoudsproject"]
-            if not progress_report.empty and "scope" in progress_report.columns
-            else pd.DataFrame(columns=list(ACTION_PROGRESS_SUMMARY_COLUMNS))
-        )
-        project_progress_conclusion = project_progress.get("voortgang_conclusie", pd.Series(dtype=str)).fillna("").astype(str)
-
         summary = {
             **data_quality_summary(data_quality_report),
             "wegen_gecontroleerd": int(comparison.get("wegnummer", pd.Series(dtype=str)).fillna("").astype(str).str.strip().replace("", pd.NA).dropna().nunique()),
@@ -4537,13 +4287,6 @@ def build_maintenance_control(
             "controlepunten_nieuw": int(progress_counts.get("controlepunten_nieuw", 0)),
             "controlepunten_bestaand": int(progress_counts.get("controlepunten_bestaand", 0)),
             "controlepunten_opgelost": int(progress_counts.get("controlepunten_opgelost", 0)),
-            "voortgang_rapportregels": int(len(progress_report)),
-            "voortgang_nieuwe_projectgroepen": int((project_progress_conclusion == "nieuw_in_deze_controle").sum()),
-            "voortgang_blijft_open_projectgroepen": int(
-                project_progress_conclusion.isin(["blijft_open", "blijft_open_met_hoge_prioriteit"]).sum()
-            ),
-            "voortgang_opgeloste_projectgroepen": int((project_progress_conclusion == "opgelost_of_niet_meer_gevonden").sum()),
-            "voortgang_deels_nieuw_projectgroepen": int((project_progress_conclusion == "deels_nieuw_deels_bestaand").sum()),
             "acties_prioriteit_hoog": int(
                 (action_list.get("prioriteit", pd.Series(dtype=str)).fillna("").astype(str).str.lower() == "hoog").sum()
             ),
@@ -4563,7 +4306,6 @@ def build_maintenance_control(
         object_differences=object_differences,
         data_quality_report=data_quality_report,
         action_list=action_list,
-        progress_report=progress_report,
         mutation_suggestions=mutation_suggestions,
         resolved_actions=resolved_actions,
         warnings=warnings,
@@ -4682,11 +4424,6 @@ def build_maintenance_control_workbook(
     maintenance_projects = pd.DataFrame() if result.maintenance_projects is None else result.maintenance_projects.copy()
     resolved_actions = ensure_action_work_queue_columns(result.resolved_actions)
     project_summary = summarize_action_projects(package_action_list)
-    progress_report = (
-        pd.DataFrame(columns=ACTION_PROGRESS_SUMMARY_COLUMNS)
-        if result.progress_report is None or result.progress_report.empty
-        else result.progress_report.copy()
-    )
 
     summary = result.summary or {}
     action_summary = action_work_queue_summary(package_action_list)
@@ -4709,11 +4446,6 @@ def build_maintenance_control_workbook(
                 ("Nieuw sinds vorige controle", summary.get("controlepunten_nieuw", 0)),
                 ("Bestaand sinds vorige controle", summary.get("controlepunten_bestaand", 0)),
                 ("Opgelost/niet meer gevonden", summary.get("controlepunten_opgelost", 0)),
-                ("Voortgangsrapportregels", summary.get("voortgang_rapportregels", 0)),
-                ("Nieuwe projectgroepen", summary.get("voortgang_nieuwe_projectgroepen", 0)),
-                ("Blijft open projectgroepen", summary.get("voortgang_blijft_open_projectgroepen", 0)),
-                ("Opgeloste/niet gevonden projectgroepen", summary.get("voortgang_opgeloste_projectgroepen", 0)),
-                ("Deels nieuw/deels bestaand", summary.get("voortgang_deels_nieuw_projectgroepen", 0)),
                 ("Afhandelstatus nieuw", action_summary.get("nieuw", 0)),
                 ("Prioriteit hoog", action_summary.get("prioriteit_hoog", 0)),
                 ("Prioriteit middel", action_summary.get("prioriteit_middel", 0)),
@@ -4730,7 +4462,6 @@ def build_maintenance_control_workbook(
         "Per duidingsgroep": _count_table(package_action_list, "duiding_groep", "duiding_groep", "controlepunten"),
         "Per afhandelstatus": _count_table(package_action_list, "afhandelstatus", "afhandelstatus", "controlepunten"),
         "Per voortgang": _count_table(package_action_list, "voortgang_status", "voortgang_status", "controlepunten"),
-        "Per voortgangsconclusie": _count_table(progress_report, "voortgang_conclusie", "voortgang_conclusie", "projectgroepen"),
         "Per actiehouder": _count_table(package_action_list, "actiehouder", "actiehouder", "controlepunten"),
     }
 
@@ -4754,7 +4485,6 @@ def build_maintenance_control_workbook(
 
         _write_dataframe_sheet(writer, data_quality_report, "Datakwaliteit", used_sheet_names)
         _write_dataframe_sheet(writer, project_summary, "Projectsamenvatting", used_sheet_names)
-        _write_dataframe_sheet(writer, progress_report, "Voortgangsrapport", used_sheet_names)
         _write_dataframe_sheet(writer, package_action_list, "Werkvoorraad", used_sheet_names)
         _write_dataframe_sheet(writer, resolved_actions, "Opgelost", used_sheet_names)
         _write_dataframe_sheet(writer, mutation_suggestions, "Mutatievoorstellen", used_sheet_names)

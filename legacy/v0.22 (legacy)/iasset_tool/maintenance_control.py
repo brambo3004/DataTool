@@ -134,24 +134,6 @@ ACTION_PROGRESS_COLUMNS: tuple[str, ...] = (
     "voortgang_uitleg",
 )
 
-ACTION_PROGRESS_SUMMARY_COLUMNS: tuple[str, ...] = (
-    "scope",
-    "wegnummer",
-    "onderhoudsproject",
-    "voortgang_conclusie",
-    "nieuw",
-    "bestaand",
-    "opgelost_of_niet_meer_gevonden",
-    "totaal_huidig",
-    "totaal_vorig_opgelost",
-    "prioriteit_hoog",
-    "open_controlepunten",
-    "actiehouders",
-    "belangrijkste_uitleg",
-    "aanbevolen_actie",
-    "project_norm",
-)
-
 ACTION_PROJECT_SUMMARY_COLUMNS: tuple[str, ...] = (
     "wegnummer",
     "onderhoudsproject",
@@ -190,20 +172,6 @@ CONTROL_POINT_OBJECT_DETAIL_COLUMNS: tuple[str, ...] = (
     "onderhoudsproject_onderhoud",
     "heeft_geometrie",
     "opmerking",
-)
-
-
-DATA_QUALITY_REPORT_COLUMNS: tuple[str, ...] = (
-    "bron",
-    "ernst",
-    "categorie",
-    "issue_code",
-    "aantal_regels",
-    "kolom",
-    "voorbeeld",
-    "uitleg",
-    "voorgestelde_actie",
-    "impact_op_controle",
 )
 
 ACTION_LIST_COLUMN_ALIASES: dict[str, str] = {
@@ -276,9 +244,7 @@ class MaintenanceControlResult:
     passport_projects: pd.DataFrame = field(default_factory=pd.DataFrame)
     maintenance_projects: pd.DataFrame = field(default_factory=pd.DataFrame)
     object_differences: pd.DataFrame = field(default_factory=pd.DataFrame)
-    data_quality_report: pd.DataFrame = field(default_factory=pd.DataFrame)
     action_list: pd.DataFrame = field(default_factory=pd.DataFrame)
-    progress_report: pd.DataFrame = field(default_factory=pd.DataFrame)
     mutation_suggestions: pd.DataFrame = field(default_factory=pd.DataFrame)
     resolved_actions: pd.DataFrame = field(default_factory=pd.DataFrame)
     warnings: list[str] = field(default_factory=list)
@@ -2501,224 +2467,6 @@ def apply_action_progress_tracking(
     return current, resolved, counts
 
 
-
-def _unique_non_empty_values(values: Iterable[Any]) -> list[str]:
-    """Geef unieke, niet-lege waarden terug in invoervolgorde."""
-    seen: set[str] = set()
-    result: list[str] = []
-    for value in values:
-        cleaned = clean_display_value(value)
-        if not cleaned:
-            continue
-        key = cleaned.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(cleaned)
-    return result
-
-
-def _progress_conclusion_and_action(
-    *,
-    new_count: int,
-    existing_count: int,
-    resolved_count: int,
-    current_count: int,
-    high_priority_count: int,
-    open_count: int,
-) -> tuple[str, str, str]:
-    """
-    Vertaal voortgangstellingen naar een korte conclusie en vervolgstap.
-
-    Deze tekst is bewust adviserend. Hij maakt geen inhoudelijke wijziging en is
-    bedoeld om de databeheerder snel te laten zien welke projectgroepen aandacht
-    vragen in een herhaalde onderhoudscontrole.
-    """
-    if resolved_count and not current_count:
-        return (
-            "opgelost_of_niet_meer_gevonden",
-            "Deze melding(en) stonden in de vorige actielijst, maar komen niet terug in de nieuwe controle.",
-            "Controleer of de punten echt zijn opgelost; zo ja, archiveer of sluit de oude actieregels af.",
-        )
-
-    if new_count and not existing_count:
-        return (
-            "nieuw_in_deze_controle",
-            "Deze projectgroep bevat alleen nieuwe controlepunten ten opzichte van de vorige actielijst.",
-            "Beoordeel de nieuwe punten inhoudelijk en wijs zo nodig een actiehouder toe.",
-        )
-
-    if existing_count and not new_count:
-        if high_priority_count:
-            return (
-                "blijft_open_met_hoge_prioriteit",
-                "Deze projectgroep stond al in de vorige controle en bevat nog steeds hoge-prioriteitspunten.",
-                "Pak deze groep vroeg op: controleer waarom de melding terugkomt en leg de vervolgstap vast.",
-            )
-        if open_count:
-            return (
-                "blijft_open",
-                "Deze projectgroep stond al in de vorige controle en is opnieuw gevonden.",
-                "Controleer of de eerdere beoordeling nog klopt en werk de afhandelstatus bij.",
-            )
-        return (
-            "teruggevonden_maar_afgehandeld",
-            "Deze projectgroep is opnieuw gevonden, maar de zichtbare opvolgstatus is afgehandeld.",
-            "Controleer of de afhandeling nog klopt of dat de technische melding opnieuw aandacht vraagt.",
-        )
-
-    if new_count and existing_count:
-        return (
-            "deels_nieuw_deels_bestaand",
-            "Deze projectgroep bevat zowel terugkerende als nieuwe controlepunten.",
-            "Behandel eerst de terugkerende punten en kijk daarna waardoor de nieuwe signalen zijn ontstaan.",
-        )
-
-    if resolved_count:
-        return (
-            "gedeeltelijk_opgelost",
-            "Een deel van de oude controlepunten is niet meer gevonden, terwijl er ook huidige punten overblijven.",
-            "Controleer per regel welke punten echt zijn opgelost en welke nog open staan.",
-        )
-
-    return (
-        "geen_voortgangsverschil",
-        "Geen duidelijk verschil ten opzichte van de vorige actielijst gevonden.",
-        "Geen aparte voortgangsactie nodig; gebruik de gewone werkvoorraadbeoordeling.",
-    )
-
-
-def summarize_action_progress(
-    action_list: pd.DataFrame | None,
-    resolved_actions: pd.DataFrame | None = None,
-) -> pd.DataFrame:
-    """
-    Maak een voortgangsrapport per weg en per onderhoudsproject.
-
-    v0.24 gebruikt dit als beheerlaag bovenop de bestaande actielijst. De
-    databeheerder ziet hiermee niet alleen losse regels, maar ook:
-    - welke projectgroepen nieuw zijn;
-    - welke projectgroepen blijven terugkomen;
-    - welke projectgroepen mogelijk zijn opgelost of buiten de nieuwe export
-      vallen.
-
-    De functie voert geen correcties uit en verandert geen iASSET-data.
-    """
-    current = ensure_action_work_queue_columns(action_list)
-    resolved = ensure_action_work_queue_columns(resolved_actions)
-
-    if current.empty and resolved.empty:
-        return pd.DataFrame(columns=list(ACTION_PROGRESS_SUMMARY_COLUMNS))
-
-    records: list[dict[str, Any]] = []
-
-    def build_records_for_scope(scope: str, group_columns: list[str]) -> None:
-        combined_parts: list[pd.DataFrame] = []
-
-        if not current.empty:
-            current_part = current.copy()
-            current_part["_progress_source"] = "huidig"
-            combined_parts.append(current_part)
-
-        if not resolved.empty:
-            resolved_part = resolved.copy()
-            resolved_part["_progress_source"] = "opgelost"
-            combined_parts.append(resolved_part)
-
-        if not combined_parts:
-            return
-
-        combined = pd.concat(combined_parts, ignore_index=True, sort=False)
-        for column in group_columns:
-            if column not in combined.columns:
-                combined[column] = ""
-
-        for group_key, group in combined.groupby(group_columns, dropna=False):
-            if not isinstance(group_key, tuple):
-                group_key = (group_key,)
-
-            key_map = dict(zip(group_columns, group_key, strict=False))
-            wegnummer = clean_display_value(key_map.get("wegnummer", ""))
-            onderhoudsproject = clean_display_value(key_map.get("onderhoudsproject", ""))
-            project_norm = clean_display_value(key_map.get("project_norm", ""))
-            if scope == "weg":
-                onderhoudsproject = "Alle onderhoudsprojecten"
-                project_norm = f"weg::{wegnummer}"
-
-            progress_status = group.get("voortgang_status", pd.Series("", index=group.index)).fillna("").astype(str)
-            source = group.get("_progress_source", pd.Series("", index=group.index)).fillna("").astype(str)
-            current_group = group[source == "huidig"]
-            resolved_group = group[source == "opgelost"]
-
-            new_count = int((current_group.get("voortgang_status", pd.Series("", index=current_group.index)).fillna("").astype(str) == "nieuw_controlepunt").sum())
-            existing_count = int((current_group.get("voortgang_status", pd.Series("", index=current_group.index)).fillna("").astype(str) == "bestaand_controlepunt").sum())
-            resolved_count = int((progress_status == "opgelost_of_niet_meer_gevonden").sum())
-            current_count = int(len(current_group))
-            high_priority_count = int(
-                (current_group.get("prioriteit", pd.Series("", index=current_group.index)).fillna("").astype(str).str.lower() == "hoog").sum()
-            )
-            follow_up = current_group.get("afhandelstatus", pd.Series("", index=current_group.index)).fillna("").astype(str).str.lower()
-            open_count = int((follow_up != "afgehandeld").sum()) if not current_group.empty else 0
-            actionholders = ", ".join(
-                _unique_non_empty_values(current_group.get("actiehouder", pd.Series(dtype=str)).tolist())
-            )
-
-            conclusion, explanation, action = _progress_conclusion_and_action(
-                new_count=new_count,
-                existing_count=existing_count,
-                resolved_count=resolved_count,
-                current_count=current_count,
-                high_priority_count=high_priority_count,
-                open_count=open_count,
-            )
-
-            records.append(
-                {
-                    "scope": scope,
-                    "wegnummer": wegnummer,
-                    "onderhoudsproject": onderhoudsproject,
-                    "voortgang_conclusie": conclusion,
-                    "nieuw": new_count,
-                    "bestaand": existing_count,
-                    "opgelost_of_niet_meer_gevonden": resolved_count,
-                    "totaal_huidig": current_count,
-                    "totaal_vorig_opgelost": int(len(resolved_group)),
-                    "prioriteit_hoog": high_priority_count,
-                    "open_controlepunten": open_count,
-                    "actiehouders": actionholders,
-                    "belangrijkste_uitleg": explanation,
-                    "aanbevolen_actie": action,
-                    "project_norm": project_norm,
-                }
-            )
-
-    if "wegnummer" in current.columns or "wegnummer" in resolved.columns:
-        build_records_for_scope("weg", ["wegnummer"])
-    build_records_for_scope("onderhoudsproject", ["wegnummer", "onderhoudsproject", "project_norm"])
-
-    result = pd.DataFrame(records, columns=list(ACTION_PROGRESS_SUMMARY_COLUMNS))
-    if result.empty:
-        return pd.DataFrame(columns=list(ACTION_PROGRESS_SUMMARY_COLUMNS))
-
-    conclusion_rank = {
-        "blijft_open_met_hoge_prioriteit": 0,
-        "deels_nieuw_deels_bestaand": 1,
-        "nieuw_in_deze_controle": 2,
-        "blijft_open": 3,
-        "gedeeltelijk_opgelost": 4,
-        "opgelost_of_niet_meer_gevonden": 5,
-        "teruggevonden_maar_afgehandeld": 6,
-        "geen_voortgangsverschil": 7,
-    }
-    result["_sort_conclusion"] = result["voortgang_conclusie"].map(conclusion_rank).fillna(99)
-    result = result.sort_values(
-        ["scope", "_sort_conclusion", "prioriteit_hoog", "nieuw", "bestaand", "wegnummer", "onderhoudsproject"],
-        ascending=[True, True, False, False, False, True, True],
-    ).drop(columns=["_sort_conclusion"])
-
-    return result.reset_index(drop=True)
-
-
 def ensure_action_work_queue_columns(action_list: pd.DataFrame | None) -> pd.DataFrame:
     """
     Maak een actielijst geschikt voor de werkvoorraadweergave.
@@ -3836,580 +3584,6 @@ def build_mutation_suggestions(
     return result
 
 
-
-def _quality_clean_series(df: pd.DataFrame, column: str) -> pd.Series:
-    """Geef een veilige tekstserie terug voor datakwaliteitschecks."""
-    if df is None or column not in df.columns:
-        return pd.Series(dtype=str)
-    return df[column].apply(clean_display_value).astype(str).str.strip()
-
-
-def _quality_preview(values: Iterable[Any], *, max_items: int = 8) -> str:
-    """Maak een korte voorbeeldtekst zonder de rapportage onleesbaar te maken."""
-    return _join_preview(values, max_items=max_items)
-
-
-def _append_quality_issue(
-    records: list[dict[str, Any]],
-    *,
-    bron: str,
-    ernst: str,
-    categorie: str,
-    issue_code: str,
-    aantal_regels: int,
-    kolom: str = "",
-    voorbeeld: str = "",
-    uitleg: str,
-    voorgestelde_actie: str,
-    impact_op_controle: str,
-) -> None:
-    """
-    Voeg één datakwaliteitsmelding toe.
-
-    De onderhoudscontrole blijft draaien waar dat veilig kan. Daarom is dit
-    rapport signalerend: het legt uit welke brongegevens de conclusie minder
-    betrouwbaar maken, maar voert nooit correcties uit.
-    """
-    records.append(
-        {
-            "bron": bron,
-            "ernst": ernst,
-            "categorie": categorie,
-            "issue_code": issue_code,
-            "aantal_regels": int(aantal_regels),
-            "kolom": kolom,
-            "voorbeeld": clean_display_value(voorbeeld),
-            "uitleg": uitleg,
-            "voorgestelde_actie": voorgestelde_actie,
-            "impact_op_controle": impact_op_controle,
-        }
-    )
-
-
-def _quality_check_geometry(passport_df: pd.DataFrame, records: list[dict[str, Any]]) -> None:
-    """Controleer of kaart- en objectdetailfuncties voldoende geometrie hebben."""
-    if passport_df is None or passport_df.empty:
-        return
-
-    if "geometry" not in passport_df.columns:
-        wkt_column = _first_existing_column(passport_df, ["WKT", "wkt", "Geometrie", "geometry_wkt"])
-        if wkt_column:
-            empty_wkt = _quality_clean_series(passport_df, wkt_column).eq("")
-            if int(empty_wkt.sum()):
-                _append_quality_issue(
-                    records,
-                    bron="paspoortexport",
-                    ernst="aandachtspunt",
-                    categorie="geometrie",
-                    issue_code="PASPOORT_WKT_LEEG",
-                    aantal_regels=int(empty_wkt.sum()),
-                    kolom=wkt_column,
-                    voorbeeld=_quality_preview(passport_df.loc[empty_wkt, wkt_column]),
-                    uitleg="Een deel van de WKT-geometrie in de paspoortexport is leeg.",
-                    voorgestelde_actie="Controleer of de export het geometrieveld volledig bevat voordat je de kaart gebruikt.",
-                    impact_op_controle="Objecten zonder geometrie blijven in tabellen zichtbaar, maar kunnen niet op kaart worden getekend.",
-                )
-        else:
-            _append_quality_issue(
-                records,
-                bron="paspoortexport",
-                ernst="aandachtspunt",
-                categorie="geometrie",
-                issue_code="PASPOORT_GEOMETRIEKOLOM_ONTBREEKT",
-                aantal_regels=len(passport_df),
-                kolom="geometry/WKT",
-                uitleg="De paspoortexport bevat geen herkenbare geometriekolom.",
-                voorgestelde_actie="Gebruik een iASSET-exportprofiel met geometrie als je kaartcontrole wilt uitvoeren.",
-                impact_op_controle="Onderhoudscontrole-tabellen blijven bruikbaar, maar kaartvisualisatie is niet of beperkt mogelijk.",
-            )
-        return
-
-    geometry = passport_df["geometry"]
-    missing_mask = geometry.isna()
-    empty_mask = geometry.apply(lambda value: bool(getattr(value, "is_empty", False)) if value is not None else False)
-    invalid_mask = geometry.apply(
-        lambda value: (hasattr(value, "is_valid") and not bool(getattr(value, "is_valid"))) if value is not None else False
-    )
-
-    missing_or_empty = missing_mask | empty_mask
-    if int(missing_or_empty.sum()):
-        object_column = _first_existing_column(passport_df, ["nummer", "bron_id", "objectnummer", "sys_id"])
-        voorbeeld = (
-            _quality_preview(passport_df.loc[missing_or_empty, object_column])
-            if object_column
-            else f"{int(missing_or_empty.sum())} object(en)"
-        )
-        _append_quality_issue(
-            records,
-            bron="paspoortexport",
-            ernst="aandachtspunt",
-            categorie="geometrie",
-            issue_code="PASPOORT_GEOMETRIE_LEEG",
-            aantal_regels=int(missing_or_empty.sum()),
-            kolom="geometry",
-            voorbeeld=voorbeeld,
-            uitleg="Een deel van de paspoortobjecten heeft geen bruikbare geometrie.",
-            voorgestelde_actie="Controleer of de paspoortexport geometrie bevat voor deze objecten of accepteer dat ze alleen in de tabel zichtbaar zijn.",
-            impact_op_controle="Objectdetails blijven beschikbaar, maar de kaart toont deze objecten niet.",
-        )
-
-    if int(invalid_mask.sum()):
-        object_column = _first_existing_column(passport_df, ["nummer", "bron_id", "objectnummer", "sys_id"])
-        voorbeeld = (
-            _quality_preview(passport_df.loc[invalid_mask, object_column])
-            if object_column
-            else f"{int(invalid_mask.sum())} object(en)"
-        )
-        _append_quality_issue(
-            records,
-            bron="paspoortexport",
-            ernst="aandachtspunt",
-            categorie="geometrie",
-            issue_code="PASPOORT_GEOMETRIE_ONGELDIG",
-            aantal_regels=int(invalid_mask.sum()),
-            kolom="geometry",
-            voorbeeld=voorbeeld,
-            uitleg="Een deel van de paspoortobjecten heeft een geometrie die volgens Shapely ongeldig is.",
-            voorgestelde_actie="Controleer deze objecten in iASSET of in de brongeometrie voordat je conclusies uit de kaart trekt.",
-            impact_op_controle="De administratieve controle kan doorgaan, maar ruimtelijke visualisatie of liggingcontrole kan onbetrouwbaar zijn.",
-        )
-
-
-def build_data_quality_report(
-    passport_df: pd.DataFrame,
-    maintenance_df: pd.DataFrame,
-    selected_road: str | None = None,
-) -> pd.DataFrame:
-    """
-    Bouw een voorcontrole op de kwaliteit van de gebruikte exports.
-
-    v0.23 gebruikt deze tabel om vroeg zichtbaar te maken of conclusies uit de
-    Onderhoudscontrole betrouwbaar genoeg zijn. De checks zijn bewust
-    conservatief en veilig: ze signaleren risico's in brondata, maar passen geen
-    waarden aan en blokkeren de controle alleen in de uitleg.
-    """
-    records: list[dict[str, Any]] = []
-
-    selected_road_text = clean_display_value(selected_road).upper() if selected_road else ""
-
-    if passport_df is None or passport_df.empty:
-        _append_quality_issue(
-            records,
-            bron="paspoortexport",
-            ernst="blokkerend",
-            categorie="bestand",
-            issue_code="PASPOORTEXPORT_LEEG",
-            aantal_regels=0,
-            uitleg="De paspoortexport bevat geen regels voor deze controle.",
-            voorgestelde_actie="Exporteer de objectpaspoorten opnieuw uit iASSET en controleer het gekozen weg-/netwerkfilter.",
-            impact_op_controle="Zonder paspoortobjecten kan de tool geen objectkoppelingen of kaartcontrole beoordelen.",
-        )
-    else:
-        passport_required = {
-            "Onderhoudsproject": ["Onderhoudsproject", "onderhoudsproject", "onderhoudscomplex"],
-            "Wegnummer": ["Wegnummer", "wegnummer"],
-            "subthema": ["subthema", "Subthema"],
-            "Metrering": ["Metrering", "metrering"],
-        }
-        for label, aliases in passport_required.items():
-            if _first_existing_column(passport_df, aliases) is None:
-                _append_quality_issue(
-                    records,
-                    bron="paspoortexport",
-                    ernst="waarschuwing" if label in {"Onderhoudsproject", "Wegnummer"} else "aandachtspunt",
-                    categorie="verplichte_kolommen",
-                    issue_code=f"PASPOORT_KOLOM_{label.upper()}_ONTBREEKT",
-                    aantal_regels=len(passport_df),
-                    kolom=label,
-                    uitleg=f"De paspoortexport mist de kolom '{label}' of een herkenbare variant daarvan.",
-                    voorgestelde_actie="Gebruik een iASSET-exportprofiel waarin de belangrijke paspoort- en liggingvelden zijn opgenomen.",
-                    impact_op_controle="De tool kan minder goed bepalen welk object bij welk onderhoudsproject en wegdeel hoort.",
-                )
-
-        object_column = _first_existing_column(passport_df, ["nummer", "bron_id", "objectnummer", "sys_id"])
-        if object_column is None:
-            _append_quality_issue(
-                records,
-                bron="paspoortexport",
-                ernst="waarschuwing",
-                categorie="verplichte_kolommen",
-                issue_code="PASPOORT_OBJECTNUMMERKOLOM_ONTBREEKT",
-                aantal_regels=len(passport_df),
-                kolom="nummer/objectnummer",
-                uitleg="De paspoortexport bevat geen herkenbare objectnummerkolom.",
-                voorgestelde_actie="Neem het objectnummer op in de export. Zonder objectnummer kan de tool objectsets minder betrouwbaar vergelijken.",
-                impact_op_controle="Projectnamen kunnen nog worden vergeleken, maar objectverschillen en detailtabellen worden minder betrouwbaar.",
-            )
-        else:
-            object_values = _quality_clean_series(passport_df, object_column)
-            empty_objects = object_values.eq("")
-            if int(empty_objects.sum()):
-                _append_quality_issue(
-                    records,
-                    bron="paspoortexport",
-                    ernst="waarschuwing",
-                    categorie="lege_waarden",
-                    issue_code="PASPOORT_OBJECTNUMMER_LEEG",
-                    aantal_regels=int(empty_objects.sum()),
-                    kolom=object_column,
-                    uitleg="Eén of meer paspoortregels hebben geen objectnummer.",
-                    voorgestelde_actie="Controleer de export of vul/controleer het objectnummer in iASSET.",
-                    impact_op_controle="Objecten zonder objectnummer kunnen niet betrouwbaar worden vergeleken met de onderhoudsexport.",
-                )
-
-            nonempty_objects = object_values[~empty_objects]
-            duplicates = nonempty_objects[nonempty_objects.duplicated(keep=False)]
-            if int(duplicates.nunique()):
-                _append_quality_issue(
-                    records,
-                    bron="paspoortexport",
-                    ernst="aandachtspunt",
-                    categorie="dubbele_objectnummers",
-                    issue_code="PASPOORT_OBJECTNUMMER_DUBBEL",
-                    aantal_regels=int(duplicates.shape[0]),
-                    kolom=object_column,
-                    voorbeeld=_quality_preview(duplicates.drop_duplicates()),
-                    uitleg="Eén of meer objectnummers komen meerdere keren voor in de paspoortexport.",
-                    voorgestelde_actie="Controleer of dit verwachte deelregels zijn of dubbele exportregels.",
-                    impact_op_controle="Dubbele objectnummers kunnen objectaantallen en objectsetverschillen vertekenen.",
-                )
-
-        if "Wegnummer" in passport_df.columns:
-            weg_values = _quality_clean_series(passport_df, "Wegnummer")
-            empty_roads = weg_values.eq("")
-            if int(empty_roads.sum()):
-                _append_quality_issue(
-                    records,
-                    bron="paspoortexport",
-                    ernst="aandachtspunt",
-                    categorie="lege_waarden",
-                    issue_code="PASPOORT_WEGNUMMER_LEEG",
-                    aantal_regels=int(empty_roads.sum()),
-                    kolom="Wegnummer",
-                    uitleg="Bij een deel van de paspoortobjecten ontbreekt het wegnummer.",
-                    voorgestelde_actie="Controleer de liggingdata in iASSET.",
-                    impact_op_controle="Netwerkbrede filters en projectgroepering per weg worden minder betrouwbaar.",
-                )
-            if selected_road_text:
-                mismatch = weg_values.ne("") & weg_values.str.upper().ne(selected_road_text)
-                if int(mismatch.sum()):
-                    _append_quality_issue(
-                        records,
-                        bron="paspoortexport",
-                        ernst="waarschuwing",
-                        categorie="wegselectie",
-                        issue_code="PASPOORT_WEGNUMMER_BUITEN_SELECTIE",
-                        aantal_regels=int(mismatch.sum()),
-                        kolom="Wegnummer",
-                        voorbeeld=_quality_preview(weg_values[mismatch].drop_duplicates()),
-                        uitleg=f"De paspoortselectie bevat objecten met een ander wegnummer dan {selected_road_text}.",
-                        voorgestelde_actie="Controleer of de juiste wegselectie of exportfilter is gebruikt.",
-                        impact_op_controle="Controlepunten kunnen onterecht aan de geselecteerde weg worden gekoppeld.",
-                    )
-
-        if "Onderhoudsproject" in passport_df.columns:
-            project_values = _quality_clean_series(passport_df, "Onderhoudsproject")
-            project_empty = project_values.eq("")
-            exempt_mask = passport_df.apply(is_maintenance_project_exempt, axis=1)
-            non_exempt_missing = project_empty & ~exempt_mask
-            if int(non_exempt_missing.sum()):
-                object_column = _first_existing_column(passport_df, ["nummer", "bron_id", "objectnummer", "sys_id"])
-                voorbeeld = (
-                    _quality_preview(passport_df.loc[non_exempt_missing, object_column])
-                    if object_column
-                    else ""
-                )
-                _append_quality_issue(
-                    records,
-                    bron="paspoortexport",
-                    ernst="waarschuwing",
-                    categorie="onderhoudsproject",
-                    issue_code="PASPOORT_ONDERHOUDSPROJECT_LEEG",
-                    aantal_regels=int(non_exempt_missing.sum()),
-                    kolom="Onderhoudsproject",
-                    voorbeeld=voorbeeld,
-                    uitleg="Eén of meer niet-uitzonderingsobjecten hebben geen onderhoudsproject in de paspoortexport.",
-                    voorgestelde_actie="Controleer of deze objecten handmatig aan een onderhoudscomplex moeten worden gekoppeld.",
-                    impact_op_controle="De tool kan deze objecten niet meenemen in de vergelijking per onderhoudsproject.",
-                )
-
-            exempt_with_project = project_values.ne("") & exempt_mask
-            if int(exempt_with_project.sum()):
-                _append_quality_issue(
-                    records,
-                    bron="paspoortexport",
-                    ernst="aandachtspunt",
-                    categorie="onderhoudsproject",
-                    issue_code="PASPOORT_UITZONDERINGSOBJECT_HEEFT_PROJECT",
-                    aantal_regels=int(exempt_with_project.sum()),
-                    kolom="Onderhoudsproject",
-                    voorbeeld=_quality_preview(project_values[exempt_with_project]),
-                    uitleg="Een object dat volgens de beheerregels meestal geen onderhoudsproject hoort te krijgen, heeft toch een onderhoudsproject.",
-                    voorgestelde_actie="Controleer of dit een bewuste uitzondering is of een te corrigeren objectkoppeling.",
-                    impact_op_controle="Deze objecten kunnen extra controlepunten veroorzaken of een project groter laten lijken dan bedoeld.",
-                )
-
-            nonempty_projects = project_values[project_values.ne("")]
-            afwijkende_projectnamen: list[str] = []
-            for value in nonempty_projects.drop_duplicates().head(500):
-                parts = parse_project_name_parts(value)
-                if not (parts.road and parts.category and parts.hm_start is not None and parts.hm_end is not None):
-                    afwijkende_projectnamen.append(value)
-            if afwijkende_projectnamen:
-                _append_quality_issue(
-                    records,
-                    bron="paspoortexport",
-                    ernst="aandachtspunt",
-                    categorie="naamconventie",
-                    issue_code="PASPOORT_PROJECTNAAM_FORMAT_AFWIJKEND",
-                    aantal_regels=len(afwijkende_projectnamen),
-                    kolom="Onderhoudsproject",
-                    voorbeeld=_quality_preview(afwijkende_projectnamen),
-                    uitleg="Een deel van de paspoortprojectnamen volgt niet de verwachte syntax Nxxx-categorie-begin-einde.",
-                    voorgestelde_actie="Controleer of dit oude projectnamen, tijdelijke namen of typefouten zijn.",
-                    impact_op_controle="De tool kan oude namen nog signaleren, maar hm- en categorievergelijking wordt minder zeker.",
-                )
-
-            if "Wegnummer" in passport_df.columns:
-                road_mismatch_projects: list[str] = []
-                for idx, project in project_values[project_values.ne("")].items():
-                    project_road = parse_project_name_parts(project).road
-                    object_road = clean_display_value(passport_df.at[idx, "Wegnummer"]).upper()
-                    if project_road and object_road and project_road != object_road:
-                        road_mismatch_projects.append(f"{project} bij {object_road}")
-                if road_mismatch_projects:
-                    _append_quality_issue(
-                        records,
-                        bron="paspoortexport",
-                        ernst="waarschuwing",
-                        categorie="wegnummer",
-                        issue_code="PASPOORT_PROJECTNAAM_WEGNUMMER_MISMATCH",
-                        aantal_regels=len(road_mismatch_projects),
-                        kolom="Onderhoudsproject/Wegnummer",
-                        voorbeeld=_quality_preview(road_mismatch_projects),
-                        uitleg="Bij een deel van de objecten wijkt het wegnummer in de projectnaam af van het objectwegnummer.",
-                        voorgestelde_actie="Controleer of het object aan het juiste onderhoudsproject hangt of dat het wegnummer in het objectpaspoort klopt.",
-                        impact_op_controle="Projecten kunnen in de verkeerde wegcontrole terechtkomen.",
-                    )
-
-        if "Metrering" in passport_df.columns:
-            metrering_values = _quality_clean_series(passport_df, "Metrering")
-            project_values = _quality_clean_series(passport_df, "Onderhoudsproject") if "Onderhoudsproject" in passport_df.columns else pd.Series("", index=passport_df.index)
-            relevant = project_values.ne("")
-            empty_hm = relevant & metrering_values.eq("")
-            if int(empty_hm.sum()):
-                _append_quality_issue(
-                    records,
-                    bron="paspoortexport",
-                    ernst="aandachtspunt",
-                    categorie="metrering",
-                    issue_code="PASPOORT_METRERING_LEEG",
-                    aantal_regels=int(empty_hm.sum()),
-                    kolom="Metrering",
-                    uitleg="Bij een deel van de objecten met onderhoudsproject ontbreekt de metrering.",
-                    voorgestelde_actie="Controleer de metrering in iASSET als je hm-bereiken of projectnaamvoorstellen wilt gebruiken.",
-                    impact_op_controle="Hm-overlap en sortering worden minder betrouwbaar voor deze objecten.",
-                )
-            parsed_hm = metrering_values.apply(lambda value: parse_hm_sort(value, fallback=float("nan")))
-            invalid_hm = relevant & metrering_values.ne("") & parsed_hm.isna()
-            if int(invalid_hm.sum()):
-                _append_quality_issue(
-                    records,
-                    bron="paspoortexport",
-                    ernst="waarschuwing",
-                    categorie="metrering",
-                    issue_code="PASPOORT_METRERING_ONGELDIG",
-                    aantal_regels=int(invalid_hm.sum()),
-                    kolom="Metrering",
-                    voorbeeld=_quality_preview(metrering_values[invalid_hm]),
-                    uitleg="Een deel van de metreringwaarden kan niet als getal worden geïnterpreteerd.",
-                    voorgestelde_actie="Corrigeer de metrering in iASSET of markeer het controlepunt als bewuste uitzondering.",
-                    impact_op_controle="De tool negeert deze waarden bij hm_min/hm_max en toont daarvoor aparte controlepunten.",
-                )
-
-        _quality_check_geometry(passport_df, records)
-
-    if maintenance_df is None or maintenance_df.empty:
-        _append_quality_issue(
-            records,
-            bron="onderhoudsexport",
-            ernst="blokkerend",
-            categorie="bestand",
-            issue_code="ONDERHOUDSEXPORT_LEEG",
-            aantal_regels=0,
-            uitleg="De onderhoudsexport bevat geen herkenbare regels.",
-            voorgestelde_actie="Exporteer de onderhoudsprojecten opnieuw uit iASSET en upload die export bij de Onderhoudscontrole.",
-            impact_op_controle="Zonder onderhoudsexport kan de tool alleen constateren dat paspoortprojecten niet teruggevonden worden.",
-        )
-    else:
-        project_column = _first_existing_column(maintenance_df, ["Onderhoudsproject", "project"])
-        if project_column is None:
-            _append_quality_issue(
-                records,
-                bron="onderhoudsexport",
-                ernst="blokkerend",
-                categorie="verplichte_kolommen",
-                issue_code="ONDERHOUD_PROJECTKOLOM_ONTBREEKT",
-                aantal_regels=len(maintenance_df),
-                kolom="Onderhoudsproject",
-                uitleg="De onderhoudsexport bevat geen herkenbare projectnaamkolom.",
-                voorgestelde_actie="Controleer het exportprofiel of de kopregel van de onderhoudsexport.",
-                impact_op_controle="Projectnamen kunnen niet met de paspoortexport worden vergeleken.",
-            )
-        else:
-            maintenance_scope = maintenance_df.copy()
-            project_values_all = _quality_clean_series(maintenance_scope, project_column)
-            if selected_road_text:
-                # Rijen zonder projectnaam blijven in beeld, omdat juist dat een
-                # exportkwaliteitsprobleem kan zijn. Rijen met andere wegen vallen
-                # buiten de geselecteerde wegcontrole.
-                in_scope = project_values_all.eq("") | project_values_all.apply(
-                    lambda value: parse_project_name_parts(value).road in {"", selected_road_text}
-                    or selected_road_text in normalize_project_name(value)
-                )
-                maintenance_scope = maintenance_scope.loc[in_scope].copy()
-                project_values_all = _quality_clean_series(maintenance_scope, project_column)
-
-            empty_projects = project_values_all.eq("")
-            if int(empty_projects.sum()):
-                _append_quality_issue(
-                    records,
-                    bron="onderhoudsexport",
-                    ernst="waarschuwing",
-                    categorie="onderhoudsproject",
-                    issue_code="ONDERHOUD_PROJECTNAAM_LEEG",
-                    aantal_regels=int(empty_projects.sum()),
-                    kolom=project_column,
-                    uitleg="Een deel van de onderhoudsregels heeft geen projectnaam.",
-                    voorgestelde_actie="Controleer de onderhoudsexport of de projectkoppeling in iASSET.",
-                    impact_op_controle="Deze regels kunnen niet aan een onderhoudsproject worden gekoppeld.",
-                )
-
-            afwijkende_onderhoudsnamen: list[str] = []
-            for value in project_values_all[project_values_all.ne("")].drop_duplicates().head(500):
-                parts = parse_project_name_parts(value)
-                if not (parts.road and parts.category and parts.hm_start is not None and parts.hm_end is not None):
-                    afwijkende_onderhoudsnamen.append(value)
-            if afwijkende_onderhoudsnamen:
-                _append_quality_issue(
-                    records,
-                    bron="onderhoudsexport",
-                    ernst="aandachtspunt",
-                    categorie="naamconventie",
-                    issue_code="ONDERHOUD_PROJECTNAAM_FORMAT_AFWIJKEND",
-                    aantal_regels=len(afwijkende_onderhoudsnamen),
-                    kolom=project_column,
-                    voorbeeld=_quality_preview(afwijkende_onderhoudsnamen),
-                    uitleg="Een deel van de onderhoudsprojectnamen volgt niet de verwachte syntax Nxxx-categorie-begin-einde.",
-                    voorgestelde_actie="Controleer of dit oude namen, handmatige afwijkingen of typefouten zijn.",
-                    impact_op_controle="De tool kan de naam nog vergelijken, maar score/uitleg op wegnummer, categorie en hm-bereik wordt minder sterk.",
-                )
-
-            object_column = _first_existing_column(maintenance_df, ["objectnummer", "Objectnummer", "Object nr:", "Object nr", "nummer"])
-            if object_column is None:
-                _append_quality_issue(
-                    records,
-                    bron="onderhoudsexport",
-                    ernst="waarschuwing",
-                    categorie="verplichte_kolommen",
-                    issue_code="ONDERHOUD_OBJECTNUMMERKOLOM_ONTBREEKT",
-                    aantal_regels=len(maintenance_scope),
-                    kolom="objectnummer",
-                    uitleg="De onderhoudsexport bevat geen herkenbare objectnummerkolom.",
-                    voorgestelde_actie="Neem objectnummers op in de onderhoudsexport als je objectsets wilt vergelijken.",
-                    impact_op_controle="De tool kan projectnamen vergelijken, maar objectverschillen tussen paspoort- en onderhoudsexport niet betrouwbaar bepalen.",
-                )
-            else:
-                object_values = _quality_clean_series(maintenance_scope, object_column)
-                empty_objects = object_values.eq("")
-                if int(empty_objects.sum()):
-                    _append_quality_issue(
-                        records,
-                        bron="onderhoudsexport",
-                        ernst="waarschuwing",
-                        categorie="lege_waarden",
-                        issue_code="ONDERHOUD_OBJECTNUMMER_LEEG",
-                        aantal_regels=int(empty_objects.sum()),
-                        kolom=object_column,
-                        uitleg="Een deel van de onderhoudsregels heeft geen objectnummer.",
-                        voorgestelde_actie="Controleer of de onderhoudsexport het objectnummer volledig meeneemt.",
-                        impact_op_controle="Regels zonder objectnummer kunnen niet betrouwbaar aan paspoortobjecten worden gekoppeld.",
-                    )
-
-                if project_column in maintenance_scope.columns:
-                    combo = pd.DataFrame(
-                        {
-                            "project": project_values_all,
-                            "object": object_values,
-                        }
-                    )
-                    combo = combo[(combo["project"] != "") & (combo["object"] != "")]
-                    duplicated_combo = combo[combo.duplicated(["project", "object"], keep=False)]
-                    if int(len(duplicated_combo)):
-                        examples = (duplicated_combo["project"] + " / " + duplicated_combo["object"]).drop_duplicates()
-                        _append_quality_issue(
-                            records,
-                            bron="onderhoudsexport",
-                            ernst="aandachtspunt",
-                            categorie="dubbele_objectnummers",
-                            issue_code="ONDERHOUD_OBJECT_DUBBEL_BINNEN_PROJECT",
-                            aantal_regels=int(len(duplicated_combo)),
-                            kolom=f"{project_column}/{object_column}",
-                            voorbeeld=_quality_preview(examples),
-                            uitleg="Hetzelfde objectnummer komt meerdere keren binnen hetzelfde onderhoudsproject voor.",
-                            voorgestelde_actie="Controleer of dit meerdere maatregelen op hetzelfde object zijn of dubbele exportregels.",
-                            impact_op_controle="Dit kan aantallen in de onderhoudsexport verhogen, maar hoeft inhoudelijk niet altijd fout te zijn.",
-                        )
-
-    if not records:
-        records.append(
-            {
-                "bron": "beide_exports",
-                "ernst": "ok",
-                "categorie": "voorcontrole",
-                "issue_code": "GEEN_DATKWALITEITSRISICO_GEVONDEN",
-                "aantal_regels": 0,
-                "kolom": "",
-                "voorbeeld": "",
-                "uitleg": "De v0.23-voorcontrole heeft geen duidelijke datakwaliteitsrisico's gevonden.",
-                "voorgestelde_actie": "Je kunt de inhoudelijke Onderhoudscontrole beoordelen.",
-                "impact_op_controle": "Geen extra beperking gevonden.",
-            }
-        )
-
-    report = pd.DataFrame(records)
-    for column in DATA_QUALITY_REPORT_COLUMNS:
-        if column not in report.columns:
-            report[column] = ""
-    ernst_order = {"blokkerend": 0, "waarschuwing": 1, "aandachtspunt": 2, "info": 3, "ok": 4}
-    report["_sort_ernst"] = report["ernst"].map(ernst_order).fillna(9)
-    report = report.sort_values(["_sort_ernst", "bron", "categorie", "issue_code"]).drop(columns=["_sort_ernst"])
-    return report.loc[:, DATA_QUALITY_REPORT_COLUMNS].reset_index(drop=True)
-
-
-def data_quality_summary(report: pd.DataFrame) -> dict[str, int]:
-    """Vat het datakwaliteitsrapport samen voor dashboard en Excelpakket."""
-    if report is None or report.empty:
-        return {
-            "datakwaliteit_issues": 0,
-            "datakwaliteit_blokkerend": 0,
-            "datakwaliteit_waarschuwingen": 0,
-            "datakwaliteit_aandachtspunten": 0,
-            "datakwaliteit_ok": 0,
-        }
-
-    ernst = report.get("ernst", pd.Series(dtype=str)).fillna("").astype(str).str.lower()
-    non_ok = ~ernst.isin(["", "ok"])
-    return {
-        "datakwaliteit_issues": int(non_ok.sum()),
-        "datakwaliteit_blokkerend": int((ernst == "blokkerend").sum()),
-        "datakwaliteit_waarschuwingen": int((ernst == "waarschuwing").sum()),
-        "datakwaliteit_aandachtspunten": int((ernst == "aandachtspunt").sum()),
-        "datakwaliteit_ok": int((ernst == "ok").sum()),
-    }
-
-
-
 def build_maintenance_control(
     passport_df: pd.DataFrame,
     maintenance_df: pd.DataFrame,
@@ -4424,12 +3598,6 @@ def build_maintenance_control(
     """
     warnings: list[str] = []
 
-    data_quality_report = build_data_quality_report(
-        passport_df,
-        maintenance_df,
-        selected_road=selected_road,
-    )
-
     passport_projects = summarize_passport_projects(passport_df, selected_road=selected_road)
     maintenance_projects = summarize_maintenance_projects(maintenance_df, selected_road=selected_road)
 
@@ -4443,7 +3611,6 @@ def build_maintenance_control(
     action_list = build_action_list(comparison, object_differences)
     action_list, copied_follow_up = merge_previous_action_follow_up(action_list, previous_action_list)
     action_list, resolved_actions, progress_counts = apply_action_progress_tracking(action_list, previous_action_list)
-    progress_report = summarize_action_progress(action_list, resolved_actions)
     mutation_suggestions = build_mutation_suggestions(comparison, object_differences)
 
     if copied_follow_up:
@@ -4453,7 +3620,6 @@ def build_maintenance_control(
 
     if comparison.empty:
         summary = {
-            **data_quality_summary(data_quality_report),
             "wegen_gecontroleerd": 0,
             "projecten_totaal": 0,
             "projecten_ok": 0,
@@ -4479,25 +3645,12 @@ def build_maintenance_control(
             "controlepunten_nieuw": 0,
             "controlepunten_bestaand": 0,
             "controlepunten_opgelost": 0,
-            "voortgang_rapportregels": 0,
-            "voortgang_nieuwe_projectgroepen": 0,
-            "voortgang_blijft_open_projectgroepen": 0,
-            "voortgang_opgeloste_projectgroepen": 0,
-            "voortgang_deels_nieuw_projectgroepen": 0,
             "acties_prioriteit_hoog": 0,
             "acties_prioriteit_middel": 0,
             "acties_prioriteit_laag": 0,
         }
     else:
-        project_progress = (
-            progress_report[progress_report["scope"] == "onderhoudsproject"]
-            if not progress_report.empty and "scope" in progress_report.columns
-            else pd.DataFrame(columns=list(ACTION_PROGRESS_SUMMARY_COLUMNS))
-        )
-        project_progress_conclusion = project_progress.get("voortgang_conclusie", pd.Series(dtype=str)).fillna("").astype(str)
-
         summary = {
-            **data_quality_summary(data_quality_report),
             "wegen_gecontroleerd": int(comparison.get("wegnummer", pd.Series(dtype=str)).fillna("").astype(str).str.strip().replace("", pd.NA).dropna().nunique()),
             "projecten_totaal": int(len(comparison)),
             "projecten_ok": int((comparison["status"] == "OK_VOLLEDIG").sum()),
@@ -4537,13 +3690,6 @@ def build_maintenance_control(
             "controlepunten_nieuw": int(progress_counts.get("controlepunten_nieuw", 0)),
             "controlepunten_bestaand": int(progress_counts.get("controlepunten_bestaand", 0)),
             "controlepunten_opgelost": int(progress_counts.get("controlepunten_opgelost", 0)),
-            "voortgang_rapportregels": int(len(progress_report)),
-            "voortgang_nieuwe_projectgroepen": int((project_progress_conclusion == "nieuw_in_deze_controle").sum()),
-            "voortgang_blijft_open_projectgroepen": int(
-                project_progress_conclusion.isin(["blijft_open", "blijft_open_met_hoge_prioriteit"]).sum()
-            ),
-            "voortgang_opgeloste_projectgroepen": int((project_progress_conclusion == "opgelost_of_niet_meer_gevonden").sum()),
-            "voortgang_deels_nieuw_projectgroepen": int((project_progress_conclusion == "deels_nieuw_deels_bestaand").sum()),
             "acties_prioriteit_hoog": int(
                 (action_list.get("prioriteit", pd.Series(dtype=str)).fillna("").astype(str).str.lower() == "hoog").sum()
             ),
@@ -4561,9 +3707,7 @@ def build_maintenance_control(
         passport_projects=passport_projects,
         maintenance_projects=maintenance_projects,
         object_differences=object_differences,
-        data_quality_report=data_quality_report,
         action_list=action_list,
-        progress_report=progress_report,
         mutation_suggestions=mutation_suggestions,
         resolved_actions=resolved_actions,
         warnings=warnings,
@@ -4673,35 +3817,16 @@ def build_maintenance_control_workbook(
         else result.mutation_suggestions.copy()
     )
     object_differences = pd.DataFrame() if result.object_differences is None else result.object_differences.copy()
-    data_quality_report = (
-        pd.DataFrame(columns=DATA_QUALITY_REPORT_COLUMNS)
-        if result.data_quality_report is None or result.data_quality_report.empty
-        else result.data_quality_report.copy()
-    )
     passport_projects = pd.DataFrame() if result.passport_projects is None else result.passport_projects.copy()
     maintenance_projects = pd.DataFrame() if result.maintenance_projects is None else result.maintenance_projects.copy()
     resolved_actions = ensure_action_work_queue_columns(result.resolved_actions)
     project_summary = summarize_action_projects(package_action_list)
-    progress_report = (
-        pd.DataFrame(columns=ACTION_PROGRESS_SUMMARY_COLUMNS)
-        if result.progress_report is None or result.progress_report.empty
-        else result.progress_report.copy()
-    )
 
     summary = result.summary or {}
     action_summary = action_work_queue_summary(package_action_list)
 
     summary_tables = {
         "Kerncijfers": _summary_dataframe(summary, scope_label=scope_label),
-        "Datakwaliteit": pd.DataFrame(
-            [
-                ("Datakwaliteitsmeldingen", summary.get("datakwaliteit_issues", 0)),
-                ("Blokkerend", summary.get("datakwaliteit_blokkerend", 0)),
-                ("Waarschuwingen", summary.get("datakwaliteit_waarschuwingen", 0)),
-                ("Aandachtspunten", summary.get("datakwaliteit_aandachtspunten", 0)),
-            ],
-            columns=["Onderdeel", "Waarde"],
-        ),
         "Werkvoorraad": pd.DataFrame(
             [
                 ("Controlepunten", action_summary.get("controlepunten", 0)),
@@ -4709,11 +3834,6 @@ def build_maintenance_control_workbook(
                 ("Nieuw sinds vorige controle", summary.get("controlepunten_nieuw", 0)),
                 ("Bestaand sinds vorige controle", summary.get("controlepunten_bestaand", 0)),
                 ("Opgelost/niet meer gevonden", summary.get("controlepunten_opgelost", 0)),
-                ("Voortgangsrapportregels", summary.get("voortgang_rapportregels", 0)),
-                ("Nieuwe projectgroepen", summary.get("voortgang_nieuwe_projectgroepen", 0)),
-                ("Blijft open projectgroepen", summary.get("voortgang_blijft_open_projectgroepen", 0)),
-                ("Opgeloste/niet gevonden projectgroepen", summary.get("voortgang_opgeloste_projectgroepen", 0)),
-                ("Deels nieuw/deels bestaand", summary.get("voortgang_deels_nieuw_projectgroepen", 0)),
                 ("Afhandelstatus nieuw", action_summary.get("nieuw", 0)),
                 ("Prioriteit hoog", action_summary.get("prioriteit_hoog", 0)),
                 ("Prioriteit middel", action_summary.get("prioriteit_middel", 0)),
@@ -4730,7 +3850,6 @@ def build_maintenance_control_workbook(
         "Per duidingsgroep": _count_table(package_action_list, "duiding_groep", "duiding_groep", "controlepunten"),
         "Per afhandelstatus": _count_table(package_action_list, "afhandelstatus", "afhandelstatus", "controlepunten"),
         "Per voortgang": _count_table(package_action_list, "voortgang_status", "voortgang_status", "controlepunten"),
-        "Per voortgangsconclusie": _count_table(progress_report, "voortgang_conclusie", "voortgang_conclusie", "projectgroepen"),
         "Per actiehouder": _count_table(package_action_list, "actiehouder", "actiehouder", "controlepunten"),
     }
 
@@ -4752,9 +3871,7 @@ def build_maintenance_control_workbook(
             table.to_excel(writer, sheet_name=summary_sheet, startrow=start_row, index=False)
             start_row += max(len(table), 1) + 3
 
-        _write_dataframe_sheet(writer, data_quality_report, "Datakwaliteit", used_sheet_names)
         _write_dataframe_sheet(writer, project_summary, "Projectsamenvatting", used_sheet_names)
-        _write_dataframe_sheet(writer, progress_report, "Voortgangsrapport", used_sheet_names)
         _write_dataframe_sheet(writer, package_action_list, "Werkvoorraad", used_sheet_names)
         _write_dataframe_sheet(writer, resolved_actions, "Opgelost", used_sheet_names)
         _write_dataframe_sheet(writer, mutation_suggestions, "Mutatievoorstellen", used_sheet_names)

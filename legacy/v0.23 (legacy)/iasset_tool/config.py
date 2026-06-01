@@ -11,7 +11,7 @@ from pathlib import Path
 # --- Bestanden -------------------------------------------------------------
 
 # Versie die in de Streamlit-interface zichtbaar wordt getoond.
-APP_VERSION = "v0.24.0"
+APP_VERSION = "v0.23.0"
 
 # Versie van het sorteerdiagnose-frame in session_state.
 # Waarom apart?

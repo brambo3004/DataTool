@@ -1103,35 +1103,11 @@ with col_inspector:
                     p_new.metric("Nieuw sinds vorige controle", summary.get("controlepunten_nieuw", 0))
                     p_existing.metric("Bestaand", summary.get("controlepunten_bestaand", 0))
                     p_resolved.metric("Opgelost/niet meer gevonden", summary.get("controlepunten_opgelost", 0))
-
-                    pg_new, pg_open, pg_resolved, pg_mixed = st.columns(4)
-                    pg_new.metric("Nieuwe projectgroepen", summary.get("voortgang_nieuwe_projectgroepen", 0))
-                    pg_open.metric("Blijft open", summary.get("voortgang_blijft_open_projectgroepen", 0))
-                    pg_resolved.metric("Projectgroepen opgelost/niet gevonden", summary.get("voortgang_opgeloste_projectgroepen", 0))
-                    pg_mixed.metric("Deels nieuw/deels bestaand", summary.get("voortgang_deels_nieuw_projectgroepen", 0))
-
                     if summary.get("controlepunten_opgelost", 0):
                         st.info(
                             "Er zijn controlepunten uit de vorige actielijst die niet meer terugkomen. "
                             "Controleer of ze echt zijn opgelost of buiten de nieuwe exportselectie vallen."
                         )
-
-                    progress_report = control_result.progress_report
-                    if progress_report is not None and not progress_report.empty:
-                        with st.expander("Voortgangsrapport per weg en onderhoudsproject", expanded=True):
-                            st.caption(
-                                "Deze v0.24-laag vergelijkt de huidige controle met de vorige actielijst. "
-                                "Zo zie je welke projectgroepen nieuw zijn, blijven terugkomen of mogelijk zijn opgelost. "
-                                "Ook dit is alleen controle-informatie; de tool voert niets automatisch door."
-                            )
-                            st.dataframe(progress_report, use_container_width=True, hide_index=True)
-                            progress_csv = progress_report.to_csv(index=False, sep=";").encode("utf-8-sig")
-                            st.download_button(
-                                "📥 Download voortgangsrapport",
-                                data=progress_csv,
-                                file_name=f"Onderhoudscontrole_Voortgangsrapport{control_file_suffix}.csv",
-                                mime="text/csv",
-                            )
 
                 if summary.get("acties", 0):
                     st.warning(f"{summary.get('acties', 0)} controleactie(s) in de Onderhoudscontrole-actielijst.")
