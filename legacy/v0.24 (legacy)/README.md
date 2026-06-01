@@ -1,4 +1,4 @@
-# iASSET Advisor - refactor v0.25.0
+# iASSET Advisor - refactor v0.24.0
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
@@ -103,18 +103,6 @@ Optioneel voor ontwikkelaars:
 pip install -r requirements-dev.txt
 pytest
 ```
-
-## Nieuw in v0.25.0
-
-Deze versie verdiept de **kaartcontrole** binnen de Onderhoudscontrole.
-
-- De kaart van een controlepunt maakt primaire ruggengraatobjecten duidelijker zichtbaar dan secundaire objecten.
-- Uitgezonderde objecten krijgen een aparte gestippelde stijl.
-- De kaart toont een legenda voor verschiltypen en objectlagen.
-- Pop-ups tonen nu meer controlecontext, zoals oude projectnaam, mogelijke vervangende projectnaam, prioriteit, duiding en voortgang.
-- De app toont samenvattende kaarttellingen: hoeveel objecten primair, secundair of uitgezonderd zijn.
-- De kaart kan als HTML-controlebeeld worden gedownload.
-- De veiligheidsregel blijft ongewijzigd: de kaart is alleen controlehulp. De tool voert niets automatisch door in iASSET.
 
 ## Nieuw in v0.24.0
 

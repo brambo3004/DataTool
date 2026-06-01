@@ -1471,45 +1471,19 @@ with col_inspector:
                                         mime="text/csv",
                                     )
 
-                                    map_result = build_maintenance_control_map(control_passport_df, detail_objects, detail_row)
+                                    map_result = build_maintenance_control_map(control_passport_df, detail_objects)
                                     if map_result.folium_map is None:
                                         st.info(map_result.message or "Geen kaart beschikbaar voor deze objectselectie.")
                                     else:
                                         st.caption(
-                                            f"{map_result.mapped_object_count} object(en) op kaart getoond "
-                                            f"({map_result.primary_object_count} primair, "
-                                            f"{map_result.secondary_object_count} secundair, "
-                                            f"{map_result.exempt_object_count} uitgezonderd). "
+                                            f"{map_result.mapped_object_count} object(en) op kaart getoond. "
                                             f"{map_result.missing_passport_object_count} object(en) hebben geen paspoortgeometrie in deze export."
                                         )
-                                        if map_result.difference_type_counts:
-                                            st.caption(
-                                                "Verschiltypen op kaart: "
-                                                + ", ".join(
-                                                    f"{clean_display_value(key)}: {value}"
-                                                    for key, value in map_result.difference_type_counts.items()
-                                                )
-                                            )
                                         st_folium(
                                             map_result.folium_map,
                                             width="100%",
                                             height=450,
                                             key=f"maintenance_detail_map_{control_key_suffix}_{selected_detail_index}_{current_data_revision_key()}",
-                                        )
-
-                                        map_html = map_result.folium_map.get_root().render().encode("utf-8")
-                                        st.download_button(
-                                            "📥 Download kaart controlepunt (HTML)",
-                                            data=map_html,
-                                            file_name=(
-                                                "Onderhoudscontrole_Kaart_"
-                                                f"{sanitize_filename(clean_display_value(detail_row.get('onderhoudsproject', 'controlepunt')))}.html"
-                                            ),
-                                            mime="text/html",
-                                            help=(
-                                                "Exporteert de kaart als los HTML-controlebeeld. "
-                                                "Dit is alleen documentatie; de tool wijzigt niets in iASSET."
-                                            ),
                                         )
 
                         action_csv = edited_action_list.to_csv(index=False, sep=";").encode("utf-8-sig")
