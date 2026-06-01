@@ -158,12 +158,12 @@ def test_build_overview_map_adds_trajectory_length_from_project_name():
     assert items["2010"].trajectory_length_m == pytest.approx(200.0)
     assert items["2010"].trajectory_segment_count == 1
     assert items["2010"].length_m == pytest.approx(55.0)
-    assert result.trajectory_source == "onderhoudsprojectnaam"
+    assert result.trajectory_source == "objectmetrering punten uit \'Metrering\' + onderhoudsprojectnaam"
 
     quantity_df = overview_quantity_dataframe(result)
     row = quantity_df[quantity_df["Legenda-item"] == "2010"].iloc[0]
     assert row["Trajectlengte (km)"] == pytest.approx(0.2)
-    assert row["Trajectlengte voorkeur (km)"] == pytest.approx(0.2)
+    assert row["Trajectlengte precies/voorkeur (km)"] == pytest.approx(0.2)
     assert row["Trajectlengte naam (km)"] == pytest.approx(0.2)
     assert row["Objectlengte (km)"] == pytest.approx(0.055)
 
@@ -191,7 +191,7 @@ def test_trajectory_length_does_not_merge_loose_metrering_segments():
 
     assert item.trajectory_length_m == pytest.approx(400.0)
     assert item.trajectory_segment_count == 2
-    assert result.trajectory_source == "objectmetrering punten uit 'Metrering' (grof)"
+    assert result.trajectory_source == "objectmetrering punten uit 'Metrering'"
 
 
 def test_build_overview_map_uses_polygon_area_and_width_for_quantities():
@@ -251,6 +251,6 @@ def test_overview_prefers_precise_metrering_and_keeps_name_length():
 
     quantity_df = overview_quantity_dataframe(result)
     row = quantity_df.iloc[0]
-    assert row["Trajectlengte voorkeur (km)"] == pytest.approx(2.105)
+    assert row["Trajectlengte precies/voorkeur (km)"] == pytest.approx(2.105)
     assert row["Trajectlengte naam (km)"] == pytest.approx(2.2)
-    assert row["Verschil naam t.o.v. objectmetrering (m)"] == pytest.approx(95.0)
+    assert row["Verschil naam t.o.v. precies (m)"] == pytest.approx(95.0)

@@ -2013,13 +2013,11 @@ with col_map:
                     )
 
                 st.caption(
-                    f"Trajectlengtebron voorkeur: {overview_map_result.trajectory_source} "
-                    f"({overview_map_result.trajectory_source_quality}). "
+                    f"Trajectlengtebron (voorkeur): {overview_map_result.trajectory_source}. "
                     f"Objectlengtebron: {overview_map_result.length_source}. "
                     f"Oppervlaktebron: {overview_map_result.area_source}. "
-                    "Objectlengte telt rijstrookobjecten op. Trajectlengte gebruikt expliciete begin/eindmetrering "
-                    "als die beschikbaar is; losse paspoortmetrering wordt als grof gezien en de onderhoudsprojectnaam "
-                    "kan dan de administratieve voorkeurslengte zijn."
+                    "Objectlengte telt rijstrookobjecten op; trajectlengte gebruikt objectmetrering als voorkeursbron "
+                    "en valt alleen terug op de onderhoudsprojectnaam als de metrering onvoldoende is."
                 )
 
                 file_scope = "alle_wegen" if overview_scope == "Alle wegen" else selected_road

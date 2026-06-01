@@ -1,0 +1,326 @@
+{
+  "metadata": {
+    "naam": "onderhoudsregels",
+    "versie": "v0.26.0",
+    "toelichting": "Beheerregels voor de iASSET-tool. De tool gebruikt deze regels alleen voor controle, sortering, uitleg en exportvoorstellen; nooit voor automatische mutaties in iASSET."
+  },
+  "domeinregels": {
+    "hierarchy_rank": {
+      "rijstrook": 1,
+      "parallelweg": 2,
+      "landbouwpad": 2,
+      "busbaan": 2,
+      "fietspad": 3
+    },
+    "subthema_exceptions": [
+      "carpoolplaats",
+      "fietsstalling",
+      "parkeerplaats",
+      "perron",
+      "picknickplaats",
+      "rotonderand",
+      "wegas koppeling dielplak",
+      "opstelplaats",
+      "verkeerseiland of middengeleider",
+      "verharding derden"
+    ],
+    "maintenance_project_exemption_markers": [
+      "oorspronkelijke bgt-data",
+      "oorspronkelijke bgt data",
+      "oorspronkelijke bgt"
+    ],
+    "backbone_types": [
+      "rijstrook",
+      "parallelweg",
+      "landbouwpad",
+      "busbaan",
+      "fietspad"
+    ],
+    "hierarchy_config": [
+      {
+        "rank": 1,
+        "types": [
+          "rijstrook"
+        ],
+        "prefix": "GRP_RIJBAAN"
+      },
+      {
+        "rank": 2,
+        "types": [
+          "parallelweg",
+          "landbouwpad",
+          "busbaan"
+        ],
+        "prefix": "GRP_PARALLEL"
+      },
+      {
+        "rank": 3,
+        "types": [
+          "fietspad"
+        ],
+        "prefix": "GRP_FIETSPAD"
+      }
+    ],
+    "project_category_families": {
+      "HRB": [
+        "HRB",
+        "HRBR",
+        "HRBL"
+      ],
+      "PW": [
+        "PW",
+        "PWR",
+        "PWL"
+      ],
+      "FP": [
+        "FP",
+        "FPR",
+        "FPL"
+      ],
+      "LBP": [
+        "LBP",
+        "LBPR",
+        "LBPL"
+      ],
+      "BB": [
+        "BB",
+        "BBR",
+        "BBL"
+      ]
+    }
+  },
+  "datakwaliteit": {
+    "issue_categories": [
+      "Onderhoudsprojectplicht",
+      "Onterecht onderhoudsproject",
+      "Ontbrekende paspoortdata",
+      "Liggingdata",
+      "Topologie",
+      "Projectconsistentie",
+      "Import / geometrie"
+    ],
+    "mutation_required_cols": [
+      "subthema",
+      "naam",
+      "Gebruikersfunctie",
+      "Type onderdeel",
+      "verhardingssoort",
+      "Onderhoudsproject"
+    ]
+  },
+  "project_adviseur": {
+    "segmentation_attributes": [
+      "verhardingssoort",
+      "Soort deklaag specifiek",
+      "Jaar aanleg",
+      "Jaar deklaag",
+      "Besteknummer"
+    ],
+    "friendly_labels": {
+      "verhardingssoort": "Verhardingssoort",
+      "Soort deklaag specifiek": "Deklaag",
+      "Jaar aanleg": "Aanleg",
+      "Jaar deklaag": "Deklaagjaar",
+      "Besteknummer": "Bestek",
+      "Onderhoudsproject": "Huidig Project"
+    }
+  },
+  "kolommen": {
+    "all_meta_cols": [
+      "subthema",
+      "Situering",
+      "verhardingssoort",
+      "Soort deklaag specifiek",
+      "Jaar aanleg",
+      "Jaar deklaag",
+      "Onderhoudsproject",
+      "Advies_Onderhoudsproject",
+      "validation_error",
+      "Spoor_ID",
+      "Is_Project_Grens",
+      "Advies_Bron",
+      "Wegnummer",
+      "Besteknummer",
+      "tijdstipRegistratie",
+      "nummer",
+      "gps coordinaten",
+      "rds coordinaten",
+      "Metrering",
+      "Jaar herstrating",
+      "Jaar conservering",
+      "Wegvaknum",
+      "Soort verharding_N",
+      "naam"
+    ]
+  },
+  "overzicht": {
+    "overview_attribute_aliases": {
+      "Jaar aanleg": [
+        "Jaar aanleg"
+      ],
+      "Jaar deklaag": [
+        "Jaar deklaag"
+      ],
+      "Jaar herstrating": [
+        "Jaar herstrating"
+      ],
+      "Jaar conservering": [
+        "Jaar conservering"
+      ],
+      "Besteknummer": [
+        "Besteknummer"
+      ],
+      "Onderhoudsproject": [
+        "Onderhoudsproject"
+      ],
+      "Wegvaknum": [
+        "Wegvaknum",
+        "Wegvaknum V",
+        "Wegvaknum G"
+      ],
+      "Soort verharding_N": [
+        "Soort verharding_N",
+        "verhardingssoort"
+      ],
+      "Soort deklaag specifiek": [
+        "Soort deklaag specifiek"
+      ]
+    },
+    "overview_popup_columns": {
+      "Jaar aanleg": [
+        "Jaar aanleg"
+      ],
+      "Jaar deklaag": [
+        "Jaar deklaag"
+      ],
+      "Soort verharding_N": [
+        "Soort verharding_N",
+        "verhardingssoort"
+      ],
+      "Soort deklaag specifiek": [
+        "Soort deklaag specifiek"
+      ],
+      "Besteknummer": [
+        "Besteknummer"
+      ],
+      "Onderhoudsproject": [
+        "Onderhoudsproject"
+      ],
+      "Wegvaknum": [
+        "Wegvaknum",
+        "Wegvaknum V",
+        "Wegvaknum G"
+      ]
+    }
+  },
+  "export": {
+    "default_export_profile": "Onderhoudsprojecten",
+    "export_profiles": {
+      "Onderhoudsprojecten": [
+        "bron_id",
+        "nummer",
+        "Onderhoudsproject"
+      ],
+      "Paspoortdata basis": [
+        "bron_id",
+        "nummer",
+        "subthema",
+        "naam",
+        "Gebruikersfunctie",
+        "Type onderdeel",
+        "verhardingssoort",
+        "Soort verharding_N",
+        "Soort deklaag specifiek",
+        "Soort conservering",
+        "Jaar aanleg",
+        "Jaar deklaag",
+        "Jaar conservering",
+        "Jaar herstrating",
+        "Besteknummer",
+        "Onderhoudsproject"
+      ],
+      "Liggingdata": [
+        "bron_id",
+        "nummer",
+        "Wegnummer",
+        "Wegvak",
+        "Wegvak V",
+        "Wegvak G",
+        "Wegvaknum",
+        "Wegvaknum V",
+        "Wegvaknum G",
+        "Metrering",
+        "Metrering V",
+        "Metrering G",
+        "Situering",
+        "Situering V",
+        "Bebouwde_kom",
+        "gps coordinaten",
+        "rds coordinaten"
+      ],
+      "Volledige gecontroleerde mutatieset": [
+        "bron_id",
+        "nummer",
+        "Wegnummer",
+        "Wegvak",
+        "Wegvak V",
+        "Wegvak G",
+        "Wegvaknum",
+        "Wegvaknum V",
+        "Wegvaknum G",
+        "Metrering",
+        "Metrering V",
+        "Metrering G",
+        "Situering",
+        "Situering V",
+        "Bebouwde_kom",
+        "subthema",
+        "naam",
+        "Gebruikersfunctie",
+        "Type onderdeel",
+        "verhardingssoort",
+        "Soort verharding_N",
+        "Soort deklaag specifiek",
+        "Soort conservering",
+        "Jaar aanleg",
+        "Jaar deklaag",
+        "Jaar conservering",
+        "Jaar herstrating",
+        "Besteknummer",
+        "Onderhoudsproject",
+        "gps coordinaten",
+        "rds coordinaten"
+      ]
+    }
+  },
+  "wegsortering": {
+    "road_directions": {
+      "N351": "ETW",
+      "N353": "STN",
+      "N354": "ETW",
+      "N355": "WTE",
+      "N356": "NTS",
+      "N357": "STN",
+      "N358": "WTE",
+      "N359": "ETW",
+      "N361": "ETW",
+      "N369": "STN",
+      "N380": "WTE",
+      "N381": "NTS",
+      "N383": "STN",
+      "N384": "STN",
+      "N390": "ETW",
+      "N392": "WTE",
+      "N393": "ETW",
+      "N398": "ETW",
+      "N910": "WTE",
+      "N913": "ETW",
+      "N917": "WTE",
+      "N918": "STN",
+      "N919": "ETW",
+      "N924": "ETW",
+      "N927": "ETW",
+      "N928": "NTS"
+    }
+  }
+}
