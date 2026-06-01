@@ -1984,16 +1984,10 @@ with col_map:
                 )
 
                 quantity_parts = []
-                if overview_map_result.total_trajectory_length_m is not None:
-                    quantity_parts.append(
-                        f"trajectlengte {_format_km_for_ui(overview_map_result.total_trajectory_length_m)} km"
-                    )
-                if overview_map_result.total_area_m2 is not None:
-                    quantity_parts.append(f"oppervlakte {_format_m2_for_ui(overview_map_result.total_area_m2)} m²")
                 if overview_map_result.total_length_m:
-                    quantity_parts.append(
-                        f"objectlengte {_format_km_for_ui(overview_map_result.total_length_m)} km"
-                    )
+                    quantity_parts.append(f"totaal {_format_km_for_ui(overview_map_result.total_length_m)} km")
+                if overview_map_result.total_area_m2 is not None:
+                    quantity_parts.append(f"totaal {_format_m2_for_ui(overview_map_result.total_area_m2)} m²")
 
                 if quantity_parts:
                     st.info(
@@ -2002,10 +1996,9 @@ with col_map:
                     )
 
                 st.caption(
-                    f"Trajectlengtebron: {overview_map_result.trajectory_source}. "
-                    f"Objectlengtebron: {overview_map_result.length_source}. "
+                    f"Lengtebron: {overview_map_result.length_source}. "
                     f"Oppervlaktebron: {overview_map_result.area_source}. "
-                    "Objectlengte telt rijstrookobjecten op; trajectlengte benadert het wegdeel langs de metrering."
+                    "Een eventuele lengte uit oppervlakte/breedte is alleen een controle-indicatie."
                 )
 
                 file_scope = "alle_wegen" if overview_scope == "Alle wegen" else selected_road

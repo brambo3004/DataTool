@@ -122,74 +122,8 @@ def test_build_overview_map_adds_length_quantities_for_line_geometry():
     assert result.length_source == "lijngeometrie"
 
     quantity_df = overview_quantity_dataframe(result)
-    assert "Objectlengte (km)" in quantity_df.columns
-    assert "Trajectlengte (km)" in quantity_df.columns
+    assert "Lengte (km)" in quantity_df.columns
     assert quantity_df["Aantal objecten"].sum() == 2
-
-
-
-def test_build_overview_map_adds_trajectory_length_from_project_name():
-    gdf = gpd.GeoDataFrame(
-        {
-            "sys_id": [1, 2, 3],
-            "subthema": ["rijstrook", "rijstrook", "rijstrook"],
-            "subthema_clean": ["rijstrook", "rijstrook", "rijstrook"],
-            "Jaar deklaag": ["2010", "2010", "2015"],
-            "Metrering": ["18,5", "18,7", "19,0"],
-            "Onderhoudsproject": [
-                "N354-HRB-18.5-18.7",
-                "N354-HRB-18.5-18.7",
-                "N354-HRB-19.0-19.2",
-            ],
-            "Berekende lengte/oppervlakte": [100.0, 120.0, 80.0],
-            "Administratieve breedte": [4.0, 4.0, 4.0],
-        },
-        geometry=[
-            Polygon([(0, 0), (25, 0), (25, 4), (0, 4)]),
-            Polygon([(25, 0), (55, 0), (55, 4), (25, 4)]),
-            Polygon([(100, 0), (120, 0), (120, 4), (100, 4)]),
-        ],
-        crs="EPSG:28992",
-    ).set_index("sys_id", drop=False)
-
-    result = build_overview_map(gdf, "Jaar deklaag")
-    items = {item.label: item for item in result.legend_items}
-
-    assert items["2010"].trajectory_length_m == pytest.approx(200.0)
-    assert items["2010"].trajectory_segment_count == 1
-    assert items["2010"].length_m == pytest.approx(55.0)
-    assert result.trajectory_source == "onderhoudsprojectnaam"
-
-    quantity_df = overview_quantity_dataframe(result)
-    row = quantity_df[quantity_df["Legenda-item"] == "2010"].iloc[0]
-    assert row["Trajectlengte (km)"] == pytest.approx(0.2)
-    assert row["Objectlengte (km)"] == pytest.approx(0.055)
-
-
-def test_trajectory_length_does_not_merge_loose_metrering_segments():
-    gdf = gpd.GeoDataFrame(
-        {
-            "sys_id": [1, 2, 3, 4],
-            "subthema": ["rijstrook"] * 4,
-            "subthema_clean": ["rijstrook"] * 4,
-            "Jaar deklaag": ["2011"] * 4,
-            "Metrering": ["1,0", "1,2", "8,0", "8,2"],
-        },
-        geometry=[
-            LineString([(0, 0), (10, 0)]),
-            LineString([(10, 0), (20, 0)]),
-            LineString([(100, 0), (110, 0)]),
-            LineString([(110, 0), (120, 0)]),
-        ],
-        crs="EPSG:28992",
-    ).set_index("sys_id", drop=False)
-
-    result = build_overview_map(gdf, "Jaar deklaag")
-    item = result.legend_items[0]
-
-    assert item.trajectory_length_m == pytest.approx(400.0)
-    assert item.trajectory_segment_count == 2
-    assert result.trajectory_source == "metreringkolom 'Metrering'"
 
 
 def test_build_overview_map_uses_polygon_area_and_width_for_quantities():

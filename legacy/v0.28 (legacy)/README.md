@@ -1,16 +1,6 @@
-# iASSET Advisor - refactor v0.29.0
+# iASSET Advisor - refactor v0.28.0
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
-
-
-## Nieuw in v0.29.0
-
-Het tabblad **Overzicht** maakt nu expliciet onderscheid tussen:
-- **trajectlengte**: lengte van het wegdeel langs de metrering of onderhoudsprojectnaam;
-- **oppervlakte**: m² uit polygongeometrie of betrouwbare bronkolom;
-- **objectlengte**: technische optelsom van rijstrookobjecten.
-
-Objectlengte blijft beschikbaar, maar trajectlengte en oppervlakte staan prominenter in legenda, tabel en HTML-export.
 
 ## Doel van deze refactor
 

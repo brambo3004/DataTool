@@ -61,20 +61,6 @@ AREA_COLUMN_CANDIDATES = (
 )
 
 
-TRAJECTORY_HM_COLUMN_CANDIDATES = (
-    "Metrering",
-    "metrering",
-    "hectometrering",
-    "ligging hectometrering 1",
-)
-
-TRAJECTORY_PROJECT_COLUMN_CANDIDATES = (
-    "Onderhoudsproject",
-    "onderhoudsproject",
-    "Advies_Onderhoudsproject",
-)
-
-
 def _column_has_display_values(gdf: gpd.GeoDataFrame, column: str) -> bool:
     """
     Controleer of een kolom minstens één inhoudelijke waarde heeft.
@@ -90,18 +76,12 @@ def _column_has_display_values(gdf: gpd.GeoDataFrame, column: str) -> bool:
 
 @dataclass(frozen=True)
 class LegendItem:
-    """Eén regel in de legenda, inclusief hoeveelheden voor v0.29."""
+    """Eén regel in de legenda, inclusief hoeveelheden voor v0.28."""
 
     label: str
     color: str
     object_count: int = 0
-    # Objectlengte = som van alle rijstrookobjecten. Dit kan hoger zijn dan de
-    # trajectlengte als er meerdere rijstroken/richtingen over hetzelfde stuk liggen.
     length_m: float = 0.0
-    # Trajectlengte = lengte langs de weg/het onderhoudsdeel. Deze is bedoeld
-    # voor de legenda en sluit beter aan bij begin- en eindmetrering.
-    trajectory_length_m: float | None = None
-    trajectory_segment_count: int = 0
     area_m2: float | None = None
 
 
@@ -114,11 +94,8 @@ class OverviewMapResult:
     legend_items: list[LegendItem]
     selected_column: str | None
     total_length_m: float = 0.0
-    total_trajectory_length_m: float | None = None
-    total_trajectory_segment_count: int = 0
     total_area_m2: float | None = None
     length_source: str = "niet beschikbaar"
-    trajectory_source: str = "niet beschikbaar"
     area_source: str = "niet beschikbaar"
 
 
@@ -377,197 +354,6 @@ def _quantity_sources(gdf: gpd.GeoDataFrame) -> tuple[pd.Series, str, pd.Series,
     return length_m, length_source, area_m2, area_source
 
 
-
-def _first_existing_column(gdf: gpd.GeoDataFrame, candidates: tuple[str, ...]) -> str | None:
-    """Zoek de eerste kandidaatkolom die in de data bestaat."""
-    for column in candidates:
-        if column in gdf.columns:
-            return column
-    return None
-
-
-def _parse_hm_value(value: Any) -> float | None:
-    """
-    Parseer een iASSET-metrering naar kilometers.
-
-    Lege, negatieve of niet-numerieke waarden worden genegeerd. Dit is bewust
-    strenger dan de sorteervariant: voor trajectlengte willen we geen fallback
-    optellen alsof het echte data is.
-    """
-    number = _parse_positive_number(value)
-    if number is None:
-        return None
-    return float(number)
-
-
-@dataclass(frozen=True)
-class _ProjectRange:
-    """Herleid hm-bereik uit een onderhoudsprojectnaam."""
-
-    start_km: float
-    end_km: float
-
-    @property
-    def length_m(self) -> float:
-        return max(0.0, (self.end_km - self.start_km) * 1000.0)
-
-
-def _parse_project_range(value: Any) -> _ProjectRange | None:
-    """
-    Haal begin- en eindmetrering uit een onderhoudsprojectnaam.
-
-    Voorbeelden:
-    - N354-HRB-18.5-18.7
-    - N398 HRB 00,1 00,4
-
-    De functie is tolerant voor oude namen, maar geeft ``None`` terug als het
-    patroon niet betrouwbaar herkend kan worden.
-    """
-    text = clean_display_value(value)
-    if not text:
-        return None
-
-    text = text.upper().replace(",", ".")
-    match = re.search(
-        r"\bN\s*\d{3,4}\s*[-_/ ]+\s*[A-Z0-9]+\s*[-_/ ]+(\d+(?:\.\d+)?)\s*[-_/ ]+(\d+(?:\.\d+)?)\b",
-        text,
-    )
-    if not match:
-        return None
-
-    start = _parse_hm_value(match.group(1))
-    end = _parse_hm_value(match.group(2))
-    if start is None or end is None or start == end:
-        return None
-
-    left, right = sorted((start, end))
-    return _ProjectRange(start_km=left, end_km=right)
-
-
-@dataclass(frozen=True)
-class _TrajectoryQuantity:
-    """Trajectlengte voor één legenda-item."""
-
-    length_m: float | None
-    segment_count: int
-    source: str
-
-
-def _hm_segments_length_m(hm_values: list[float], max_gap_km: float = 0.25) -> tuple[float | None, int]:
-    """
-    Benader trajectlengte uit losse metreringwaarden.
-
-    Belangrijk:
-    - We nemen niet simpelweg min/max over de hele groep, omdat hetzelfde
-      legenda-item op twee losse wegdelen kan voorkomen.
-    - Waarden worden in segmenten geknipt wanneer er een duidelijke sprong zit.
-    - Een segment met maar één hm-punt krijgt geen lengte, omdat begin/einde dan
-      niet betrouwbaar uit de data af te leiden is.
-
-    De drempel van 0,25 km sluit aan bij hectometerwaarden die soms niet elk
-    honderdmeterpunt bevatten. Een sprong groter dan 250 meter zien we als
-    vermoedelijk nieuw los trajectdeel.
-    """
-    clean_values = sorted({round(float(value), 6) for value in hm_values if value is not None})
-    if len(clean_values) < 2:
-        return None, 0
-
-    segments: list[list[float]] = [[clean_values[0]]]
-    for value in clean_values[1:]:
-        if value - segments[-1][-1] > max_gap_km:
-            segments.append([value])
-        else:
-            segments[-1].append(value)
-
-    total_km = 0.0
-    usable_segments = 0
-    for segment in segments:
-        if len(segment) < 2:
-            continue
-        total_km += max(segment) - min(segment)
-        usable_segments += 1
-
-    if total_km <= 0:
-        return None, 0
-
-    return total_km * 1000.0, usable_segments
-
-
-def _trajectory_quantity_for_group(group: gpd.GeoDataFrame, all_rijstroken: gpd.GeoDataFrame) -> _TrajectoryQuantity:
-    """
-    Bereken trajectlengte voor één legenda-item.
-
-    Voorkeur:
-    1. onderhoudsprojectnaam met hm-bereik, maar alleen als dat project binnen
-       de volledige rijstrookset niet over meerdere legenda-items verdeeld is;
-    2. metreringsegmenten als terugval.
-
-    Waarom deze volgorde?
-    De onderhoudsprojectnaam bevat vaak expliciet het beoogde trajectbereik
-    (bijv. ``N398-HRB-00.1-00.4``). Dat sluit beter aan bij de beheerpraktijk dan
-    het optellen van rijstrookobjecten. Als een onderhoudsproject meerdere
-    legenda-items bevat, gebruiken we die projectrange niet voor elk item, want
-    dat zou dubbeltellingen veroorzaken.
-    """
-    project_column = _first_existing_column(group, TRAJECTORY_PROJECT_COLUMN_CANDIDATES)
-    length_from_projects_m = 0.0
-    project_segments = 0
-
-    if project_column is not None and "__overview_value" in all_rijstroken.columns:
-        for project_name in group[project_column].dropna().unique():
-            project_range = _parse_project_range(project_name)
-            if project_range is None:
-                continue
-
-            same_project = all_rijstroken[all_rijstroken[project_column].astype(str) == str(project_name)]
-            unique_values = {
-                clean_display_value(value)
-                for value in same_project.get("__overview_value", pd.Series(dtype=object))
-                if clean_display_value(value)
-            }
-            if len(unique_values) > 1:
-                # Het project bevat meerdere legenda-items. De projectrange is
-                # dan te grof voor één specifieke legenda-categorie.
-                continue
-
-            length_from_projects_m += project_range.length_m
-            project_segments += 1
-
-    if length_from_projects_m > 0:
-        return _TrajectoryQuantity(
-            length_m=length_from_projects_m,
-            segment_count=project_segments,
-            source="onderhoudsprojectnaam",
-        )
-
-    hm_column = _first_existing_column(group, TRAJECTORY_HM_COLUMN_CANDIDATES)
-    if hm_column is not None:
-        hm_values = [
-            hm
-            for hm in (_parse_hm_value(value) for value in group[hm_column])
-            if hm is not None
-        ]
-        hm_length_m, hm_segments = _hm_segments_length_m(hm_values)
-        if hm_length_m is not None:
-            return _TrajectoryQuantity(
-                length_m=hm_length_m,
-                segment_count=hm_segments,
-                source=f"metreringkolom '{hm_column}'",
-            )
-
-    return _TrajectoryQuantity(length_m=None, segment_count=0, source="niet beschikbaar")
-
-
-def _combine_trajectory_sources(sources: list[str]) -> str:
-    """Vat de gebruikte bronnen voor trajectlengte samen."""
-    real_sources = [source for source in sources if source and source != "niet beschikbaar"]
-    if not real_sources:
-        return "niet beschikbaar"
-
-    unique_sources = list(dict.fromkeys(real_sources))
-    return " + ".join(unique_sources)
-
-
 def _format_km(length_m: float) -> str:
     """Formatteer meters als kilometers voor Nederlandse UI-tekst."""
     return f"{length_m / 1000:.2f}".replace(".", ",")
@@ -786,13 +572,10 @@ def _add_legend(m: folium.Map, title: str, legend_items: list[LegendItem]) -> No
             quantity_parts = []
             if item.object_count:
                 quantity_parts.append(f"{item.object_count} obj.")
-            if item.trajectory_length_m is not None:
-                segment_text = f", {item.trajectory_segment_count} deeltraject(en)" if item.trajectory_segment_count else ""
-                quantity_parts.append(f"traject {_format_km(item.trajectory_length_m)} km{segment_text}")
+            if item.length_m:
+                quantity_parts.append(f"{_format_km(item.length_m)} km")
             if item.area_m2 is not None:
                 quantity_parts.append(f"{_format_m2(item.area_m2)} m²")
-            if item.length_m:
-                quantity_parts.append(f"object {_format_km(item.length_m)} km")
 
             quantity_html = (
                 "<div style='font-size:11px;color:#666;margin-top:1px;'>"
@@ -897,40 +680,22 @@ def build_overview_map(
         .to_dict("index")
     )
 
-    trajectory_by_value: dict[str, _TrajectoryQuantity] = {}
-    for value, group in rijstroken.groupby("__overview_value", dropna=False):
-        trajectory_by_value[str(value)] = _trajectory_quantity_for_group(group, rijstroken)
-
     enriched_legend_items: list[LegendItem] = []
-    trajectory_sources: list[str] = []
-    total_trajectory_length_m = 0.0
-    total_trajectory_segment_count = 0
-
     for item in legend_items:
         quantity = quantity_rows.get(item.label, {})
         area_value = float(quantity.get("area_m2", 0.0) or 0.0)
-        trajectory = trajectory_by_value.get(item.label, _TrajectoryQuantity(None, 0, "niet beschikbaar"))
-        if trajectory.length_m is not None:
-            total_trajectory_length_m += trajectory.length_m
-            total_trajectory_segment_count += trajectory.segment_count
-            trajectory_sources.append(trajectory.source)
-
         enriched_legend_items.append(
             LegendItem(
                 label=item.label,
                 color=item.color,
                 object_count=int(quantity.get("object_count", 0) or 0),
                 length_m=float(quantity.get("length_m", 0.0) or 0.0),
-                trajectory_length_m=trajectory.length_m,
-                trajectory_segment_count=trajectory.segment_count,
                 area_m2=area_value if area_value > 0 else None,
             )
         )
     legend_items = enriched_legend_items
 
     total_length_m = float(rijstroken["__overview_length_m"].sum())
-    total_trajectory_length = total_trajectory_length_m if total_trajectory_length_m > 0 else None
-    trajectory_source = _combine_trajectory_sources(trajectory_sources)
     total_area_value = float(rijstroken["__overview_area_m2"].sum())
     total_area_m2 = total_area_value if total_area_value > 0 else None
     if total_area_m2 is None:
@@ -1013,11 +778,8 @@ def build_overview_map(
         legend_items=legend_items,
         selected_column=selected_column,
         total_length_m=total_length_m,
-        total_trajectory_length_m=total_trajectory_length,
-        total_trajectory_segment_count=total_trajectory_segment_count,
         total_area_m2=total_area_m2,
         length_source=length_source if total_length_m > 0 else "niet beschikbaar",
-        trajectory_source=trajectory_source,
         area_source=area_source,
     )
 
@@ -1035,14 +797,8 @@ def overview_quantity_dataframe(result: OverviewMapResult) -> pd.DataFrame:
             {
                 "Legenda-item": item.label,
                 "Aantal objecten": item.object_count,
-                "Trajectlengte (km)": (
-                    round(item.trajectory_length_m / 1000, 3)
-                    if item.trajectory_length_m is not None
-                    else None
-                ),
-                "Aantal deeltrajecten": item.trajectory_segment_count or None,
+                "Lengte (km)": round(item.length_m / 1000, 3) if item.length_m else 0.0,
                 "Oppervlakte (m²)": round(item.area_m2, 1) if item.area_m2 is not None else None,
-                "Objectlengte (km)": round(item.length_m / 1000, 3) if item.length_m else 0.0,
                 "Kleur": item.color,
             }
         )
@@ -1082,12 +838,10 @@ def render_overview_map_html(
 
     subtitle_html = f"<div style='font-size:12px;color:#444;margin-top:2px;'>{safe_subtitle}</div>" if safe_subtitle else ""
     total_parts = []
-    if result.total_trajectory_length_m is not None:
-        total_parts.append(f"Totaal trajectlengte: {_format_km(result.total_trajectory_length_m)} km")
+    if result.total_length_m:
+        total_parts.append(f"Totaal lengte: {_format_km(result.total_length_m)} km")
     if result.total_area_m2 is not None:
         total_parts.append(f"Totaal oppervlak: {_format_m2(result.total_area_m2)} m²")
-    if result.total_length_m:
-        total_parts.append(f"Totaal objectlengte: {_format_km(result.total_length_m)} km")
     total_html = (
         "<div style='font-size:12px;color:#444;margin-top:4px;'>"
         + html.escape(" | ".join(total_parts))
@@ -1097,8 +851,7 @@ def render_overview_map_html(
     )
     source_html = (
         "<div style='font-size:11px;color:#666;margin-top:4px;'>"
-        f"Trajectlengtebron: {html.escape(result.trajectory_source)}. "
-        f"Objectlengtebron: {html.escape(result.length_source)}. "
+        f"Lengtebron: {html.escape(result.length_source)}. "
         f"Oppervlaktebron: {html.escape(result.area_source)}."
         "</div>"
     )
