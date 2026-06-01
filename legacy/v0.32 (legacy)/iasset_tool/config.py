@@ -25,7 +25,7 @@ from typing import Any
 # --- Bestanden -------------------------------------------------------------
 
 # Versie die in de Streamlit-interface zichtbaar wordt getoond.
-APP_VERSION = "v0.32.1"
+APP_VERSION = "v0.32.0"
 
 # Versie van het sorteerdiagnose-frame in session_state.
 # Waarom apart?

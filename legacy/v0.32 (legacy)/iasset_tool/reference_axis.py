@@ -27,18 +27,8 @@ from .trajectory import parse_project_range, round_km_to_nearest_5m
 from .utils import clean_display_value, normalize_text, parse_hm_sort
 
 
-REFERENCE_AXIS_SCHEMA_VERSION = "refaxis-v0.32.1"
+REFERENCE_AXIS_SCHEMA_VERSION = "refaxis-v0.32.0"
 EXPERIMENTAL_ROADS = {"N354", "N398"}
-
-# v0.32.1: extra vangrails voor de experimentele projectsamenvatting.
-# Eén ontspoorde objectprojectie mag niet meer het begin/eind van een heel
-# onderhoudsproject domineren. De marges zijn bewust ruim, omdat dit nog een
-# diagnoseproef is en geen bron voor mutaties.
-PROJECT_RANGE_MARGIN_KM_DEFAULT = 0.5
-PROJECT_RANGE_MARGIN_KM_SHORT = 0.2
-SHORT_PROJECT_LENGTH_M = 500.0
-PROJECT_JUMP_MIN_M = 500.0
-PROJECT_JUMP_FACTOR = 1.5
 
 HECTOMETER_COLUMN_CANDIDATES = (
     "hm_val",
@@ -120,10 +110,6 @@ def _empty_object_frame() -> pd.DataFrame:
             "project_eind_km",
             "project_lengte_m",
             "verschil_met_projectnaam_m",
-            "binnen_afstandsdrempel",
-            "buiten_projectrange",
-            "projectiesprong",
-            "bruikbaar_voor_projectsamenvatting",
             "bronkwaliteit",
             "status",
             "waarschuwing",
@@ -138,10 +124,6 @@ def _empty_project_frame() -> pd.DataFrame:
             "Onderhoudsproject",
             "objecten",
             "objecten_met_projectie",
-            "objecten_binnen_drempel",
-            "objecten_buiten_projectrange",
-            "objecten_met_projectiesprong",
-            "objecten_bruikbaar_voor_projectsamenvatting",
             "referentie_begin_km",
             "referentie_begin_5m",
             "referentie_eind_km",
@@ -538,86 +520,6 @@ def _project_name_metrics(project_name: Any) -> tuple[float | None, float | None
     return project_range.start_km, project_range.end_km, project_range.length_m
 
 
-def _project_range_margin_km(project_length_m: float | None) -> float | None:
-    """
-    Bepaal de toegestane diagnosemarge rond de projectnaamrange.
-
-    Waarom niet één harde waarde?
-    Een marge van 500 meter is passend voor langere wegvakken, maar te ruim
-    voor korte projecten zoals kruispunten of kleine onderhoudsvakken. Voor
-    korte projectnamen gebruiken we daarom 200 meter.
-    """
-    if project_length_m is None:
-        return None
-
-    try:
-        length = float(project_length_m)
-    except (TypeError, ValueError, OverflowError):
-        return None
-
-    if length <= SHORT_PROJECT_LENGTH_M:
-        return PROJECT_RANGE_MARGIN_KM_SHORT
-
-    return PROJECT_RANGE_MARGIN_KM_DEFAULT
-
-
-def _outside_project_range(
-    ref_begin_km: float | None,
-    ref_end_km: float | None,
-    project_begin_km: float | None,
-    project_end_km: float | None,
-    project_length_m: float | None,
-) -> bool:
-    """
-    Controleer of de referentieprojectie buiten de administratieve projectrange valt.
-
-    De onderhoudsprojectnaam blijft géén waarheid voor precieze ligging, maar is
-    wel sterk genoeg als vangrail tegen duidelijke projectiesprongen.
-    """
-    values = [ref_begin_km, ref_end_km, project_begin_km, project_end_km]
-    if any(value is None for value in values):
-        return False
-
-    margin_km = _project_range_margin_km(project_length_m)
-    if margin_km is None:
-        return False
-
-    try:
-        project_min = min(float(project_begin_km), float(project_end_km))
-        project_max = max(float(project_begin_km), float(project_end_km))
-        ref_min = min(float(ref_begin_km), float(ref_end_km))
-        ref_max = max(float(ref_begin_km), float(ref_end_km))
-    except (TypeError, ValueError, OverflowError):
-        return False
-
-    return ref_min < project_min - margin_km or ref_max > project_max + margin_km
-
-
-def _has_projection_jump(ref_length_m: float | None, project_length_m: float | None) -> bool:
-    """
-    Herken een onwaarschijnlijke objectprojectie binnen een project.
-
-    Uit de N354-test bleek dat afstand tot de as alleen niet genoeg is: een
-    object kan dicht op een verkeerd verbonden as liggen en toch tientallen
-    kilometers referentielengte krijgen. Daarom vergelijken we ook met de
-    projectnaamlengte.
-    """
-    if ref_length_m is None or project_length_m is None:
-        return False
-
-    try:
-        ref_length = float(ref_length_m)
-        project_length = float(project_length_m)
-    except (TypeError, ValueError, OverflowError):
-        return False
-
-    if project_length <= 0:
-        return False
-
-    threshold = max(PROJECT_JUMP_MIN_M, project_length * PROJECT_JUMP_FACTOR)
-    return ref_length > threshold
-
-
 def _object_warning(
     *,
     start_in_range: bool,
@@ -626,8 +528,6 @@ def _object_warning(
     offset_m: float | None,
     max_offset_m: float,
     ref_length_m: float | None,
-    outside_projectrange: bool = False,
-    projection_jump: bool = False,
 ) -> str:
     """Maak een compacte waarschuwingstekst voor één object."""
     messages: list[str] = []
@@ -640,12 +540,6 @@ def _object_warning(
 
     if ref_length_m is not None and ref_length_m <= 0:
         messages.append("referentielengte 0")
-
-    if outside_projectrange:
-        messages.append("referentie buiten projectrange")
-
-    if projection_jump:
-        messages.append("onwaarschijnlijke referentiesprong")
 
     return "; ".join(messages)
 
@@ -750,16 +644,6 @@ def build_reference_axis_diagnostics(
         if ref_length_m is not None and project_length_m is not None:
             delta_project_m = ref_length_m - project_length_m
 
-        within_offset_threshold = bool(has_projection and offset_m is not None and offset_m <= max_offset_m)
-        outside_projectrange = _outside_project_range(
-            ref_begin_km,
-            ref_end_km,
-            project_begin_km,
-            project_end_km,
-            project_length_m,
-        )
-        projection_jump = _has_projection_jump(ref_length_m, project_length_m)
-
         warning = _object_warning(
             start_in_range=start_in_range,
             mid_in_range=mid_in_range,
@@ -767,11 +651,7 @@ def build_reference_axis_diagnostics(
             offset_m=offset_m,
             max_offset_m=max_offset_m,
             ref_length_m=ref_length_m,
-            outside_projectrange=outside_projectrange,
-            projection_jump=projection_jump,
         )
-        status = _object_status(warning, has_projection)
-        usable_for_project_summary = bool(status == "projectie")
 
         rows.append(
             {
@@ -792,12 +672,8 @@ def build_reference_axis_diagnostics(
                 "project_eind_km": _round_km_or_none(project_end_km),
                 "project_lengte_m": _round_m_or_none(project_length_m),
                 "verschil_met_projectnaam_m": _round_m_or_none(delta_project_m),
-                "binnen_afstandsdrempel": within_offset_threshold,
-                "buiten_projectrange": bool(outside_projectrange),
-                "projectiesprong": bool(projection_jump),
-                "bruikbaar_voor_projectsamenvatting": usable_for_project_summary,
                 "bronkwaliteit": "experimenteel",
-                "status": status,
+                "status": _object_status(warning, has_projection),
                 "waarschuwing": warning,
             }
         )
@@ -814,14 +690,7 @@ def build_reference_axis_diagnostics(
 
 
 def _build_project_summary(object_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Vat objectprojecties per onderhoudsproject samen.
-
-    Vanaf v0.32.1 gebruikt de projectsamenvatting alleen objecten die expliciet
-    ``bruikbaar_voor_projectsamenvatting`` zijn. Objecten met afstandsproblemen,
-    projectiesprongen of projectrange-afwijkingen blijven zichtbaar in de
-    objectdiagnose, maar mogen het projectbegin/einde niet meer kapottrekken.
-    """
+    """Vat objectprojecties per onderhoudsproject samen."""
     if object_df is None or object_df.empty:
         return _empty_project_frame()
 
@@ -831,11 +700,8 @@ def _build_project_summary(object_df: pd.DataFrame) -> pd.DataFrame:
     working[group_column] = working[group_column].map(lambda value: clean_display_value(value) or "<geen projectnaam>")
 
     for project_name, group in working.groupby(group_column, dropna=False, sort=True):
-        usable_mask = group.get("bruikbaar_voor_projectsamenvatting", pd.Series(False, index=group.index)).astype(bool)
-        summary_group = group.loc[usable_mask].copy()
-
-        start_values = pd.to_numeric(summary_group["referentie_begin_km"], errors="coerce").dropna()
-        end_values = pd.to_numeric(summary_group["referentie_eind_km"], errors="coerce").dropna()
+        start_values = pd.to_numeric(group["referentie_begin_km"], errors="coerce").dropna()
+        end_values = pd.to_numeric(group["referentie_eind_km"], errors="coerce").dropna()
         offset_values = pd.to_numeric(group["afstand_tot_as_m"], errors="coerce").dropna()
 
         if not start_values.empty and not end_values.empty:
@@ -860,19 +726,11 @@ def _build_project_summary(object_df: pd.DataFrame) -> pd.DataFrame:
             if clean_display_value(value)
         ]
 
-        has_any_projection = int((group["status"] != "geen projectie").sum()) > 0
-        if has_any_projection and int(usable_mask.sum()) == 0:
-            warnings.append("geen bruikbare objecten voor projectsamenvatting")
-
         rows.append(
             {
                 "Onderhoudsproject": project_name,
                 "objecten": int(len(group)),
                 "objecten_met_projectie": int((group["status"] != "geen projectie").sum()),
-                "objecten_binnen_drempel": int(group.get("binnen_afstandsdrempel", pd.Series(False, index=group.index)).astype(bool).sum()),
-                "objecten_buiten_projectrange": int(group.get("buiten_projectrange", pd.Series(False, index=group.index)).astype(bool).sum()),
-                "objecten_met_projectiesprong": int(group.get("projectiesprong", pd.Series(False, index=group.index)).astype(bool).sum()),
-                "objecten_bruikbaar_voor_projectsamenvatting": int(usable_mask.sum()),
                 "referentie_begin_km": _round_km_or_none(ref_begin),
                 "referentie_begin_5m": _round_km_or_none(_five_meter_or_none(ref_begin)),
                 "referentie_eind_km": _round_km_or_none(ref_end),
