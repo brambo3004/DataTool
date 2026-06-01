@@ -1,4 +1,4 @@
-# iASSET Advisor - refactor v0.28.0
+# iASSET Advisor - refactor v0.27.0
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
@@ -105,24 +105,6 @@ Optioneel voor ontwikkelaars:
 pip install -r requirements-dev.txt
 pytest
 ```
-
-## Nieuw in v0.28.0
-
-Deze versie breidt het tabblad **Overzicht** uit met hoeveelheden per legenda-item.
-
-- De legenda toont nu per waarde:
-  - aantal rijstrookobjecten;
-  - kilometers;
-  - vierkante meters wanneer een betrouwbare oppervlaktebron beschikbaar is.
-- De app toont onder de Overzichtkaart een tabel `Hoeveelheden per legenda-item`.
-- Deze tabel kan als CSV worden gedownload.
-- De HTML-export van de Overzichtkaart bevat nu ook totaalhoeveelheden en de gebruikte bronnen.
-- Lengtes worden veilig bepaald:
-  - eerst uit een expliciete lengtekolom als die aanwezig is;
-  - anders uit lijngeometrie;
-  - bij polygonen alleen als controle-indicatie uit oppervlakte / administratieve breedte.
-- Oppervlakte wordt bepaald uit polygongeometrie of, als terugval, uit een beschikbare oppervlaktekolom.
-- De veiligheidsregel blijft ongewijzigd: Overzicht is alleen-lezen en voert geen mutaties door in iASSET.
 
 ## Nieuw in v0.27.0
 

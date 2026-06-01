@@ -64,12 +64,7 @@ from iasset_tool.object_editor import (
     object_preview_dataframe,
     search_objects,
 )
-from iasset_tool.overview_map import (
-    available_overview_attributes,
-    build_overview_map,
-    overview_quantity_dataframe,
-    render_overview_map_html,
-)
+from iasset_tool.overview_map import available_overview_attributes, build_overview_map, render_overview_map_html
 from iasset_tool.pdok import get_pdok_hectopunten_visual_only
 from iasset_tool.performance import measure_step, performance_dataframe
 from iasset_tool.rules import category_counts, check_rules, violation_key
@@ -150,16 +145,6 @@ def render_version_badge() -> None:
 
 
 render_version_badge()
-
-
-def _format_km_for_ui(length_m: float) -> str:
-    """Formatteer meters als kilometers voor de Streamlit-interface."""
-    return f"{length_m / 1000:.2f}".replace(".", ",")
-
-
-def _format_m2_for_ui(area_m2: float) -> str:
-    """Formatteer m² met punt als duizendtalseparator."""
-    return f"{area_m2:,.0f}".replace(",", ".")
 
 
 @st.cache_data(show_spinner=False)
@@ -1983,38 +1968,6 @@ with col_map:
                     f"Legenda-items: {len(overview_map_result.legend_items)}."
                 )
 
-                quantity_parts = []
-                if overview_map_result.total_length_m:
-                    quantity_parts.append(f"totaal {_format_km_for_ui(overview_map_result.total_length_m)} km")
-                if overview_map_result.total_area_m2 is not None:
-                    quantity_parts.append(f"totaal {_format_m2_for_ui(overview_map_result.total_area_m2)} m²")
-
-                if quantity_parts:
-                    st.info(
-                        "Hoeveelheden voor deze visualisatie: "
-                        + " · ".join(quantity_parts)
-                    )
-
-                st.caption(
-                    f"Lengtebron: {overview_map_result.length_source}. "
-                    f"Oppervlaktebron: {overview_map_result.area_source}. "
-                    "Een eventuele lengte uit oppervlakte/breedte is alleen een controle-indicatie."
-                )
-
-                file_scope = "alle_wegen" if overview_scope == "Alle wegen" else selected_road
-                file_attr = sanitize_filename(overview_attribute)
-
-                quantity_df = overview_quantity_dataframe(overview_map_result)
-                with st.expander("Hoeveelheden per legenda-item", expanded=True):
-                    st.dataframe(quantity_df, use_container_width=True, hide_index=True)
-                    st.download_button(
-                        "⬇️ Download Overzicht-hoeveelheden als CSV",
-                        data=quantity_df.to_csv(index=False).encode("utf-8-sig"),
-                        file_name=f"iASSET_Overzicht_Hoeveelheden_{sanitize_filename(file_scope)}_{file_attr}.csv",
-                        mime="text/csv",
-                        help="Exporteert de legenda-items met objectaantal, kilometers en beschikbare m².",
-                    )
-
                 export_title = f"iASSET Overzicht - {overview_label}"
                 export_subtitle = (
                     f"Visualisatie: {overview_attribute} | "
@@ -2026,6 +1979,8 @@ with col_map:
                     subtitle=export_subtitle,
                 )
 
+                file_scope = "alle_wegen" if overview_scope == "Alle wegen" else selected_road
+                file_attr = sanitize_filename(overview_attribute)
                 st.download_button(
                     "⬇️ Download Overzichtkaart als HTML",
                     data=export_html.encode("utf-8"),

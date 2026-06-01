@@ -1,13 +1,11 @@
 import geopandas as gpd
-import pytest
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString
 
 from iasset_tool.overview_map import (
     UNKNOWN_LABEL,
     available_overview_attributes,
     build_overview_map,
     build_value_color_mapping,
-    overview_quantity_dataframe,
     render_overview_map_html,
     resolve_overview_attribute,
 )
@@ -109,46 +107,3 @@ def test_single_known_value_gets_middle_ramp_color():
     mapping, _ = build_value_color_mapping(["2023", "2023"])
 
     assert mapping["2023"] == "#ffff8c"
-
-def test_build_overview_map_adds_length_quantities_for_line_geometry():
-    gdf = make_test_gdf()
-
-    result = build_overview_map(gdf, "Jaar deklaag")
-    items = {item.label: item for item in result.legend_items}
-
-    assert items["2018"].object_count == 1
-    assert items["2018"].length_m == pytest.approx(70.71, rel=0.01)
-    assert result.total_length_m == pytest.approx(141.42, rel=0.01)
-    assert result.length_source == "lijngeometrie"
-
-    quantity_df = overview_quantity_dataframe(result)
-    assert "Lengte (km)" in quantity_df.columns
-    assert quantity_df["Aantal objecten"].sum() == 2
-
-
-def test_build_overview_map_uses_polygon_area_and_width_for_quantities():
-    gdf = gpd.GeoDataFrame(
-        {
-            "sys_id": [1, 2],
-            "subthema": ["rijstrook", "rijstrook"],
-            "subthema_clean": ["rijstrook", "rijstrook"],
-            "Jaar deklaag": ["2020", "2020"],
-            "Administratieve breedte": [4.0, 2.0],
-        },
-        geometry=[
-            Polygon([(0, 0), (40, 0), (40, 4), (0, 4)]),
-            Polygon([(50, 0), (100, 0), (100, 2), (50, 2)]),
-        ],
-        crs="EPSG:28992",
-    ).set_index("sys_id", drop=False)
-
-    result = build_overview_map(gdf, "Jaar deklaag")
-    item = result.legend_items[0]
-
-    assert item.object_count == 2
-    assert item.area_m2 == pytest.approx(260.0)
-    assert item.length_m == pytest.approx(90.0)
-    assert result.total_area_m2 == pytest.approx(260.0)
-    assert result.area_source == "polygongeometrie"
-    assert result.length_source == "geschat uit oppervlakte / kolom 'Administratieve breedte'"
-
