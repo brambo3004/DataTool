@@ -19,11 +19,6 @@ import pandas as pd
 
 from .config import OVERVIEW_ATTRIBUTE_ALIASES, OVERVIEW_POPUP_COLUMNS
 from .utils import clean_display_value, normalize_text
-from .trajectory import (
-    TrajectoryQuantity as CentralTrajectoryQuantity,
-    combine_trajectory_sources,
-    trajectory_quantity_for_group,
-)
 
 
 UNKNOWN_LABEL = "Onbekend"
@@ -107,12 +102,6 @@ class LegendItem:
     # voor de legenda en sluit beter aan bij begin- en eindmetrering.
     trajectory_length_m: float | None = None
     trajectory_segment_count: int = 0
-    # Administratieve trajectlengte uit de projectnaam. Deze kan afwijken
-    # doordat namen op hectometerpunten worden afgerond.
-    trajectory_name_length_m: float | None = None
-    trajectory_difference_m: float | None = None
-    trajectory_warning: str = ""
-    trajectory_source: str = "niet beschikbaar"
     area_m2: float | None = None
 
 
@@ -127,8 +116,6 @@ class OverviewMapResult:
     total_length_m: float = 0.0
     total_trajectory_length_m: float | None = None
     total_trajectory_segment_count: int = 0
-    total_trajectory_name_length_m: float | None = None
-    total_trajectory_difference_m: float | None = None
     total_area_m2: float | None = None
     length_source: str = "niet beschikbaar"
     trajectory_source: str = "niet beschikbaar"
@@ -802,12 +789,6 @@ def _add_legend(m: folium.Map, title: str, legend_items: list[LegendItem]) -> No
             if item.trajectory_length_m is not None:
                 segment_text = f", {item.trajectory_segment_count} deeltraject(en)" if item.trajectory_segment_count else ""
                 quantity_parts.append(f"traject {_format_km(item.trajectory_length_m)} km{segment_text}")
-            if (
-                item.trajectory_name_length_m is not None
-                and item.trajectory_length_m is not None
-                and abs(item.trajectory_name_length_m - item.trajectory_length_m) >= 1
-            ):
-                quantity_parts.append(f"naam {_format_km(item.trajectory_name_length_m)} km")
             if item.area_m2 is not None:
                 quantity_parts.append(f"{_format_m2(item.area_m2)} m²")
             if item.length_m:
@@ -918,24 +899,21 @@ def build_overview_map(
 
     trajectory_by_value: dict[str, _TrajectoryQuantity] = {}
     for value, group in rijstroken.groupby("__overview_value", dropna=False):
-        trajectory_by_value[str(value)] = trajectory_quantity_for_group(group, rijstroken)
+        trajectory_by_value[str(value)] = _trajectory_quantity_for_group(group, rijstroken)
 
     enriched_legend_items: list[LegendItem] = []
     trajectory_sources: list[str] = []
     total_trajectory_length_m = 0.0
     total_trajectory_segment_count = 0
-    total_trajectory_name_length_m = 0.0
 
     for item in legend_items:
         quantity = quantity_rows.get(item.label, {})
         area_value = float(quantity.get("area_m2", 0.0) or 0.0)
-        trajectory = trajectory_by_value.get(item.label, CentralTrajectoryQuantity(None, 0, "niet beschikbaar"))
+        trajectory = trajectory_by_value.get(item.label, _TrajectoryQuantity(None, 0, "niet beschikbaar"))
         if trajectory.length_m is not None:
             total_trajectory_length_m += trajectory.length_m
             total_trajectory_segment_count += trajectory.segment_count
             trajectory_sources.append(trajectory.source)
-        if trajectory.name_length_m is not None:
-            total_trajectory_name_length_m += trajectory.name_length_m
 
         enriched_legend_items.append(
             LegendItem(
@@ -945,10 +923,6 @@ def build_overview_map(
                 length_m=float(quantity.get("length_m", 0.0) or 0.0),
                 trajectory_length_m=trajectory.length_m,
                 trajectory_segment_count=trajectory.segment_count,
-                trajectory_name_length_m=trajectory.name_length_m,
-                trajectory_difference_m=trajectory.difference_m,
-                trajectory_warning=trajectory.warning,
-                trajectory_source=trajectory.source,
                 area_m2=area_value if area_value > 0 else None,
             )
         )
@@ -956,13 +930,7 @@ def build_overview_map(
 
     total_length_m = float(rijstroken["__overview_length_m"].sum())
     total_trajectory_length = total_trajectory_length_m if total_trajectory_length_m > 0 else None
-    total_trajectory_name_length = total_trajectory_name_length_m if total_trajectory_name_length_m > 0 else None
-    total_trajectory_difference = (
-        total_trajectory_name_length - total_trajectory_length
-        if total_trajectory_name_length is not None and total_trajectory_length is not None
-        else None
-    )
-    trajectory_source = combine_trajectory_sources(trajectory_sources)
+    trajectory_source = _combine_trajectory_sources(trajectory_sources)
     total_area_value = float(rijstroken["__overview_area_m2"].sum())
     total_area_m2 = total_area_value if total_area_value > 0 else None
     if total_area_m2 is None:
@@ -1047,8 +1015,6 @@ def build_overview_map(
         total_length_m=total_length_m,
         total_trajectory_length_m=total_trajectory_length,
         total_trajectory_segment_count=total_trajectory_segment_count,
-        total_trajectory_name_length_m=total_trajectory_name_length,
-        total_trajectory_difference_m=total_trajectory_difference,
         total_area_m2=total_area_m2,
         length_source=length_source if total_length_m > 0 else "niet beschikbaar",
         trajectory_source=trajectory_source,
@@ -1069,29 +1035,12 @@ def overview_quantity_dataframe(result: OverviewMapResult) -> pd.DataFrame:
             {
                 "Legenda-item": item.label,
                 "Aantal objecten": item.object_count,
-                "Trajectlengte precies/voorkeur (km)": (
-                    round(item.trajectory_length_m / 1000, 3)
-                    if item.trajectory_length_m is not None
-                    else None
-                ),
-                "Trajectlengte naam (km)": (
-                    round(item.trajectory_name_length_m / 1000, 3)
-                    if item.trajectory_name_length_m is not None
-                    else None
-                ),
-                "Verschil naam t.o.v. precies (m)": (
-                    round(item.trajectory_difference_m, 1)
-                    if item.trajectory_difference_m is not None
-                    else None
-                ),
                 "Trajectlengte (km)": (
                     round(item.trajectory_length_m / 1000, 3)
                     if item.trajectory_length_m is not None
                     else None
                 ),
                 "Aantal deeltrajecten": item.trajectory_segment_count or None,
-                "Trajectlengtebron": item.trajectory_source,
-                "Trajectlengte waarschuwing": item.trajectory_warning or "",
                 "Oppervlakte (m²)": round(item.area_m2, 1) if item.area_m2 is not None else None,
                 "Objectlengte (km)": round(item.length_m / 1000, 3) if item.length_m else 0.0,
                 "Kleur": item.color,
@@ -1135,12 +1084,6 @@ def render_overview_map_html(
     total_parts = []
     if result.total_trajectory_length_m is not None:
         total_parts.append(f"Totaal trajectlengte: {_format_km(result.total_trajectory_length_m)} km")
-    if (
-        result.total_trajectory_name_length_m is not None
-        and result.total_trajectory_length_m is not None
-        and abs(result.total_trajectory_name_length_m - result.total_trajectory_length_m) >= 1
-    ):
-        total_parts.append(f"Totaal naamlengte: {_format_km(result.total_trajectory_name_length_m)} km")
     if result.total_area_m2 is not None:
         total_parts.append(f"Totaal oppervlak: {_format_m2(result.total_area_m2)} m²")
     if result.total_length_m:
@@ -1154,7 +1097,7 @@ def render_overview_map_html(
     )
     source_html = (
         "<div style='font-size:11px;color:#666;margin-top:4px;'>"
-        f"Trajectlengtebron (voorkeur): {html.escape(result.trajectory_source)}. "
+        f"Trajectlengtebron: {html.escape(result.trajectory_source)}. "
         f"Objectlengtebron: {html.escape(result.length_source)}. "
         f"Oppervlaktebron: {html.escape(result.area_source)}."
         "</div>"

@@ -1988,17 +1988,6 @@ with col_map:
                     quantity_parts.append(
                         f"trajectlengte {_format_km_for_ui(overview_map_result.total_trajectory_length_m)} km"
                     )
-                if (
-                    overview_map_result.total_trajectory_name_length_m is not None
-                    and overview_map_result.total_trajectory_length_m is not None
-                    and abs(
-                        overview_map_result.total_trajectory_name_length_m
-                        - overview_map_result.total_trajectory_length_m
-                    ) >= 1
-                ):
-                    quantity_parts.append(
-                        f"naamlengte {_format_km_for_ui(overview_map_result.total_trajectory_name_length_m)} km"
-                    )
                 if overview_map_result.total_area_m2 is not None:
                     quantity_parts.append(f"oppervlakte {_format_m2_for_ui(overview_map_result.total_area_m2)} m²")
                 if overview_map_result.total_length_m:
@@ -2013,11 +2002,10 @@ with col_map:
                     )
 
                 st.caption(
-                    f"Trajectlengtebron (voorkeur): {overview_map_result.trajectory_source}. "
+                    f"Trajectlengtebron: {overview_map_result.trajectory_source}. "
                     f"Objectlengtebron: {overview_map_result.length_source}. "
                     f"Oppervlaktebron: {overview_map_result.area_source}. "
-                    "Objectlengte telt rijstrookobjecten op; trajectlengte gebruikt objectmetrering als voorkeursbron "
-                    "en valt alleen terug op de onderhoudsprojectnaam als de metrering onvoldoende is."
+                    "Objectlengte telt rijstrookobjecten op; trajectlengte benadert het wegdeel langs de metrering."
                 )
 
                 file_scope = "alle_wegen" if overview_scope == "Alle wegen" else selected_road

@@ -1,22 +1,7 @@
-# iASSET Advisor - refactor v0.30.0
+# iASSET Advisor - refactor v0.29.0
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
-
-## Nieuw in v0.30.0
-
-Deze versie maakt de metrering- en trajectlogica explicieter en herbruikbaar.
-
-- Nieuwe centrale module `iasset_tool/trajectory.py`.
-- Overzicht maakt nu onderscheid tussen:
-  - **trajectlengte precies/voorkeur**: bij voorkeur uit objectmetrering;
-  - **trajectlengte naam**: administratieve lengte uit de onderhoudsprojectnaam;
-  - **objectlengte**: technische optelsom van rijstrookobjecten;
-  - **oppervlakte**: m² uit polygongeometrie of betrouwbare bronkolom.
-- Als objectmetrering en onderhoudsprojectnaam duidelijk verschillen, toont de hoeveelheidstabel een waarschuwing.
-- De logica voorkomt nog steeds dat losse wegdelen met hetzelfde legenda-item automatisch als één lang traject worden opgeteld.
-- Dezelfde metreringlogica is voorbereid voor latere naamvoorstellen in Project Adviseur.
-- De veiligheidsregel blijft ongewijzigd: de tool controleert, visualiseert en exporteert, maar voert geen mutaties door in iASSET.
 
 ## Nieuw in v0.29.0
 

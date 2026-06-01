@@ -158,13 +158,11 @@ def test_build_overview_map_adds_trajectory_length_from_project_name():
     assert items["2010"].trajectory_length_m == pytest.approx(200.0)
     assert items["2010"].trajectory_segment_count == 1
     assert items["2010"].length_m == pytest.approx(55.0)
-    assert result.trajectory_source == "objectmetrering punten uit \'Metrering\' + onderhoudsprojectnaam"
+    assert result.trajectory_source == "onderhoudsprojectnaam"
 
     quantity_df = overview_quantity_dataframe(result)
     row = quantity_df[quantity_df["Legenda-item"] == "2010"].iloc[0]
     assert row["Trajectlengte (km)"] == pytest.approx(0.2)
-    assert row["Trajectlengte precies/voorkeur (km)"] == pytest.approx(0.2)
-    assert row["Trajectlengte naam (km)"] == pytest.approx(0.2)
     assert row["Objectlengte (km)"] == pytest.approx(0.055)
 
 
@@ -191,7 +189,7 @@ def test_trajectory_length_does_not_merge_loose_metrering_segments():
 
     assert item.trajectory_length_m == pytest.approx(400.0)
     assert item.trajectory_segment_count == 2
-    assert result.trajectory_source == "objectmetrering punten uit 'Metrering'"
+    assert result.trajectory_source == "metreringkolom 'Metrering'"
 
 
 def test_build_overview_map_uses_polygon_area_and_width_for_quantities():
@@ -220,37 +218,3 @@ def test_build_overview_map_uses_polygon_area_and_width_for_quantities():
     assert result.area_source == "polygongeometrie"
     assert result.length_source == "geschat uit oppervlakte / kolom 'Administratieve breedte'"
 
-
-
-def test_overview_prefers_precise_metrering_and_keeps_name_length():
-    gdf = gpd.GeoDataFrame(
-        {
-            "sys_id": [1, 2],
-            "subthema": ["rijstrook", "rijstrook"],
-            "subthema_clean": ["rijstrook", "rijstrook"],
-            "Jaar deklaag": ["2010", "2010"],
-            "Metrering begin": [12.300, 13.200],
-            "Metrering einde": [13.200, 14.405],
-            "Onderhoudsproject": ["N354-HRB-12.3-14.5", "N354-HRB-12.3-14.5"],
-        },
-        geometry=[
-            LineString([(0, 0), (900, 0)]),
-            LineString([(900, 0), (2105, 0)]),
-        ],
-        crs="EPSG:28992",
-    ).set_index("sys_id", drop=False)
-
-    result = build_overview_map(gdf, "Jaar deklaag")
-    item = result.legend_items[0]
-
-    assert item.trajectory_length_m == pytest.approx(2105.0)
-    assert item.trajectory_name_length_m == pytest.approx(2200.0)
-    assert item.trajectory_difference_m == pytest.approx(95.0)
-    assert item.trajectory_warning
-    assert result.trajectory_source == "objectmetrering 'Metrering begin'-'Metrering einde'"
-
-    quantity_df = overview_quantity_dataframe(result)
-    row = quantity_df.iloc[0]
-    assert row["Trajectlengte precies/voorkeur (km)"] == pytest.approx(2.105)
-    assert row["Trajectlengte naam (km)"] == pytest.approx(2.2)
-    assert row["Verschil naam t.o.v. precies (m)"] == pytest.approx(95.0)
