@@ -1,20 +1,7 @@
-# iASSET Advisor - refactor v0.33.0
+# iASSET Advisor - refactor v0.32.0
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
-
-## Nieuw in v0.33.0
-
-Deze versie voegt een afgeschermde experimentele **NWB referentieproef** toe.
-
-- Nieuw scherm `🧪 NWB referentieproef` naast de bestaande modi.
-- Nieuwe module `iasset_tool/nwb.py` voor bronverkenning via de officiële NWB OGC API Features.
-- De proef haalt NWB-wegvakken en NWB-hectopunten op binnen de bbox van de geselecteerde iASSET-weg.
-- Wegvakken worden gefilterd op wegnummer/routenummer; hectopunten worden gekoppeld via `wvk_id`.
-- Optioneel kan een iASSET-wegassen-GeoJSON worden geüpload om de interne Dielplak-wegas ruimtelijk met NWB-wegvakken te vergelijken.
-- Output: NWB-bronsamenvatting, wegvakken-attributen, hectopunten-attributen en optionele wegasvergelijking als CSV.
-- De bestaande v0.32.1 **Referentieas / PDOK-proef** blijft beschikbaar, maar wordt niet verder als eindrichting gebruikt.
-- De proef is bewust alleen-lezen: iASSET blijft de single source of truth.
 
 ## Nieuw in v0.32.0
 
