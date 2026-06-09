@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-import re
 from typing import Any, Iterable
 
 import geopandas as gpd
@@ -28,7 +27,7 @@ from shapely.ops import unary_union
 from .utils import clean_display_value, normalize_text
 
 
-NWB_REFERENCE_SCHEMA_VERSION = "nwb-ref-v0.33.1"
+NWB_REFERENCE_SCHEMA_VERSION = "nwb-ref-v0.33.0"
 NWB_OGC_API_BASE_URL = "https://api.pdok.nl/rws/nationaal-wegenbestand-wegen/ogc/v1"
 
 NWB_ROAD_COLUMNS = (
@@ -135,21 +134,10 @@ def _normalise_road_query(road: str) -> tuple[str, str]:
 
 
 def _normalise_road_value(value: Any) -> tuple[str, str]:
-    """Normaliseer een NWB/iASSET-wegnummer of routenummer voor vergelijking.
-
-    iASSET-wegassen kunnen objectnamen hebben zoals ``WA-N354_1`` of
-    ``N354_1``. Die suffix betekent: tweede wegasdeel/variant, niet weg N3541.
-    Daarom zoeken we eerst naar een herkenbaar N-wegpatroon en pas daarna naar
-    volledig numerieke waarden zoals ``354`` of ``354.0``.
-    """
+    """Normaliseer een NWB-wegnummer/routenummer voor vergelijking."""
     text = clean_display_value(value).upper().replace(" ", "").replace("-", "")
     if not text or text.lower() == "nan":
         return "", ""
-
-    road_match = re.search(r"N(\d{1,4})(?:\D|$)", text)
-    if road_match:
-        digits = road_match.group(1)
-        return f"N{digits}", digits
 
     # Routenummers komen vaak numeriek binnen, bijvoorbeeld 354 of 354.0.
     try:
@@ -159,6 +147,8 @@ def _normalise_road_value(value: Any) -> tuple[str, str]:
         pass
 
     digits = "".join(ch for ch in text if ch.isdigit())
+    if text.startswith("N") and digits:
+        return f"N{digits}", digits
     if digits and text == digits:
         return f"N{digits}", digits
     return text, digits
@@ -438,7 +428,7 @@ def read_wegassen_geojson_bytes(data: bytes | str) -> gpd.GeoDataFrame:
 
     try:
         if isinstance(data, bytes):
-            payload = json.loads(data.decode("utf-8-sig"))
+            payload = json.loads(data.decode("utf-8"))
         elif isinstance(data, str):
             payload = json.loads(data)
         else:

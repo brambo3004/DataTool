@@ -112,50 +112,6 @@ def test_iasset_wegassen_geojson_can_be_read_and_filtered():
     assert filtered.iloc[0]["nummer"] == "WA-N354"
 
 
-
-
-def test_iasset_wegassen_geojson_with_utf8_bom_can_be_read():
-    """iASSET/GeoJSON-exports kunnen een UTF-8 BOM bevatten."""
-    payload = {
-        "type": "FeatureCollection",
-        "features": [
-            {
-                "type": "Feature",
-                "properties": {"nummer": "WA-N354", "naam": "N354"},
-                "geometry": {"type": "LineString", "coordinates": [(5.0, 53.0), (5.001, 53.0)]},
-            }
-        ],
-    }
-
-    import json
-
-    data = "\ufeff" + json.dumps(payload)
-    wegassen = read_wegassen_geojson_bytes(data.encode("utf-8"))
-
-    assert len(wegassen) == 1
-    assert wegassen.iloc[0]["nummer"] == "WA-N354"
-
-
-def test_filter_iasset_wegassen_accepts_suffix_variants():
-    """Wegassen zoals N354_1 horen bij N354, niet bij N3541."""
-    wegassen = gpd.GeoDataFrame(
-        {
-            "nummer": ["WA-N354", "WA-N354_1", "WA-N398"],
-            "naam": ["N354", "N354_1", "N398"],
-        },
-        geometry=[
-            LineString([(0, 0), (100, 0)]),
-            LineString([(100, 0), (200, 0)]),
-            LineString([(1000, 0), (1100, 0)]),
-        ],
-        crs="EPSG:28992",
-    )
-
-    filtered = filter_iasset_wegassen_for_road(wegassen, "N354")
-
-    assert set(filtered["nummer"].tolist()) == {"WA-N354", "WA-N354_1"}
-
-
 def test_compare_iasset_wegas_to_nwb_marks_near_axis_as_comparison():
     """Een iASSET-wegas dicht bij NWB krijgt geen controlewaarschuwing."""
     nwb_wegvakken = filter_nwb_wegvakken_for_road(_nwb_wegvakken(), "N354")
