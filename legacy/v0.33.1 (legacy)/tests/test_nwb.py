@@ -6,7 +6,6 @@ from shapely.geometry import LineString, Point
 from iasset_tool.nwb import (
     build_nwb_source_summary,
     compare_iasset_wegassen_to_nwb,
-    compare_iasset_wegassen_to_nwb_detail,
     filter_iasset_wegassen_for_road,
     filter_nwb_hectopunten_for_wegvakken,
     filter_nwb_wegvakken_for_road,
@@ -187,49 +186,3 @@ def test_compare_iasset_wegas_to_nwb_marks_far_axis_as_control():
 
     assert comparison.iloc[0]["status"] == "controleer"
     assert "wijkt ruimtelijk af" in comparison.iloc[0]["waarschuwing"]
-
-
-
-def test_compare_iasset_wegas_to_nwb_detail_localises_far_sample():
-    """De detail-export laat zien waar langs de as de afwijking zit."""
-    nwb_wegvakken = filter_nwb_wegvakken_for_road(_nwb_wegvakken(), "N354")
-    wegassen = gpd.GeoDataFrame(
-        {"nummer": ["WA-N354"], "naam": ["N354"], "Wegnummer": ["N354"]},
-        geometry=[LineString([(0, 2), (100, 2), (200, 80)])],
-        crs="EPSG:28992",
-    )
-
-    detail = compare_iasset_wegassen_to_nwb_detail(
-        wegassen,
-        nwb_wegvakken,
-        "N354",
-        max_distance_m=25,
-        sample_step_m=50,
-    )
-
-    assert not detail.empty
-    assert {"afstand_langs_iasset_wegas_m", "x_rd", "y_rd", "afstand_tot_nwb_m", "status"}.issubset(detail.columns)
-    assert detail["afstand_tot_nwb_m"].max() > 25
-    assert "controleer" in set(detail["status"].tolist())
-
-
-def test_compare_iasset_wegas_to_nwb_detail_links_nearest_wegvak():
-    """Elk detailpunt krijgt het dichtstbijzijnde NWB-wegvak als context mee."""
-    nwb_wegvakken = filter_nwb_wegvakken_for_road(_nwb_wegvakken(), "N354")
-    wegassen = gpd.GeoDataFrame(
-        {"nummer": ["WA-N354"], "naam": ["N354"], "Wegnummer": ["N354"]},
-        geometry=[LineString([(0, 1), (200, 1)])],
-        crs="EPSG:28992",
-    )
-
-    detail = compare_iasset_wegassen_to_nwb_detail(
-        wegassen,
-        nwb_wegvakken,
-        "N354",
-        max_distance_m=25,
-        sample_step_m=100,
-    )
-
-    assert not detail.empty
-    assert set(detail["dichtstbijzijnde_nwb_wvk_id"].astype(str)).issubset({"1001.0", "1002.0", "1001", "1002"})
-    assert set(detail["status"].tolist()) == {"vergelijking"}

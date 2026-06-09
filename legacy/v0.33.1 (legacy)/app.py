@@ -79,7 +79,6 @@ from iasset_tool.nwb import (
     NWB_REFERENCE_SCHEMA_VERSION,
     build_nwb_reference_for_road,
     compare_iasset_wegassen_to_nwb,
-    compare_iasset_wegassen_to_nwb_detail,
     read_wegassen_geojson_bytes,
 )
 from iasset_tool.performance import measure_step, performance_dataframe
@@ -1874,7 +1873,7 @@ with col_inspector:
             "NWB wordt gebruikt als externe diagnosebron; iASSET blijft de single source of truth."
         )
 
-        nwb_col_1, nwb_col_2, nwb_col_3, nwb_col_4 = st.columns(4)
+        nwb_col_1, nwb_col_2, nwb_col_3 = st.columns(3)
         with nwb_col_1:
             nwb_buffer_m = st.number_input(
                 "NWB-opvraagbuffer rond iASSET-objecten (meter)",
@@ -1906,18 +1905,6 @@ with col_inspector:
                 step=100,
                 help="Laat deze normaal op 10000 staan. De API kan meerdere pagina's teruggeven.",
             )
-        with nwb_col_4:
-            nwb_detail_sample_step_m = st.number_input(
-                "Detail-sampleafstand wegas (meter)",
-                min_value=25.0,
-                max_value=1000.0,
-                value=100.0,
-                step=25.0,
-                help=(
-                    "Voor de detail-export: om de hoeveel meter langs de iASSET-wegas "
-                    "een controlepunt wordt gemaakt. Lager is preciezer, maar geeft meer regels."
-                ),
-            )
 
         uploaded_wegassen = st.file_uploader(
             "Optioneel: iASSET-wegassen GeoJSON voor vergelijking met NWB",
@@ -1941,7 +1928,6 @@ with col_inspector:
             )
 
             wegas_comparison = pd.DataFrame()
-            wegas_comparison_detail = pd.DataFrame()
             uploaded_wegassen_name = ""
             if uploaded_wegassen is not None:
                 uploaded_wegassen_name = uploaded_wegassen.name
@@ -1955,16 +1941,6 @@ with col_inspector:
                     selected_road,
                     max_distance_m=float(nwb_wegas_max_distance_m),
                 )
-                wegas_comparison_detail = measure_step(
-                    get_performance_log(),
-                    "NWB wegasvergelijking detail",
-                    compare_iasset_wegassen_to_nwb_detail,
-                    wegassen_gdf,
-                    nwb_result.wegvakken,
-                    selected_road,
-                    max_distance_m=float(nwb_wegas_max_distance_m),
-                    sample_step_m=float(nwb_detail_sample_step_m),
-                )
 
             st.session_state["nwb_reference_diagnostics"] = {
                 "road": selected_road,
@@ -1973,13 +1949,11 @@ with col_inspector:
                 "app_version": APP_VERSION,
                 "buffer_meters": float(nwb_buffer_m),
                 "wegas_max_distance_m": float(nwb_wegas_max_distance_m),
-                "wegas_detail_sample_step_m": float(nwb_detail_sample_step_m),
                 "uploaded_wegassen_name": uploaded_wegassen_name,
                 "source_summary": nwb_result.source_summary,
                 "wegvakken": nwb_result.wegvakken.drop(columns="geometry", errors="ignore"),
                 "hectopunten": nwb_result.hectopunten.drop(columns="geometry", errors="ignore"),
                 "wegas_comparison": wegas_comparison,
-                "wegas_comparison_detail": wegas_comparison_detail,
                 "warning": nwb_result.warning,
             }
 
@@ -1997,8 +1971,7 @@ with col_inspector:
                 f"Diagnose: {nwb_state.get('app_version', APP_VERSION)} / "
                 f"{nwb_state.get('schema_version', 'onbekend')}. "
                 f"Buffer: {nwb_state.get('buffer_meters', nwb_buffer_m):g} m. "
-                f"Wegasafstand: {nwb_state.get('wegas_max_distance_m', nwb_wegas_max_distance_m):g} m. "
-                f"Detailstap: {nwb_state.get('wegas_detail_sample_step_m', nwb_detail_sample_step_m):g} m."
+                f"Wegasafstand: {nwb_state.get('wegas_max_distance_m', nwb_wegas_max_distance_m):g} m."
             )
 
             if nwb_state.get("warning"):
@@ -2103,46 +2076,6 @@ with col_inspector:
                     file_name=f"NWB_Wegasvergelijking_{sanitize_filename(selected_road)}.csv",
                     mime="text/csv",
                 )
-
-                wegas_detail = nwb_state.get("wegas_comparison_detail")
-                if isinstance(wegas_detail, pd.DataFrame) and not wegas_detail.empty:
-                    st.markdown("#### Detailpunten wegas versus NWB")
-                    st.caption(
-                        "Deze detailtabel laat per samplepunt langs de iASSET-wegas zien "
-                        "hoe ver dat punt van het dichtstbijzijnde NWB-wegvak ligt. "
-                        "Gebruik dit om uitschieters lokaal terug te vinden."
-                    )
-                    detail_preview_columns = [
-                        col for col in [
-                            "nummer",
-                            "sample_nr",
-                            "afstand_langs_iasset_wegas_m",
-                            "x_rd",
-                            "y_rd",
-                            "afstand_tot_nwb_m",
-                            "dichtstbijzijnde_nwb_wvk_id",
-                            "dichtstbijzijnde_nwb_wegnummer",
-                            "dichtstbijzijnde_nwb_routenr",
-                            "status",
-                            "waarschuwing",
-                        ]
-                        if col in wegas_detail.columns
-                    ]
-                    st.dataframe(
-                        wegas_detail[detail_preview_columns].head(1000)
-                        if detail_preview_columns
-                        else wegas_detail.head(1000),
-                        use_container_width=True,
-                        hide_index=True,
-                    )
-
-                    detail_csv = wegas_detail.to_csv(index=False, sep=";").encode("utf-8-sig")
-                    st.download_button(
-                        "📥 Download detailpunten wegasvergelijking",
-                        data=detail_csv,
-                        file_name=f"NWB_Wegasvergelijking_Detail_{sanitize_filename(selected_road)}.csv",
-                        mime="text/csv",
-                    )
             elif nwb_state.get("uploaded_wegassen_name"):
                 st.info(
                     "Er is een wegassenbestand geüpload, maar er kon geen wegasvergelijking worden gemaakt "

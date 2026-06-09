@@ -28,7 +28,7 @@ from shapely.ops import unary_union
 from .utils import clean_display_value, normalize_text
 
 
-NWB_REFERENCE_SCHEMA_VERSION = "nwb-ref-v0.33.2"
+NWB_REFERENCE_SCHEMA_VERSION = "nwb-ref-v0.33.1"
 NWB_OGC_API_BASE_URL = "https://api.pdok.nl/rws/nationaal-wegenbestand-wegen/ogc/v1"
 
 NWB_ROAD_COLUMNS = (
@@ -87,31 +87,6 @@ def _empty_wegas_comparison() -> pd.DataFrame:
             "afstand_min_tot_nwb_m",
             "afstand_gem_tot_nwb_m",
             "afstand_max_sample_tot_nwb_m",
-            "bronkwaliteit",
-            "status",
-            "waarschuwing",
-        ]
-    )
-
-
-def _empty_wegas_comparison_detail() -> pd.DataFrame:
-    """Maak een lege detailtabel voor iASSET-wegas-samplepunten versus NWB."""
-    return pd.DataFrame(
-        columns=[
-            "nummer",
-            "naam",
-            "Wegnummer",
-            "sample_nr",
-            "afstand_langs_iasset_wegas_m",
-            "sample_fractie",
-            "x_rd",
-            "y_rd",
-            "afstand_tot_nwb_m",
-            "dichtstbijzijnde_nwb_wvk_id",
-            "dichtstbijzijnde_nwb_wegnummer",
-            "dichtstbijzijnde_nwb_routenr",
-            "dichtstbijzijnde_nwb_beginkm",
-            "dichtstbijzijnde_nwb_eindkm",
             "bronkwaliteit",
             "status",
             "waarschuwing",
@@ -526,176 +501,6 @@ def _sample_geometry_distances(geometry: Any, target: Any, sample_count: int = 2
             continue
     return distances
 
-
-
-
-def _sample_positions_along_geometry(
-    geometry: Any,
-    *,
-    sample_count: int = 25,
-    sample_step_m: float | None = None,
-    max_samples_per_axis: int = 500,
-) -> list[float]:
-    """Bepaal sampleposities langs een wegas in meters.
-
-    We nemen altijd de genormaliseerde punten uit de asvergelijking mee
-    (0/25, 1/25, ..., 25/25). Als een sampleafstand is opgegeven, voegen we
-    ook regelmatige meterstappen toe. Zo blijft de detail-export vergelijkbaar
-    met de samenvatting én krijgen beheerders meer lokale aanwijzingen.
-    """
-    if geometry is None or geometry.is_empty:
-        return []
-
-    try:
-        length = float(geometry.length)
-    except Exception:
-        return []
-
-    if length <= 0:
-        return [0.0]
-
-    positions = {0.0, length}
-
-    safe_sample_count = max(int(sample_count), 1)
-    for index in range(safe_sample_count + 1):
-        positions.add(length * index / safe_sample_count)
-
-    if sample_step_m is not None:
-        try:
-            step = float(sample_step_m)
-        except Exception:
-            step = 0.0
-        if step > 0:
-            step_count = int(length // step)
-            for index in range(step_count + 1):
-                positions.add(min(length, index * step))
-
-    sorted_positions = sorted(positions)
-    if len(sorted_positions) <= max_samples_per_axis:
-        return sorted_positions
-
-    # Bij heel lange assen beperken we de hoeveelheid detailregels, maar we
-    # behouden begin/eind en verdelen de rest gelijkmatig.
-    keep_indices = sorted(
-        {
-            round(index * (len(sorted_positions) - 1) / (max_samples_per_axis - 1))
-            for index in range(max_samples_per_axis)
-        }
-    )
-    return [sorted_positions[index] for index in keep_indices]
-
-
-def _nearest_nwb_row(point: Any, nwb_wegvakken: gpd.GeoDataFrame) -> tuple[pd.Series | None, float | None]:
-    """Zoek het dichtstbijzijnde NWB-wegvak voor één samplepunt."""
-    if point is None or point.is_empty or nwb_wegvakken is None or nwb_wegvakken.empty:
-        return None, None
-
-    best_index = None
-    best_distance = None
-
-    for index, geom in nwb_wegvakken.geometry.items():
-        if geom is None or geom.is_empty:
-            continue
-        try:
-            distance = float(point.distance(geom))
-        except Exception:
-            continue
-        if best_distance is None or distance < best_distance:
-            best_distance = distance
-            best_index = index
-
-    if best_index is None:
-        return None, None
-    return nwb_wegvakken.loc[best_index], best_distance
-
-
-def compare_iasset_wegassen_to_nwb_detail(
-    wegassen_gdf: gpd.GeoDataFrame,
-    nwb_wegvakken: gpd.GeoDataFrame,
-    selected_road: str,
-    *,
-    max_distance_m: float = 25.0,
-    sample_step_m: float = 100.0,
-    sample_count: int = 25,
-    max_samples_per_axis: int = 500,
-) -> pd.DataFrame:
-    """
-    Maak detailregels per samplepunt voor de iASSET-wegas versus NWB.
-
-    Waarom deze detail-export?
-    De samenvatting zegt dát een wegas afwijkt. Deze tabel laat zien wáár langs
-    de iASSET-wegas de afwijking optreedt. Dat is bedoeld voor visuele controle
-    en overleg, niet voor automatische mutaties in iASSET.
-    """
-    if nwb_wegvakken is None or nwb_wegvakken.empty:
-        return _empty_wegas_comparison_detail()
-
-    filtered_wegassen = filter_iasset_wegassen_for_road(wegassen_gdf, selected_road)
-    if filtered_wegassen.empty:
-        return _empty_wegas_comparison_detail()
-
-    nwb_rd = _ensure_rd(nwb_wegvakken)
-    rows: list[dict[str, Any]] = []
-
-    for _, wegas_row in filtered_wegassen.iterrows():
-        geom = wegas_row.geometry
-        if geom is None or geom.is_empty:
-            continue
-
-        try:
-            length = float(geom.length)
-        except Exception:
-            continue
-
-        positions = _sample_positions_along_geometry(
-            geom,
-            sample_count=sample_count,
-            sample_step_m=sample_step_m,
-            max_samples_per_axis=max_samples_per_axis,
-        )
-
-        for sample_nr, position_m in enumerate(positions, start=1):
-            try:
-                point = geom.interpolate(position_m)
-            except Exception:
-                continue
-
-            nearest_row, distance = _nearest_nwb_row(point, nwb_rd)
-            warnings: list[str] = []
-            if distance is None:
-                warnings.append("Geen dichtstbijzijnd NWB-wegvak gevonden.")
-            elif distance > max_distance_m:
-                warnings.append("samplepunt ligt verder dan de maximale afstand tot NWB")
-
-            status = "vergelijking" if not warnings else "controleer"
-
-            rows.append(
-                {
-                    "nummer": clean_display_value(wegas_row.get("nummer", "")),
-                    "naam": clean_display_value(wegas_row.get("naam", "")),
-                    "Wegnummer": clean_display_value(wegas_row.get("Wegnummer", "")),
-                    "sample_nr": int(sample_nr),
-                    "afstand_langs_iasset_wegas_m": round(float(position_m), 2),
-                    "sample_fractie": round(float(position_m / length), 6) if length > 0 else None,
-                    "x_rd": round(float(point.x), 3),
-                    "y_rd": round(float(point.y), 3),
-                    "afstand_tot_nwb_m": round(float(distance), 2) if distance is not None else None,
-                    "dichtstbijzijnde_nwb_wvk_id": clean_display_value(nearest_row.get("wvk_id", "")) if nearest_row is not None else "",
-                    "dichtstbijzijnde_nwb_wegnummer": clean_display_value(nearest_row.get("wegnummer", "")) if nearest_row is not None else "",
-                    "dichtstbijzijnde_nwb_routenr": clean_display_value(nearest_row.get("routenr", "")) if nearest_row is not None else "",
-                    "dichtstbijzijnde_nwb_beginkm": nearest_row.get("beginkm", None) if nearest_row is not None else None,
-                    "dichtstbijzijnde_nwb_eindkm": nearest_row.get("eindkm", None) if nearest_row is not None else None,
-                    "bronkwaliteit": "experimenteel",
-                    "status": status,
-                    "waarschuwing": "; ".join(warnings),
-                }
-            )
-
-    if not rows:
-        return _empty_wegas_comparison_detail()
-
-    result = pd.DataFrame(rows, columns=_empty_wegas_comparison_detail().columns)
-    return result
 
 def compare_iasset_wegassen_to_nwb(
     wegassen_gdf: gpd.GeoDataFrame,
