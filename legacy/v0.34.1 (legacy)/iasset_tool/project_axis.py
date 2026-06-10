@@ -1,5 +1,5 @@
 """
-Projectgrenzen op een geijkte iASSET-referentieas (v0.34.2).
+Projectgrenzen op een geijkte iASSET-referentieas (v0.34.1).
 
 Deze module draait de eerdere referentieasproef bewust om:
 
@@ -34,7 +34,7 @@ from .trajectory import format_name_hm, parse_project_range
 from .utils import clean_display_value, normalize_text
 
 
-PROJECT_AXIS_SCHEMA_VERSION = "projectaxis-v0.34.2"
+PROJECT_AXIS_SCHEMA_VERSION = "projectaxis-v0.34.1"
 
 HECTOMETER_COLUMN_CANDIDATES = (
     "hectomtrng",
@@ -54,14 +54,13 @@ PRIMARY_SUBTHEMES = {
 
 PROJECT_TYPE_FAMILIES = ("LBP", "HRB", "PW", "FP", "BB")
 PROJECT_TYPES_WITH_REQUIRED_SITUERING = {"PW", "FP", "BB", "LBP"}
-ALLOWED_REQUIRED_SITUERING_CODES = {"L", "R", "LR"}
 STATUS_RANK = {"ok": 0, "overzicht": 0, "projectie": 0, "aandacht": 1, "controleer": 2}
 
 
 @dataclass(frozen=True)
 class ProjectAxisDiagnosticsResult:
     """
-    Resultaat van de v0.34.2-projectgrensdiagnose.
+    Resultaat van de v0.34.1-projectgrensdiagnose.
 
     Alle tabellen zijn gewone DataFrames. Dat houdt de Streamlit-laag simpel en
     maakt export naar CSV zonder extra conversie mogelijk.
@@ -179,9 +178,6 @@ def _empty_object_range_frame() -> pd.DataFrame:
             "nummer",
             "subthema",
             "Onderhoudsproject",
-            "project_type",
-            "project_family",
-            "situering",
             "axis_id",
             "axis_naam",
             "route_begin_m",
@@ -719,79 +715,6 @@ def _project_road(project_name: Any) -> str:
     return f"N{match.group(1)}" if match else ""
 
 
-def _subtheme_project_family(subthema: Any) -> str:
-    """
-    Vertaal een primair iASSET-subthema naar de projectfamilie.
-
-    Deze mapping gebruiken we alleen diagnostisch, bijvoorbeeld om te bepalen
-    of een gat tussen twee projectnamen ook echt samenvalt met fysieke primaire
-    objecten van dat spoor.
-    """
-    value = normalize_text(subthema)
-    mapping = {
-        "rijstrook": "HRB",
-        "parallelweg": "PW",
-        "fietspad": "FP",
-        "busbaan": "BB",
-        "landbouwpad": "LBP",
-    }
-    return mapping.get(value, "")
-
-
-def _situering_code(value: Any) -> str:
-    """
-    Maak van iASSET-situering een compacte L/R/LR-code.
-
-    iASSET-velden kunnen waarden bevatten zoals 'rechts', 'links buiten' of
-    combinaties. We gebruiken dit alleen als hulpmiddel voor diagnose; onbekende
-    waarden blijven leeg in plaats van dat de tool crasht.
-    """
-    text = normalize_text(value)
-    if not text:
-        return ""
-    has_left = "links" in text or text in {"l", "li"}
-    has_right = "rechts" in text or text in {"r", "re"}
-    if has_left and has_right:
-        return "LR"
-    if has_left:
-        return "L"
-    if has_right:
-        return "R"
-    upper = clean_display_value(value).upper().replace(" ", "")
-    if upper in {"L", "R", "LR"}:
-        return upper
-    return ""
-
-
-def _object_project_type_from_row(row: pd.Series, project_name: str = "") -> tuple[str, str, str]:
-    """
-    Bepaal projecttype/familie/situering voor een objectrij.
-
-    Als een object een onderhoudsprojectnaam heeft, gebruiken we die. Voor
-    primaire objecten zonder onderhoudsproject vallen we terug op subthema +
-    Situering, zodat de gatcontrole kan zien of er fysiek een HRB/PWR/FPR-spoor
-    in het gat aanwezig is.
-    """
-    project_type = _project_type(project_name)
-    family, situering = _split_project_type(project_type)
-    if family:
-        return project_type, family, situering
-
-    family = _subtheme_project_family(row.get("subthema", ""))
-    situering = _situering_code(row.get("Situering", ""))
-    if not family:
-        return "", "", ""
-
-    if family == "HRB":
-        project_type = f"{family}{situering}" if situering in {"L", "R"} else family
-    elif situering in {"L", "R", "LR"}:
-        project_type = f"{family}{situering}"
-    else:
-        project_type = family
-
-    return project_type, family, situering
-
-
 def _worst_status(*statuses: str) -> str:
     """Geef de zwaarste status terug volgens de projectas-diagnose."""
     clean = [clean_display_value(status).lower() for status in statuses if clean_display_value(status)]
@@ -918,8 +841,8 @@ def _validate_project_name(project_name: Any, selected_road: str) -> dict[str, A
 
     if family not in PROJECT_TYPE_FAMILIES:
         warnings.append(("controleer", f"projecttype {project_type} is niet herkend als primaire projectfamilie"))
-    elif family in PROJECT_TYPES_WITH_REQUIRED_SITUERING and situering not in ALLOWED_REQUIRED_SITUERING_CODES:
-        warnings.append(("aandacht", f"projecttype {family} heeft normaal een situering L, R of LR nodig"))
+    elif family in PROJECT_TYPES_WITH_REQUIRED_SITUERING and situering not in {"L", "R"}:
+        warnings.append(("aandacht", f"projecttype {family} heeft normaal een situering L of R nodig"))
     elif family == "HRB" and situering not in {"", "L", "R"}:
         warnings.append(("aandacht", f"situering {situering} bij HRB is niet standaard"))
 
@@ -1052,16 +975,8 @@ def _build_object_ranges(
     rows: list[dict[str, Any]] = []
     for object_index, row in working.iterrows():
         project_name = clean_display_value(row.get("Onderhoudsproject", ""))
-        subthema_norm = normalize_text(row.get("subthema", ""))
-        is_primary = subthema_norm in PRIMARY_SUBTHEMES
-
-        # v0.34.2: primaire objecten zonder onderhoudsproject blijven zichtbaar
-        # voor de gatcontrole. Secundaire objecten zonder projectnaam voegen we
-        # niet toe, anders wordt de export te druk en minder bruikbaar.
-        if not project_name and not is_primary:
+        if not project_name:
             continue
-
-        object_project_type, object_family, object_situering = _object_project_type_from_row(row, project_name)
 
         geometry = row.geometry if "geometry" in row.index else None
         if not _is_valid_geometry(geometry):
@@ -1071,9 +986,6 @@ def _build_object_ranges(
                     "nummer": clean_display_value(row.get("nummer", "")),
                     "subthema": clean_display_value(row.get("subthema", "")),
                     "Onderhoudsproject": project_name,
-                    "project_type": object_project_type,
-                    "project_family": object_family,
-                    "situering": object_situering,
                     "axis_id": "",
                     "axis_naam": "",
                     "route_begin_m": None,
@@ -1081,7 +993,7 @@ def _build_object_ranges(
                     "referentie_begin_km": None,
                     "referentie_eind_km": None,
                     "afstand_tot_as_m": None,
-                    "primair_object": is_primary,
+                    "primair_object": normalize_text(row.get("subthema", "")) in PRIMARY_SUBTHEMES,
                     "status": "controleer",
                     "waarschuwing": "object heeft geen bruikbare geometrie",
                     "bronkwaliteit": "experimenteel",
@@ -1116,6 +1028,7 @@ def _build_object_ranges(
             warning_parts.append("object valt deels buiten ijkbereik")
 
         status = "projectie" if not warning_parts else "controleer"
+        subthema_norm = normalize_text(row.get("subthema", ""))
 
         rows.append(
             {
@@ -1123,9 +1036,6 @@ def _build_object_ranges(
                 "nummer": clean_display_value(row.get("nummer", "")),
                 "subthema": clean_display_value(row.get("subthema", "")),
                 "Onderhoudsproject": project_name,
-                "project_type": object_project_type,
-                "project_family": object_family,
-                "situering": object_situering,
                 "axis_id": best["axis_id"],
                 "axis_naam": best["axis_naam"],
                 "route_begin_m": _round_or_none(route_start, 2),
@@ -1133,7 +1043,7 @@ def _build_object_ranges(
                 "referentie_begin_km": _round_or_none(min(begin_km, end_km) if begin_km is not None and end_km is not None else None, 3),
                 "referentie_eind_km": _round_or_none(max(begin_km, end_km) if begin_km is not None and end_km is not None else None, 3),
                 "afstand_tot_as_m": _round_or_none(offset_m, 2),
-                "primair_object": is_primary,
+                "primair_object": subthema_norm in PRIMARY_SUBTHEMES,
                 "status": status,
                 "waarschuwing": "; ".join(warning_parts),
                 "bronkwaliteit": "experimenteel",
@@ -1485,109 +1395,6 @@ def _build_project_boundaries(
     ).reset_index(drop=True)
 
 
-def _project_type_matches_gap(object_type: str, gap_project_type: str) -> bool:
-    """
-    Bepaal of een objectspoor past bij het projecttype van een gat.
-
-    Exacte matches zijn leidend. Een gecombineerde LR-situering mag ook matchen
-    met L of R, omdat bijvoorbeeld BBLR voorlopig als toegestane gecombineerde
-    beheernaam wordt beschouwd.
-    """
-    object_type = clean_display_value(object_type).upper()
-    gap_project_type = clean_display_value(gap_project_type).upper()
-    if not object_type or not gap_project_type:
-        return False
-    if object_type == gap_project_type:
-        return True
-
-    gap_family, gap_situering = _split_project_type(gap_project_type)
-    object_family, object_situering = _split_project_type(object_type)
-    if gap_family != object_family:
-        return False
-
-    if object_situering == "LR" and gap_situering in {"L", "R"}:
-        return True
-    if gap_situering == "LR" and object_situering in {"L", "R"}:
-        return True
-
-    # Bij HRB zonder L/R is situering vaak niet relevant.
-    if gap_family == "HRB" and not gap_situering and object_family == "HRB":
-        return True
-
-    return False
-
-
-def _primary_object_presence_in_gap(
-    object_ranges: pd.DataFrame,
-    *,
-    axis_id: str,
-    project_type: str,
-    start_m: float,
-    end_m: float,
-) -> dict[str, Any]:
-    """
-    Controleer of er fysieke primaire objecten liggen binnen een projectgat.
-
-    v0.34.1 meldde elk gat tussen twee projectnamen van hetzelfde type. In de
-    praktijk is dat voor parallelwegen en fietspaden te streng: soms bestaat het
-    spoor daar fysiek niet. Daarom markeren we een gat pas als controlepunt als
-    er ook primaire objectprojecties van hetzelfde spoor in dat interval liggen.
-    """
-    if object_ranges is None or object_ranges.empty:
-        return {"count": 0, "length_m": 0.0, "objects": ""}
-
-    left = min(float(start_m), float(end_m))
-    right = max(float(start_m), float(end_m))
-    if not math.isfinite(left) or not math.isfinite(right) or left >= right:
-        return {"count": 0, "length_m": 0.0, "objects": ""}
-
-    work = object_ranges.copy()
-    if "axis_id" not in work.columns:
-        return {"count": 0, "length_m": 0.0, "objects": ""}
-
-    work = work[work["axis_id"].map(clean_display_value) == clean_display_value(axis_id)].copy()
-    if work.empty:
-        return {"count": 0, "length_m": 0.0, "objects": ""}
-
-    primary = work.get("primair_object", pd.Series(False, index=work.index)).astype(bool)
-    work = work[primary].copy()
-    if work.empty:
-        return {"count": 0, "length_m": 0.0, "objects": ""}
-
-    work = work[
-        work.get("project_type", pd.Series("", index=work.index))
-        .map(lambda value: _project_type_matches_gap(clean_display_value(value), project_type))
-    ].copy()
-    if work.empty:
-        return {"count": 0, "length_m": 0.0, "objects": ""}
-
-    starts = pd.to_numeric(work.get("route_begin_m", pd.Series(dtype=float)), errors="coerce")
-    ends = pd.to_numeric(work.get("route_eind_m", pd.Series(dtype=float)), errors="coerce")
-    work = work.assign(
-        _start_m=pd.concat([starts, ends], axis=1).min(axis=1),
-        _end_m=pd.concat([starts, ends], axis=1).max(axis=1),
-    ).dropna(subset=["_start_m", "_end_m"])
-    if work.empty:
-        return {"count": 0, "length_m": 0.0, "objects": ""}
-
-    work = work[(work["_start_m"] < right) & (work["_end_m"] > left)].copy()
-    if work.empty:
-        return {"count": 0, "length_m": 0.0, "objects": ""}
-
-    overlap_lengths = (work["_end_m"].clip(upper=right) - work["_start_m"].clip(lower=left)).clip(lower=0)
-    object_labels = []
-    for _, row in work.head(10).iterrows():
-        label = clean_display_value(row.get("nummer", "")) or clean_display_value(row.get("Onderhoudsproject", ""))
-        if label:
-            object_labels.append(label)
-
-    return {
-        "count": int(len(work)),
-        "length_m": float(overlap_lengths.sum()),
-        "objects": ", ".join(dict.fromkeys(object_labels)),
-    }
-
-
 def _merge_intervals_m(intervals: list[tuple[float, float]]) -> list[tuple[float, float]]:
     """Voeg overlappende route-intervallen samen."""
     clean = sorted((min(a, b), max(a, b)) for a, b in intervals if a is not None and b is not None and a != b)
@@ -1608,7 +1415,6 @@ def _build_project_coverage(
     project_boundaries: pd.DataFrame,
     anchors: pd.DataFrame,
     axes: list[dict[str, Any]],
-    object_ranges: pd.DataFrame,
     *,
     gap_tolerance_m: float,
 ) -> pd.DataFrame:
@@ -1616,7 +1422,7 @@ def _build_project_coverage(
     Signaleer projectdekking, gaten en overlap per projecttype.
 
     v0.34.0 vergeleek alle projecttypen op één as met elkaar. Daardoor leek een
-    HRB-project te overlappen met een parallelweg of fietspad. In v0.34.2 wordt
+    HRB-project te overlappen met een parallelweg of fietspad. In v0.34.1 wordt
     per spoor gecontroleerd: HRB met HRB, PWR met PWR, FPR met FPR, enzovoort.
     We melden alleen interne gaten tussen opeenvolgende projecten van hetzelfde
     type; het ontbreken van een parallelweg aan het begin/einde van een N-weg is
@@ -1700,42 +1506,23 @@ def _build_project_coverage(
         previous_start, previous_end, previous_name = intervals[0]
         for start, end, name in intervals[1:]:
             if start - previous_end > gap_tolerance_m:
-                gap_presence = _primary_object_presence_in_gap(
-                    object_ranges,
-                    axis_id=axis_id,
-                    project_type=project_type,
-                    start_m=previous_end,
-                    end_m=start,
+                rows.append(
+                    {
+                        **common,
+                        "controle_type": "gat",
+                        "van_m": _round_or_none(previous_end, 2),
+                        "tot_m": _round_or_none(start, 2),
+                        "lengte_m": _round_or_none(start - previous_end, 1),
+                        "project_links": previous_name,
+                        "project_rechts": name,
+                        "dekking_uniek_m": None,
+                        "projectbereik_m": _round_or_none(project_span, 1),
+                        "ijking_span_m": _round_or_none(calibration_span, 1),
+                        "dekking_pct": None,
+                        "status": "controleer",
+                        "advies": "Controleer of tussen deze projecten van hetzelfde projecttype bewust een gat zit.",
+                    }
                 )
-
-                # Alleen echte gatkandidaten melden: een onderbreking zonder
-                # primaire objecten is bij parallelwegen/fietspaden meestal
-                # geen fout maar gewoon een ontbrekend fysiek spoor.
-                if int(gap_presence["count"]) > 0:
-                    rows.append(
-                        {
-                            **common,
-                            "controle_type": "gat",
-                            "van_m": _round_or_none(previous_end, 2),
-                            "tot_m": _round_or_none(start, 2),
-                            "lengte_m": _round_or_none(start - previous_end, 1),
-                            "project_links": previous_name,
-                            "project_rechts": name,
-                            "dekking_uniek_m": None,
-                            "projectbereik_m": _round_or_none(project_span, 1),
-                            "ijking_span_m": _round_or_none(calibration_span, 1),
-                            "dekking_pct": None,
-                            "status": "controleer",
-                            "advies": (
-                                "Controleer dit gat: er liggen primaire objecten van hetzelfde spoor in dit interval"
-                                + (
-                                    f" ({gap_presence['objects']})."
-                                    if clean_display_value(gap_presence.get("objects", ""))
-                                    else "."
-                                )
-                            ),
-                        }
-                    )
             elif previous_end - start > gap_tolerance_m:
                 rows.append(
                     {
@@ -1821,7 +1608,6 @@ def build_project_axis_diagnostics(
         project_boundaries,
         anchors,
         axes,
-        object_ranges,
         gap_tolerance_m=float(gap_tolerance_m),
     )
 

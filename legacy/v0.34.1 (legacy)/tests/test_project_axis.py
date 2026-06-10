@@ -99,7 +99,7 @@ def test_projectgrens_wordt_geijkt_op_iasset_wegas_en_zone_wordt_gemeld() -> Non
     assert boundary["fysiek_object_eind_km"] == 1.8
 
 
-def test_projectdekking_negeert_gat_zonder_primaire_objecten() -> None:
+def test_projectdekking_signaleert_gat_tussen_projecten() -> None:
     road_gdf = gpd.GeoDataFrame(
         [
             {
@@ -109,55 +109,6 @@ def test_projectdekking_negeert_gat_zonder_primaire_objecten() -> None:
                 "Wegnummer": "N398",
                 "Onderhoudsproject": "N398-HRB-01.0-01.4",
                 "geometry": LineString([(0, 0), (400, 0)]),
-            },
-            {
-                "sys_id": "b",
-                "nummer": "RS-2",
-                "subthema": "rijstrook",
-                "Wegnummer": "N398",
-                "Onderhoudsproject": "N398-HRB-01.5-02.0",
-                "geometry": LineString([(500, 0), (1000, 0)]),
-            },
-        ],
-        geometry="geometry",
-        crs="EPSG:28992",
-    )
-
-    result = build_project_axis_diagnostics(
-        road_gdf,
-        _wegas(),
-        _hectopoints(),
-        pd.DataFrame(),
-        "N398",
-        gap_tolerance_m=5.0,
-        length_tolerance_m=10.0,
-    )
-
-    gap_rows = result.project_coverage[result.project_coverage["controle_type"] == "gat"]
-    assert gap_rows.empty
-
-
-
-
-def test_projectdekking_signaleert_gat_met_primaire_objecten_zonder_project() -> None:
-    """Een gat wordt pas controlepunt als daar fysiek een primair object ligt."""
-    road_gdf = gpd.GeoDataFrame(
-        [
-            {
-                "sys_id": "a",
-                "nummer": "RS-1",
-                "subthema": "rijstrook",
-                "Wegnummer": "N398",
-                "Onderhoudsproject": "N398-HRB-01.0-01.4",
-                "geometry": LineString([(0, 0), (400, 0)]),
-            },
-            {
-                "sys_id": "gap",
-                "nummer": "RS-GAT",
-                "subthema": "rijstrook",
-                "Wegnummer": "N398",
-                "Onderhoudsproject": "",
-                "geometry": LineString([(420, 0), (480, 0)]),
             },
             {
                 "sys_id": "b",
@@ -189,7 +140,6 @@ def test_projectdekking_signaleert_gat_met_primaire_objecten_zonder_project() ->
     assert gap["tot_m"] == 500.0
     assert gap["lengte_m"] == 100.0
     assert gap["status"] == "controleer"
-    assert "RS-GAT" in gap["advies"]
 
 
 def test_lege_en_corrupte_bronnen_crashen_niet() -> None:
@@ -383,36 +333,3 @@ def test_objectligging_overschreeuwt_projectgrensstatus_niet() -> None:
     assert boundary["status_projectgrens"] == "ok"
     assert boundary["objectligging_status"] == "controleer"
     assert boundary["status"] == "ok"
-
-
-def test_bblr_wordt_als_gecombineerde_situering_toegestaan() -> None:
-    """BBLR blijft voorlopig toegestaan als gecombineerde links/rechts-situering."""
-    road_gdf = gpd.GeoDataFrame(
-        [
-            {
-                "sys_id": "bb",
-                "nummer": "BB-1",
-                "subthema": "busbaan",
-                "Wegnummer": "N398",
-                "Onderhoudsproject": "N398-BBLR-01.2-01.8",
-                "geometry": LineString([(200, 0), (800, 0)]),
-            }
-        ],
-        geometry="geometry",
-        crs="EPSG:28992",
-    )
-
-    result = build_project_axis_diagnostics(
-        road_gdf,
-        _wegas(),
-        _hectopoints(),
-        pd.DataFrame(),
-        "N398",
-        length_tolerance_m=10.0,
-    )
-
-    boundary = result.project_boundaries.iloc[0]
-    assert boundary["project_family"] == "BB"
-    assert boundary["situering"] == "LR"
-    assert boundary["naam_validatie_status"] == "ok"
-    assert boundary["status_projectnaam"] == "ok"

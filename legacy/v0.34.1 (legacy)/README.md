@@ -1,22 +1,6 @@
-# iASSET Advisor - refactor v0.34.2
+# iASSET Advisor - refactor v0.34.1
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
-
-
-## Nieuw in v0.34.2
-
-v0.34.2 is een verfijning van **Projectgrenzen op referentieas** binnen `🧪 NWB referentieproef`.
-
-Kern:
-- `BBLR` wordt voorlopig toegestaan als gecombineerde links/rechts-situering voor busbaanprojecten;
-- projectgaten worden alleen als controlepunt gemeld wanneer er in het gat ook primaire objecten van hetzelfde spoor liggen;
-- onderbrekingen zonder fysieke primaire objecten worden niet meer als gat geëxporteerd;
-- primaire objecten zonder onderhoudsproject blijven beschikbaar in `Projectobjecten_Referentieas_<weg>.csv`, zodat de gatcontrole kan zien of er fysiek areaal aanwezig is;
-- objectligging blijft detaildiagnose en staat minder centraal in de hoofdbeoordeling;
-- er worden nog steeds geen beheerknippen, projectnamen of mutaties automatisch voorgesteld of doorgevoerd.
-
-Waarom:
-Een parallelweg of fietspad hoeft niet over de hele N-weg aanwezig te zijn. Een gat tussen twee PWR/FPR-projectnamen is dus pas verdacht als daar ook werkelijk primaire objecten van datzelfde spoor liggen.
 
 
 ## Nieuw in v0.34.1
