@@ -7,7 +7,6 @@ from iasset_tool.nwb import (
     build_nwb_source_summary,
     compare_iasset_wegassen_to_nwb,
     compare_iasset_wegassen_to_nwb_detail,
-    build_nwb_wegas_deviation_zones,
     build_nwb_wegas_detail_map,
     filter_iasset_wegassen_for_road,
     filter_nwb_hectopunten_for_wegvakken,
@@ -276,51 +275,3 @@ def test_build_nwb_wegas_detail_map_returns_none_without_detail():
     )
 
     assert build_nwb_wegas_detail_map(wegassen, nwb_wegvakken, pd.DataFrame(), "N354") is None
-
-
-def test_build_nwb_wegas_deviation_zones_clusters_local_attention():
-    """Aandachtspunten worden samengevat tot zones voor beheercontrole."""
-    detail = pd.DataFrame(
-        {
-            "nummer": ["WA-N354"] * 6,
-            "naam": ["N354"] * 6,
-            "Wegnummer": ["N354"] * 6,
-            "afstand_langs_iasset_wegas_m": [0, 250, 400, 500, 900, 1000],
-            "afstand_tot_nwb_m": [1, 2, 12, 14, 30, 3],
-            "status": ["vergelijking", "vergelijking", "vergelijking", "vergelijking", "controleer", "vergelijking"],
-            "waarschuwing": ["", "", "", "", "samplepunt ligt verder dan de maximale afstand tot NWB", ""],
-        }
-    )
-
-    zones = build_nwb_wegas_deviation_zones(detail, "N354", max_distance_m=25)
-
-    assert len(zones) == 2
-    assert zones.iloc[0]["kleurklasse"] == "oranje"
-    assert zones.iloc[0]["zone_type"] == "lokale_afwijking"
-    assert zones.iloc[1]["kleurklasse"] == "rood"
-    assert zones.iloc[1]["status"] == "controleer"
-    assert "projectgrens" in zones.iloc[1]["relevantie_projectgrenzen"]
-
-
-def test_build_nwb_wegas_deviation_zones_marks_end_zone():
-    """Een rode afwijking aan het einde wordt als eindzone geduid."""
-    detail = pd.DataFrame(
-        {
-            "nummer": ["WA-N354_1"] * 6,
-            "naam": ["N354_1"] * 6,
-            "Wegnummer": ["N354"] * 6,
-            "afstand_langs_iasset_wegas_m": [0, 1000, 2000, 3000, 3900, 4000],
-            "afstand_tot_nwb_m": [1, 2, 3, 4, 108, 131],
-            "status": ["vergelijking", "vergelijking", "vergelijking", "vergelijking", "controleer", "controleer"],
-            "waarschuwing": ["", "", "", "", "samplepunt ligt verder dan de maximale afstand tot NWB", "samplepunt ligt verder dan de maximale afstand tot NWB"],
-        }
-    )
-
-    zones = build_nwb_wegas_deviation_zones(detail, "N354", max_distance_m=25)
-
-    assert len(zones) == 1
-    row = zones.iloc[0]
-    assert row["zone_type"] == "eindzone"
-    assert row["kleurklasse"] == "rood"
-    assert "einde" in row["advies"].lower()
-    assert row["relevantie_projectgrenzen"].startswith("hoog")

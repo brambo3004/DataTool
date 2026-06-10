@@ -80,7 +80,6 @@ from iasset_tool.nwb import (
     build_nwb_reference_for_road,
     compare_iasset_wegassen_to_nwb,
     compare_iasset_wegassen_to_nwb_detail,
-    build_nwb_wegas_deviation_zones,
     build_nwb_wegas_detail_map,
     read_wegassen_geojson_bytes,
 )
@@ -1944,7 +1943,6 @@ with col_inspector:
 
             wegas_comparison = pd.DataFrame()
             wegas_comparison_detail = pd.DataFrame()
-            wegas_deviation_zones = pd.DataFrame()
             wegas_detail_map = None
             uploaded_wegassen_name = ""
             if uploaded_wegassen is not None:
@@ -1968,14 +1966,6 @@ with col_inspector:
                     selected_road,
                     max_distance_m=float(nwb_wegas_max_distance_m),
                     sample_step_m=float(nwb_detail_sample_step_m),
-                )
-                wegas_deviation_zones = measure_step(
-                    get_performance_log(),
-                    "NWB afwijkingszones wegas",
-                    build_nwb_wegas_deviation_zones,
-                    wegas_comparison_detail,
-                    selected_road,
-                    max_distance_m=float(nwb_wegas_max_distance_m),
                 )
                 wegas_detail_map = measure_step(
                     get_performance_log(),
@@ -2002,7 +1992,6 @@ with col_inspector:
                 "hectopunten": nwb_result.hectopunten.drop(columns="geometry", errors="ignore"),
                 "wegas_comparison": wegas_comparison,
                 "wegas_comparison_detail": wegas_comparison_detail,
-                "wegas_deviation_zones": wegas_deviation_zones,
                 "wegas_detail_map": wegas_detail_map,
                 "warning": nwb_result.warning,
             }
@@ -2148,44 +2137,6 @@ with col_inspector:
                             use_container_width=True,
                             height=650,
                             returned_objects=[],
-                        )
-
-                    wegas_zones = nwb_state.get("wegas_deviation_zones")
-                    if isinstance(wegas_zones, pd.DataFrame) and not wegas_zones.empty:
-                        st.markdown("##### Afwijkingszones voor projectgrenzen")
-                        st.caption(
-                            "De detailpunten zijn hier geclusterd tot zones. Dit is bedoeld als "
-                            "hulpmiddel bij het beoordelen van onderhoudsprojectgrenzen: waar moet je "
-                            "extra opletten voordat je begin/eindmetrering of een knip gebruikt?"
-                        )
-                        zone_preview_columns = [
-                            col for col in [
-                                "nummer",
-                                "zone_id",
-                                "afstand_van_m",
-                                "afstand_tot_m",
-                                "lengte_zone_m",
-                                "max_afstand_tot_nwb_m",
-                                "kleurklasse",
-                                "zone_type",
-                                "status",
-                                "advies",
-                                "relevantie_projectgrenzen",
-                            ]
-                            if col in wegas_zones.columns
-                        ]
-                        st.dataframe(
-                            wegas_zones[zone_preview_columns] if zone_preview_columns else wegas_zones,
-                            use_container_width=True,
-                            hide_index=True,
-                        )
-
-                        zones_csv = wegas_zones.to_csv(index=False, sep=";").encode("utf-8-sig")
-                        st.download_button(
-                            "📥 Download afwijkingszones wegas",
-                            data=zones_csv,
-                            file_name=f"NWB_Wegas_Afwijkingszones_{sanitize_filename(selected_road)}.csv",
-                            mime="text/csv",
                         )
 
                     detail_preview_columns = [
