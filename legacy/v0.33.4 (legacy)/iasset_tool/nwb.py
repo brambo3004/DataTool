@@ -29,7 +29,7 @@ from shapely.ops import unary_union
 from .utils import clean_display_value, normalize_text
 
 
-NWB_REFERENCE_SCHEMA_VERSION = "nwb-ref-v0.34.0"
+NWB_REFERENCE_SCHEMA_VERSION = "nwb-ref-v0.33.4"
 NWB_OGC_API_BASE_URL = "https://api.pdok.nl/rws/nationaal-wegenbestand-wegen/ogc/v1"
 
 NWB_ROAD_COLUMNS = (

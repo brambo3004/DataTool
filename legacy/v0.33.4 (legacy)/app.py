@@ -75,10 +75,6 @@ from iasset_tool.reference_axis import (
     REFERENCE_AXIS_SCHEMA_VERSION,
     build_reference_axis_diagnostics,
 )
-from iasset_tool.project_axis import (
-    PROJECT_AXIS_SCHEMA_VERSION,
-    build_project_axis_diagnostics,
-)
 from iasset_tool.nwb import (
     NWB_REFERENCE_SCHEMA_VERSION,
     build_nwb_reference_for_road,
@@ -1876,9 +1872,8 @@ with col_inspector:
         )
 
         st.info(
-            "Scope v0.34: bronverkenning voor N354/N398 en vergelijkbare N-wegen, "
-            "plus projectgrenzen op de geijkte iASSET-wegas. NWB wordt gebruikt als externe "
-            "diagnosebron; iASSET blijft de single source of truth."
+            "Scope v0.33: bronverkenning voor N354/N398 en vergelijkbare N-wegen. "
+            "NWB wordt gebruikt als externe diagnosebron; iASSET blijft de single source of truth."
         )
 
         nwb_col_1, nwb_col_2, nwb_col_3, nwb_col_4 = st.columns(4)
@@ -1927,7 +1922,7 @@ with col_inspector:
             )
 
         uploaded_wegassen = st.file_uploader(
-            "Optioneel: iASSET-wegassen GeoJSON voor vergelijking met NWB en projectgrenzen",
+            "Optioneel: iASSET-wegassen GeoJSON voor vergelijking met NWB",
             type=["geojson", "json"],
             key=f"nwb_wegassen_upload_{selected_road}_{current_data_revision_key()}",
             help=(
@@ -1935,57 +1930,6 @@ with col_inspector:
                 "alleen de NWB-bronverkenning."
             ),
         )
-
-        st.markdown("#### v0.34 Projectgrenzen op referentieas")
-        st.caption(
-            "Deze stap projecteert NWB-hectopunten op de iASSET-wegas, ijkt die as naar "
-            "hectometrering en controleert onderhoudsprojectnamen, projectdekking, gaten, "
-            "overlap en afwijkingszones. De uitkomst is diagnose/proef en past niets in iASSET aan."
-        )
-
-        project_axis_col_1, project_axis_col_2, project_axis_col_3, project_axis_col_4 = st.columns(4)
-        with project_axis_col_1:
-            project_axis_anchor_max_m = st.number_input(
-                "Max. afstand NWB-hectopunt tot iASSET-wegas (m)",
-                min_value=1.0,
-                max_value=250.0,
-                value=40.0,
-                step=5.0,
-                help=(
-                    "Hectopunten verder dan deze afstand worden niet als ijkpunt gebruikt. "
-                    "Dit voorkomt dat punten van parallelle of kruisende wegen de ijking vervuilen."
-                ),
-            )
-        with project_axis_col_2:
-            project_axis_object_max_m = st.number_input(
-                "Max. afstand object tot iASSET-wegas (m)",
-                min_value=1.0,
-                max_value=250.0,
-                value=40.0,
-                step=5.0,
-                help="Alleen voor diagnose van fysieke objectligging op de geijkte as.",
-            )
-        with project_axis_col_3:
-            project_axis_boundary_buffer_m = st.number_input(
-                "Buffer rond afwijkingszone bij projectgrens (m)",
-                min_value=0.0,
-                max_value=250.0,
-                value=25.0,
-                step=5.0,
-                help=(
-                    "Afwijkingszones zijn sample-gebaseerd. Met een kleine buffer wordt een grens "
-                    "vlak naast een oranje/rode zone toch als aandachtspunt gemeld."
-                ),
-            )
-        with project_axis_col_4:
-            project_axis_length_tolerance_m = st.number_input(
-                "Tolerantie lengteverschil project (m)",
-                min_value=0.0,
-                max_value=250.0,
-                value=25.0,
-                step=5.0,
-                help="Grotere verschillen tussen projectnaam, geijkte as en objectligging krijgen een waarschuwing.",
-            )
 
         if st.button("Haal NWB-wegvakken en hectopunten op", key=f"build_nwb_reference_{selected_road}"):
             nwb_result = measure_step(
@@ -2002,11 +1946,6 @@ with col_inspector:
             wegas_comparison_detail = pd.DataFrame()
             wegas_deviation_zones = pd.DataFrame()
             wegas_detail_map = None
-            project_axis_anchors = pd.DataFrame()
-            project_axis_boundaries = pd.DataFrame()
-            project_axis_coverage = pd.DataFrame()
-            project_axis_object_ranges = pd.DataFrame()
-            project_axis_warning = ""
             uploaded_wegassen_name = ""
             if uploaded_wegassen is not None:
                 uploaded_wegassen_name = uploaded_wegassen.name
@@ -2048,25 +1987,6 @@ with col_inspector:
                     selected_road,
                     max_distance_m=float(nwb_wegas_max_distance_m),
                 )
-                project_axis_result = measure_step(
-                    get_performance_log(),
-                    "Projectgrenzen op referentieas",
-                    build_project_axis_diagnostics,
-                    road_gdf,
-                    wegassen_gdf,
-                    nwb_result.hectopunten,
-                    wegas_deviation_zones,
-                    selected_road,
-                    max_anchor_distance_m=float(project_axis_anchor_max_m),
-                    max_object_offset_m=float(project_axis_object_max_m),
-                    boundary_zone_buffer_m=float(project_axis_boundary_buffer_m),
-                    length_tolerance_m=float(project_axis_length_tolerance_m),
-                )
-                project_axis_anchors = project_axis_result.calibration_anchors
-                project_axis_boundaries = project_axis_result.project_boundaries
-                project_axis_coverage = project_axis_result.project_coverage
-                project_axis_object_ranges = project_axis_result.object_ranges
-                project_axis_warning = project_axis_result.warning
 
             st.session_state["nwb_reference_diagnostics"] = {
                 "road": selected_road,
@@ -2076,11 +1996,6 @@ with col_inspector:
                 "buffer_meters": float(nwb_buffer_m),
                 "wegas_max_distance_m": float(nwb_wegas_max_distance_m),
                 "wegas_detail_sample_step_m": float(nwb_detail_sample_step_m),
-                "project_axis_schema_version": PROJECT_AXIS_SCHEMA_VERSION,
-                "project_axis_anchor_max_m": float(project_axis_anchor_max_m),
-                "project_axis_object_max_m": float(project_axis_object_max_m),
-                "project_axis_boundary_buffer_m": float(project_axis_boundary_buffer_m),
-                "project_axis_length_tolerance_m": float(project_axis_length_tolerance_m),
                 "uploaded_wegassen_name": uploaded_wegassen_name,
                 "source_summary": nwb_result.source_summary,
                 "wegvakken": nwb_result.wegvakken.drop(columns="geometry", errors="ignore"),
@@ -2089,11 +2004,6 @@ with col_inspector:
                 "wegas_comparison_detail": wegas_comparison_detail,
                 "wegas_deviation_zones": wegas_deviation_zones,
                 "wegas_detail_map": wegas_detail_map,
-                "project_axis_anchors": project_axis_anchors,
-                "project_axis_boundaries": project_axis_boundaries,
-                "project_axis_coverage": project_axis_coverage,
-                "project_axis_object_ranges": project_axis_object_ranges,
-                "project_axis_warning": project_axis_warning,
                 "warning": nwb_result.warning,
             }
 
@@ -2102,7 +2012,6 @@ with col_inspector:
             nwb_state.get("road") != selected_road
             or nwb_state.get("revision") != current_data_revision_key()
             or nwb_state.get("schema_version") != NWB_REFERENCE_SCHEMA_VERSION
-            or nwb_state.get("project_axis_schema_version") != PROJECT_AXIS_SCHEMA_VERSION
         ):
             st.info(
                 "Klik op de berekenknop om de NWB-bronverkenning voor deze weg en datasetrevisie te maken."
@@ -2113,8 +2022,7 @@ with col_inspector:
                 f"{nwb_state.get('schema_version', 'onbekend')}. "
                 f"Buffer: {nwb_state.get('buffer_meters', nwb_buffer_m):g} m. "
                 f"Wegasafstand: {nwb_state.get('wegas_max_distance_m', nwb_wegas_max_distance_m):g} m. "
-                f"Detailstap: {nwb_state.get('wegas_detail_sample_step_m', nwb_detail_sample_step_m):g} m. "
-                f"Projectas-ijkafstand: {nwb_state.get('project_axis_anchor_max_m', project_axis_anchor_max_m):g} m."
+                f"Detailstap: {nwb_state.get('wegas_detail_sample_step_m', nwb_detail_sample_step_m):g} m."
             )
 
             if nwb_state.get("warning"):
@@ -2310,122 +2218,6 @@ with col_inspector:
                         data=detail_csv,
                         file_name=f"NWB_Wegasvergelijking_Detail_{sanitize_filename(selected_road)}.csv",
                         mime="text/csv",
-                    )
-
-                project_axis_boundaries = nwb_state.get("project_axis_boundaries")
-                project_axis_coverage = nwb_state.get("project_axis_coverage")
-                project_axis_anchors = nwb_state.get("project_axis_anchors")
-                project_axis_object_ranges = nwb_state.get("project_axis_object_ranges")
-
-                if nwb_state.get("project_axis_warning"):
-                    st.warning(nwb_state["project_axis_warning"], icon="⚠️")
-
-                if isinstance(project_axis_boundaries, pd.DataFrame) and not project_axis_boundaries.empty:
-                    st.markdown("#### v0.34 Projectgrenzen op geijkte iASSET-wegas")
-                    st.caption(
-                        "Deze tabel vergelijkt de projectnaamrange met de geijkte iASSET-wegas, "
-                        "met fysieke objectligging en met oranje/rode NWB-afwijkingszones. "
-                        "Dit is controle-informatie; de tool wijzigt niets in iASSET."
-                    )
-                    boundary_preview_columns = [
-                        col for col in [
-                            "Onderhoudsproject",
-                            "axis_id",
-                            "project_begin_km",
-                            "project_eind_km",
-                            "as_lengte_m",
-                            "lengteverschil_naam_vs_as_m",
-                            "begin_zone_kleur",
-                            "begin_zone_id",
-                            "eind_zone_kleur",
-                            "eind_zone_id",
-                            "fysiek_object_begin_km",
-                            "fysiek_object_eind_km",
-                            "verschil_projectnaam_vs_objectligging_m",
-                            "status",
-                            "waarschuwing",
-                        ]
-                        if col in project_axis_boundaries.columns
-                    ]
-                    st.dataframe(
-                        project_axis_boundaries[boundary_preview_columns]
-                        if boundary_preview_columns
-                        else project_axis_boundaries,
-                        use_container_width=True,
-                        hide_index=True,
-                    )
-
-                    boundaries_csv = project_axis_boundaries.to_csv(index=False, sep=";").encode("utf-8-sig")
-                    st.download_button(
-                        "📥 Download projectgrenzen op referentieas",
-                        data=boundaries_csv,
-                        file_name=f"Projectgrenzen_Referentieas_{sanitize_filename(selected_road)}.csv",
-                        mime="text/csv",
-                    )
-
-                    if isinstance(project_axis_coverage, pd.DataFrame) and not project_axis_coverage.empty:
-                        st.markdown("##### Projectdekking, gaten en overlap")
-                        coverage_preview_columns = [
-                            col for col in [
-                                "axis_id",
-                                "controle_type",
-                                "van_m",
-                                "tot_m",
-                                "lengte_m",
-                                "project_links",
-                                "project_rechts",
-                                "dekking_pct",
-                                "status",
-                                "advies",
-                            ]
-                            if col in project_axis_coverage.columns
-                        ]
-                        st.dataframe(
-                            project_axis_coverage[coverage_preview_columns]
-                            if coverage_preview_columns
-                            else project_axis_coverage,
-                            use_container_width=True,
-                            hide_index=True,
-                        )
-
-                        coverage_csv = project_axis_coverage.to_csv(index=False, sep=";").encode("utf-8-sig")
-                        st.download_button(
-                            "📥 Download projectdekking referentieas",
-                            data=coverage_csv,
-                            file_name=f"Projectdekking_Referentieas_{sanitize_filename(selected_road)}.csv",
-                            mime="text/csv",
-                        )
-
-                    with st.expander("IJkpunten en objectprojecties v0.34", expanded=False):
-                        if isinstance(project_axis_anchors, pd.DataFrame) and not project_axis_anchors.empty:
-                            st.markdown("##### NWB-hectopunten geprojecteerd op iASSET-wegas")
-                            st.dataframe(project_axis_anchors, use_container_width=True, hide_index=True)
-                            anchors_csv = project_axis_anchors.to_csv(index=False, sep=";").encode("utf-8-sig")
-                            st.download_button(
-                                "📥 Download ijkpunten referentieas",
-                                data=anchors_csv,
-                                file_name=f"NWB_Hectopunten_op_iASSET_Wegas_{sanitize_filename(selected_road)}.csv",
-                                mime="text/csv",
-                            )
-                        else:
-                            st.info("Geen ijkpunten beschikbaar.")
-
-                        if isinstance(project_axis_object_ranges, pd.DataFrame) and not project_axis_object_ranges.empty:
-                            st.markdown("##### Objecten geprojecteerd op geijkte as")
-                            st.dataframe(project_axis_object_ranges.head(1000), use_container_width=True, hide_index=True)
-                            object_ranges_csv = project_axis_object_ranges.to_csv(index=False, sep=";").encode("utf-8-sig")
-                            st.download_button(
-                                "📥 Download objectprojecties referentieas",
-                                data=object_ranges_csv,
-                                file_name=f"Projectobjecten_Referentieas_{sanitize_filename(selected_road)}.csv",
-                                mime="text/csv",
-                            )
-                        else:
-                            st.info("Geen objectprojecties beschikbaar.")
-                elif nwb_state.get("uploaded_wegassen_name"):
-                    st.info(
-                        "Projectgrensdiagnose kon nog geen projectgrenzen maken. Controleer of er "
-                        "NWB-hectopunten, een iASSET-wegas en herkenbare onderhoudsprojectnamen beschikbaar zijn."
                     )
             elif nwb_state.get("uploaded_wegassen_name"):
                 st.info(

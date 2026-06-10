@@ -1,31 +1,6 @@
-# iASSET Advisor - refactor v0.34.0
+# iASSET Advisor - refactor v0.33.0
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
-
-
-## Nieuw in v0.34.0
-
-v0.34.0 voegt de diagnose **Projectgrenzen op referentieas** toe binnen het scherm `🧪 NWB referentieproef`.
-
-Kern:
-- de iASSET-wegas uit `wegassen_paspoort.geojson` blijft de leidende as;
-- NWB-hectopunten worden op die iASSET-wegas geprojecteerd en gebruikt als ijkpunten;
-- onderhoudsprojectnamen zoals `N354-HRB-11.5-12.8` worden op de geijkte as geplaatst;
-- begin- en eindgrenzen worden gewaarschuwd wanneer ze in of vlak bij oranje/rode NWB-afwijkingszones liggen;
-- projectdekking, gaten, overlap en lengteverschillen worden als diagnose geëxporteerd;
-- fysieke objectligging wordt indicatief vergeleken met de projectnaamrange;
-- er worden geen beheerknippen of mutaties in iASSET gemaakt.
-
-Nieuwe module:
-- `iasset_tool/project_axis.py`
-
-Nieuwe exports:
-- `Projectgrenzen_Referentieas_<weg>.csv`
-- `Projectdekking_Referentieas_<weg>.csv`
-- `NWB_Hectopunten_op_iASSET_Wegas_<weg>.csv`
-- `Projectobjecten_Referentieas_<weg>.csv`
-
-De functionaliteit is bewust proef/diagnose. iASSET blijft de bron van waarheid; de NWB-ijking is alleen een hulpmiddel voor databeheercontrole.
 
 
 ## Nieuw in v0.33.0
