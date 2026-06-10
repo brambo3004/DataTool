@@ -1936,7 +1936,7 @@ with col_inspector:
             ),
         )
 
-        st.markdown("#### v0.34.1 Projectgrenzen op referentieas")
+        st.markdown("#### v0.34 Projectgrenzen op referentieas")
         st.caption(
             "Deze stap projecteert NWB-hectopunten op de iASSET-wegas, ijkt die as naar "
             "hectometrering en controleert onderhoudsprojectnamen, projectdekking, gaten, "
@@ -1963,7 +1963,7 @@ with col_inspector:
                 max_value=250.0,
                 value=40.0,
                 step=5.0,
-                help="Alleen voor aparte objectliggingdiagnose; dit bepaalt niet meer automatisch de hoofdstatus.",
+                help="Alleen voor diagnose van fysieke objectligging op de geijkte as.",
             )
         with project_axis_col_3:
             project_axis_boundary_buffer_m = st.number_input(
@@ -1984,7 +1984,7 @@ with col_inspector:
                 max_value=250.0,
                 value=25.0,
                 step=5.0,
-                help="Grotere verschillen tussen projectnaam en geijkte as krijgen een projectgrenswaarschuwing; objectligging wordt apart getoond.",
+                help="Grotere verschillen tussen projectnaam, geijkte as en objectligging krijgen een waarschuwing.",
             )
 
         if st.button("Haal NWB-wegvakken en hectopunten op", key=f"build_nwb_reference_{selected_road}"):
@@ -2321,7 +2321,7 @@ with col_inspector:
                     st.warning(nwb_state["project_axis_warning"], icon="⚠️")
 
                 if isinstance(project_axis_boundaries, pd.DataFrame) and not project_axis_boundaries.empty:
-                    st.markdown("#### v0.34.1 Projectgrenzen op geijkte iASSET-wegas")
+                    st.markdown("#### v0.34 Projectgrenzen op geijkte iASSET-wegas")
                     st.caption(
                         "Deze tabel vergelijkt de projectnaamrange met de geijkte iASSET-wegas, "
                         "met fysieke objectligging en met oranje/rode NWB-afwijkingszones. "
@@ -2330,23 +2330,19 @@ with col_inspector:
                     boundary_preview_columns = [
                         col for col in [
                             "Onderhoudsproject",
-                            "project_type",
-                            "naam_validatie_status",
-                            "status_projectgrens",
-                            "objectligging_status",
-                            "status",
                             "axis_id",
                             "project_begin_km",
                             "project_eind_km",
                             "as_lengte_m",
                             "lengteverschil_naam_vs_as_m",
                             "begin_zone_kleur",
+                            "begin_zone_id",
                             "eind_zone_kleur",
-                            "begin_buiten_ijkbereik",
-                            "eind_buiten_ijkbereik",
-                            "object_begin_naamregel",
-                            "object_eind_naamregel",
-                            "objectligging_melding",
+                            "eind_zone_id",
+                            "fysiek_object_begin_km",
+                            "fysiek_object_eind_km",
+                            "verschil_projectnaam_vs_objectligging_m",
+                            "status",
                             "waarschuwing",
                         ]
                         if col in project_axis_boundaries.columns
@@ -2372,14 +2368,12 @@ with col_inspector:
                         coverage_preview_columns = [
                             col for col in [
                                 "axis_id",
-                                "project_type",
                                 "controle_type",
                                 "van_m",
                                 "tot_m",
                                 "lengte_m",
                                 "project_links",
                                 "project_rechts",
-                                "projectbereik_m",
                                 "dekking_pct",
                                 "status",
                                 "advies",
@@ -2402,7 +2396,7 @@ with col_inspector:
                             mime="text/csv",
                         )
 
-                    with st.expander("IJkpunten en objectprojecties v0.34.1", expanded=False):
+                    with st.expander("IJkpunten en objectprojecties v0.34", expanded=False):
                         if isinstance(project_axis_anchors, pd.DataFrame) and not project_axis_anchors.empty:
                             st.markdown("##### NWB-hectopunten geprojecteerd op iASSET-wegas")
                             st.dataframe(project_axis_anchors, use_container_width=True, hide_index=True)

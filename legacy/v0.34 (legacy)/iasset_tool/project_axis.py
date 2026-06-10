@@ -1,5 +1,5 @@
 """
-Projectgrenzen op een geijkte iASSET-referentieas (v0.34.1).
+Projectgrenzen op een geijkte iASSET-referentieas (v0.34).
 
 Deze module draait de eerdere referentieasproef bewust om:
 
@@ -30,11 +30,11 @@ from shapely.ops import linemerge
 
 from .nwb import filter_iasset_wegassen_for_road
 from .sorting_diagnostics import project_geometry_range_on_axis
-from .trajectory import format_name_hm, parse_project_range
+from .trajectory import parse_project_range
 from .utils import clean_display_value, normalize_text
 
 
-PROJECT_AXIS_SCHEMA_VERSION = "projectaxis-v0.34.1"
+PROJECT_AXIS_SCHEMA_VERSION = "projectaxis-v0.34.0"
 
 HECTOMETER_COLUMN_CANDIDATES = (
     "hectomtrng",
@@ -52,15 +52,11 @@ PRIMARY_SUBTHEMES = {
     "landbouwpad",
 }
 
-PROJECT_TYPE_FAMILIES = ("LBP", "HRB", "PW", "FP", "BB")
-PROJECT_TYPES_WITH_REQUIRED_SITUERING = {"PW", "FP", "BB", "LBP"}
-STATUS_RANK = {"ok": 0, "overzicht": 0, "projectie": 0, "aandacht": 1, "controleer": 2}
-
 
 @dataclass(frozen=True)
 class ProjectAxisDiagnosticsResult:
     """
-    Resultaat van de v0.34.1-projectgrensdiagnose.
+    Resultaat van de v0.34-projectgrensdiagnose.
 
     Alle tabellen zijn gewone DataFrames. Dat houdt de Streamlit-laag simpel en
     maakt export naar CSV zonder extra conversie mogelijk.
@@ -99,14 +95,7 @@ def _empty_project_boundary_frame() -> pd.DataFrame:
     return pd.DataFrame(
         columns=[
             "Onderhoudsproject",
-            "naam_wegnummer",
             "project_type",
-            "project_family",
-            "situering",
-            "naam_begin_label",
-            "naam_eind_label",
-            "naam_validatie_status",
-            "naam_validatie_melding",
             "axis_id",
             "axis_naam",
             "objecten_in_project",
@@ -120,8 +109,6 @@ def _empty_project_boundary_frame() -> pd.DataFrame:
             "lengteverschil_naam_vs_as_m",
             "begin_binnen_ijking",
             "eind_binnen_ijking",
-            "begin_buiten_ijkbereik",
-            "eind_buiten_ijkbereik",
             "begin_zone_kleur",
             "begin_zone_id",
             "eind_zone_kleur",
@@ -129,13 +116,7 @@ def _empty_project_boundary_frame() -> pd.DataFrame:
             "fysiek_object_begin_km",
             "fysiek_object_eind_km",
             "fysiek_object_lengte_m",
-            "object_begin_naamregel",
-            "object_eind_naamregel",
             "verschil_projectnaam_vs_objectligging_m",
-            "objectligging_status",
-            "objectligging_melding",
-            "status_projectnaam",
-            "status_projectgrens",
             "status",
             "advies",
             "waarschuwing",
@@ -150,9 +131,6 @@ def _empty_coverage_frame() -> pd.DataFrame:
         columns=[
             "axis_id",
             "axis_naam",
-            "project_type",
-            "project_family",
-            "situering",
             "controle_type",
             "van_m",
             "tot_m",
@@ -160,7 +138,6 @@ def _empty_coverage_frame() -> pd.DataFrame:
             "project_links",
             "project_rechts",
             "dekking_uniek_m",
-            "projectbereik_m",
             "ijking_span_m",
             "dekking_pct",
             "status",
@@ -715,160 +692,6 @@ def _project_road(project_name: Any) -> str:
     return f"N{match.group(1)}" if match else ""
 
 
-def _worst_status(*statuses: str) -> str:
-    """Geef de zwaarste status terug volgens de projectas-diagnose."""
-    clean = [clean_display_value(status).lower() for status in statuses if clean_display_value(status)]
-    if not clean:
-        return "ok"
-    return sorted(clean, key=lambda status: STATUS_RANK.get(status, 0), reverse=True)[0]
-
-
-def _split_project_type(project_type: Any) -> tuple[str, str]:
-    """
-    Splits een projecttype in familie en situering.
-
-    Voorbeelden:
-    - HRB -> (HRB, "")
-    - HRBR -> (HRB, R)
-    - PWL -> (PW, L)
-    - LBPL -> (LBP, L)
-
-    We doen dit centraal, zodat dekking en overlap niet per ongeluk HRB, PWR
-    en FPR als één spoor behandelen.
-    """
-    code = clean_display_value(project_type).upper()
-    for family in PROJECT_TYPE_FAMILIES:
-        if code == family:
-            return family, ""
-        if code.startswith(family):
-            return family, code[len(family):]
-    return code, ""
-
-
-def _parse_decimal_label(label: str) -> float | None:
-    """Parseer een hm-label uit de projectnaam, zonder begin/einde te sorteren."""
-    try:
-        value = float(clean_display_value(label).replace(",", "."))
-    except (TypeError, ValueError, OverflowError):
-        return None
-    if not math.isfinite(value) or value < 0:
-        return None
-    return value
-
-
-def _validate_project_name(project_name: Any, selected_road: str) -> dict[str, Any]:
-    """
-    Valideer de onderhoudsprojectnaam volgens de beheerregels.
-
-    De parser is bewust strenger dan ``parse_project_range``. Die bestaande
-    functie is tolerant voor oude varianten, terwijl deze diagnose juist moet
-    laten zien of de naamvorm betrouwbaar genoeg is voor projectgrenscontrole.
-    """
-    raw = clean_display_value(project_name)
-    text = raw.upper().replace(",", ".")
-    result: dict[str, Any] = {
-        "naam_wegnummer": "",
-        "project_type": "",
-        "project_family": "",
-        "situering": "",
-        "naam_begin_label": "",
-        "naam_eind_label": "",
-        "begin_km": None,
-        "end_km": None,
-        "status": "ok",
-        "melding": "",
-    }
-
-    match = re.match(
-        r"^\s*N\s*(?P<road>\d{3,4})\s*[-_/ ]+\s*(?P<type>[A-Z0-9]+)\s*[-_/ ]+"
-        r"(?P<start>\d+(?:\.\d+)?)\s*[-_/ ]+(?P<end>\d+(?:\.\d+)?)\s*$",
-        text,
-    )
-    if not match:
-        result["status"] = "controleer"
-        result["melding"] = "projectnaam heeft geen herkenbaar patroon Nxxx-type-begin-einde"
-        return result
-
-    road = f"N{match.group('road')}"
-    project_type = match.group("type")
-    family, situering = _split_project_type(project_type)
-    start_label = match.group("start")
-    end_label = match.group("end")
-    start_km = _parse_decimal_label(start_label)
-    end_km = _parse_decimal_label(end_label)
-
-    result.update(
-        {
-            "naam_wegnummer": road,
-            "project_type": project_type,
-            "project_family": family,
-            "situering": situering,
-            "naam_begin_label": start_label,
-            "naam_eind_label": end_label,
-            "begin_km": start_km,
-            "end_km": end_km,
-        }
-    )
-
-    warnings: list[tuple[str, str]] = []
-    selected = clean_display_value(selected_road).upper().replace(" ", "")
-    if selected and road != selected:
-        warnings.append(("controleer", f"wegnummer in projectnaam ({road}) wijkt af van selectie ({selected})"))
-
-    strict = re.match(
-        r"^N\d{3,4}-[A-Z0-9]+-\d{2,3}\.\d-\d{2,3}\.\d$",
-        text,
-    )
-    if not strict:
-        warnings.append(
-            (
-                "controleer",
-                "naamvorm moet Nxxx-type-begin-einde zijn met koppeltekens en exact één cijfer na de punt",
-            )
-        )
-
-    for label_name, label, value in (("begin", start_label, start_km), ("einde", end_label, end_km)):
-        if value is None:
-            warnings.append(("controleer", f"{label_name}metrering is niet numeriek"))
-            continue
-        if value < 10 and not re.match(r"^\d{2}\.\d$", label):
-            warnings.append(("controleer", f"{label_name}metrering onder 10 moet een voorloopnul hebben"))
-        if not re.match(r"^\d{2,3}\.\d$", label):
-            warnings.append(("controleer", f"{label_name}metrering moet exact één cijfer na de punt hebben"))
-
-    if start_km is not None and end_km is not None and start_km >= end_km:
-        warnings.append(("controleer", "beginmetrering is groter dan of gelijk aan eindmetrering"))
-
-    if family not in PROJECT_TYPE_FAMILIES:
-        warnings.append(("controleer", f"projecttype {project_type} is niet herkend als primaire projectfamilie"))
-    elif family in PROJECT_TYPES_WITH_REQUIRED_SITUERING and situering not in {"L", "R"}:
-        warnings.append(("aandacht", f"projecttype {family} heeft normaal een situering L of R nodig"))
-    elif family == "HRB" and situering not in {"", "L", "R"}:
-        warnings.append(("aandacht", f"situering {situering} bij HRB is niet standaard"))
-
-    if warnings:
-        result["status"] = _worst_status(*(status for status, _ in warnings))
-        result["melding"] = "; ".join(message for _, message in warnings)
-
-    return result
-
-
-def _format_name_rule_or_empty(value_km: Any) -> str:
-    """
-    Format een fysieke km-waarde volgens de onderhoudsprojectnaamregel.
-
-    De regel is naar boven afronden op het volgende hectometerpunt:
-    12.300 -> 12.3, maar 12.301 -> 12.4. De implementatie zit centraal in
-    ``trajectory.format_name_hm``; hier vangen we alleen lege/corrupte waarden af.
-    """
-    try:
-        if value_km is None or pd.isna(value_km):
-            return ""
-        return format_name_hm(float(value_km))
-    except (TypeError, ValueError, OverflowError):
-        return ""
-
-
 def _selected_project_names(road_gdf: gpd.GeoDataFrame, selected_road: str) -> list[str]:
     """Verzamel unieke onderhoudsprojectnamen voor de geselecteerde weg."""
     if road_gdf is None or road_gdf.empty or "Onderhoudsproject" not in road_gdf.columns:
@@ -1183,7 +1006,6 @@ def _build_project_boundaries(
 
     rows: list[dict[str, Any]] = []
     for project_name in project_names:
-        name_check = _validate_project_name(project_name, selected_road)
         project_range = parse_project_range(project_name)
         if project_range is None:
             continue
@@ -1191,25 +1013,6 @@ def _build_project_boundaries(
         project_start_km = float(project_range.start_km)
         project_end_km = float(project_range.end_km)
         project_length_m = float(project_range.length_m)
-        project_type = clean_display_value(name_check.get("project_type")) or _project_type(project_name)
-        project_family = clean_display_value(name_check.get("project_family"))
-        situering = clean_display_value(name_check.get("situering"))
-
-        base_row = {
-            "Onderhoudsproject": project_name,
-            "naam_wegnummer": clean_display_value(name_check.get("naam_wegnummer")),
-            "project_type": project_type,
-            "project_family": project_family,
-            "situering": situering,
-            "naam_begin_label": clean_display_value(name_check.get("naam_begin_label")),
-            "naam_eind_label": clean_display_value(name_check.get("naam_eind_label")),
-            "naam_validatie_status": clean_display_value(name_check.get("status")) or "ok",
-            "naam_validatie_melding": clean_display_value(name_check.get("melding")),
-            "project_begin_km": _round_or_none(project_start_km, 3),
-            "project_eind_km": _round_or_none(project_end_km, 3),
-            "project_lengte_m": _round_or_none(project_length_m, 1),
-            "status_projectnaam": clean_display_value(name_check.get("status")) or "ok",
-        }
 
         chosen = _choose_project_axis(
             project_name,
@@ -1222,22 +1025,23 @@ def _build_project_boundaries(
         )
 
         if chosen is None:
-            final_status = _worst_status(str(base_row["status_projectnaam"]), "controleer")
             rows.append(
                 {
-                    **base_row,
+                    "Onderhoudsproject": project_name,
+                    "project_type": _project_type(project_name),
                     "axis_id": "",
                     "axis_naam": "",
                     "objecten_in_project": int((road_gdf["Onderhoudsproject"].map(clean_display_value) == project_name).sum()) if "Onderhoudsproject" in road_gdf.columns else 0,
                     "objecten_op_axis": 0,
+                    "project_begin_km": _round_or_none(project_start_km, 3),
+                    "project_eind_km": _round_or_none(project_end_km, 3),
+                    "project_lengte_m": _round_or_none(project_length_m, 1),
                     "as_begin_m": None,
                     "as_eind_m": None,
                     "as_lengte_m": None,
                     "lengteverschil_naam_vs_as_m": None,
                     "begin_binnen_ijking": False,
                     "eind_binnen_ijking": False,
-                    "begin_buiten_ijkbereik": True,
-                    "eind_buiten_ijkbereik": True,
                     "begin_zone_kleur": "",
                     "begin_zone_id": "",
                     "eind_zone_kleur": "",
@@ -1245,13 +1049,8 @@ def _build_project_boundaries(
                     "fysiek_object_begin_km": None,
                     "fysiek_object_eind_km": None,
                     "fysiek_object_lengte_m": None,
-                    "object_begin_naamregel": "",
-                    "object_eind_naamregel": "",
                     "verschil_projectnaam_vs_objectligging_m": None,
-                    "objectligging_status": "niet_beschikbaar",
-                    "objectligging_melding": "geen bruikbare objectprojectie",
-                    "status_projectgrens": "controleer",
-                    "status": final_status,
+                    "status": "controleer",
                     "advies": "Geen bruikbare ijking; controleer iASSET-wegas en NWB-hectopunten.",
                     "waarschuwing": "geen bruikbare ijking op iASSET-wegas",
                     "bronkwaliteit": "experimenteel",
@@ -1286,84 +1085,56 @@ def _build_project_boundaries(
                 abs(float(object_summary["end_km"]) - project_end_km),
             ) * 1000.0
 
-        object_begin_name_rule = _format_name_rule_or_empty(object_summary.get("begin_km"))
-        object_end_name_rule = _format_name_rule_or_empty(object_summary.get("end_km"))
-
-        boundary_warnings: list[str] = []
+        warnings: list[str] = []
         if not chosen["start_in_range"]:
-            boundary_warnings.append("begin buiten ijkbereik")
+            warnings.append("begin buiten ijkbereik")
         if not chosen["end_in_range"]:
-            boundary_warnings.append("eind buiten ijkbereik")
+            warnings.append("eind buiten ijkbereik")
         if abs(length_delta_m) > float(length_tolerance_m):
-            boundary_warnings.append(f"lengteverschil naam versus geijkte as > {length_tolerance_m:g} m")
+            warnings.append(f"lengteverschil naam versus geijkte as > {length_tolerance_m:g} m")
         if begin_zone_color:
-            boundary_warnings.append(f"begingrens in {begin_zone_color} afwijkingszone")
+            warnings.append(f"begingrens in {begin_zone_color} afwijkingszone")
         if end_zone_color:
-            boundary_warnings.append(f"eindgrens in {end_zone_color} afwijkingszone")
-
-        object_warnings: list[str] = []
-        object_status = "ok"
+            warnings.append(f"eindgrens in {end_zone_color} afwijkingszone")
         if object_summary["objecten_in_project"] and not object_summary["objecten_op_axis"]:
-            object_warnings.append("projectobjecten liggen niet op gekozen as")
-            object_status = "controleer"
+            warnings.append("projectobjecten liggen niet op gekozen as")
         if object_summary["objecten_in_project"] and object_summary["length_m"] is None:
-            object_warnings.append("geen bruikbare primaire objectprojectie")
-            object_status = _worst_status(object_status, "controleer")
+            warnings.append("geen bruikbare primaire objectprojectie")
         if physical_delta_m is not None and physical_delta_m > float(length_tolerance_m):
-            object_warnings.append(f"objectligging wijkt > {length_tolerance_m:g} m af van projectnaam")
-            object_status = _worst_status(object_status, "aandacht")
-
-        if object_begin_name_rule and object_end_name_rule:
-            name_start_label = clean_display_value(name_check.get("naam_begin_label"))
-            name_end_label = clean_display_value(name_check.get("naam_eind_label"))
-            if name_start_label and name_end_label and (
-                object_begin_name_rule != name_start_label or object_end_name_rule != name_end_label
-            ):
-                object_warnings.append(
-                    "fysieke objectligging geeft volgens naamregel "
-                    f"{object_begin_name_rule}-{object_end_name_rule}"
-                )
-                object_status = _worst_status(object_status, "aandacht")
+            warnings.append(f"objectligging wijkt > {length_tolerance_m:g} m af van projectnaam")
 
         worst_zone = max(_zone_severity(begin_zone_color), _zone_severity(end_zone_color))
-        if worst_zone == 2 or any("buiten ijkbereik" in item for item in boundary_warnings):
-            boundary_status = "controleer"
-        elif boundary_warnings:
-            boundary_status = "aandacht"
+        if worst_zone == 2 or any("buiten ijkbereik" in item for item in warnings):
+            status = "controleer"
+        elif warnings:
+            status = "aandacht"
         else:
-            boundary_status = "ok"
+            status = "ok"
 
-        # Objectligging blijft bewust buiten de eindstatus. Een fietspad of
-        # parallelweg kan logisch ver van de hoofdas liggen. We tonen het daarom
-        # apart, maar laten de projectgrensstatus niet overschreeuwen.
-        final_status = _worst_status(str(base_row["status_projectnaam"]), boundary_status)
-
-        if final_status == "ok" and object_status != "ok":
-            advice = "Projectgrens en naamvorm zijn ok; controleer objectligging apart als context."
-        elif final_status == "ok":
+        if status == "ok":
             advice = "Geen aandachtspunt gevonden. Gebruik dit alleen als diagnose, niet als automatische mutatie."
         elif worst_zone:
             advice = "Controleer projectgrens visueel op de NWB-afwijkingszone voordat je deze grens gebruikt."
-        elif base_row["status_projectnaam"] != "ok":
-            advice = "Controleer eerst de onderhoudsprojectnaam; pas niets automatisch aan."
         else:
-            advice = "Controleer projectgrens en ijkpunten; pas niets automatisch aan."
+            advice = "Controleer projectnaam, fysieke objectligging en ijkpunten; pas niets automatisch aan."
 
         rows.append(
             {
-                **base_row,
+                "Onderhoudsproject": project_name,
+                "project_type": _project_type(project_name),
                 "axis_id": axis["axis_id"],
                 "axis_naam": axis["axis_naam"],
                 "objecten_in_project": int(object_summary["objecten_in_project"]),
                 "objecten_op_axis": int(object_summary["objecten_op_axis"]),
+                "project_begin_km": _round_or_none(project_start_km, 3),
+                "project_eind_km": _round_or_none(project_end_km, 3),
+                "project_lengte_m": _round_or_none(project_length_m, 1),
                 "as_begin_m": _round_or_none(route_start, 2),
                 "as_eind_m": _round_or_none(route_end, 2),
                 "as_lengte_m": _round_or_none(as_length_m, 1),
                 "lengteverschil_naam_vs_as_m": _round_or_none(length_delta_m, 1),
                 "begin_binnen_ijking": bool(chosen["start_in_range"]),
                 "eind_binnen_ijking": bool(chosen["end_in_range"]),
-                "begin_buiten_ijkbereik": not bool(chosen["start_in_range"]),
-                "eind_buiten_ijkbereik": not bool(chosen["end_in_range"]),
                 "begin_zone_kleur": begin_zone_color,
                 "begin_zone_id": begin_zone_id,
                 "eind_zone_kleur": end_zone_color,
@@ -1371,17 +1142,10 @@ def _build_project_boundaries(
                 "fysiek_object_begin_km": _round_or_none(object_summary["begin_km"], 3),
                 "fysiek_object_eind_km": _round_or_none(object_summary["end_km"], 3),
                 "fysiek_object_lengte_m": _round_or_none(object_summary["length_m"], 1),
-                "object_begin_naamregel": object_begin_name_rule,
-                "object_eind_naamregel": object_end_name_rule,
                 "verschil_projectnaam_vs_objectligging_m": _round_or_none(physical_delta_m, 1),
-                "objectligging_status": object_status,
-                "objectligging_melding": "; ".join(object_warnings),
-                "status_projectgrens": boundary_status,
-                "status": final_status,
+                "status": status,
                 "advies": advice,
-                "waarschuwing": "; ".join(
-                    item for item in [base_row["naam_validatie_melding"], *boundary_warnings] if item
-                ),
+                "waarschuwing": "; ".join(warnings),
                 "bronkwaliteit": "experimenteel",
             }
         )
@@ -1390,7 +1154,7 @@ def _build_project_boundaries(
         return _empty_project_boundary_frame()
 
     return pd.DataFrame(rows, columns=_empty_project_boundary_frame().columns).sort_values(
-        ["axis_id", "project_type", "as_begin_m", "Onderhoudsproject"],
+        ["axis_id", "as_begin_m", "Onderhoudsproject"],
         na_position="last",
     ).reset_index(drop=True)
 
@@ -1418,32 +1182,17 @@ def _build_project_coverage(
     *,
     gap_tolerance_m: float,
 ) -> pd.DataFrame:
-    """
-    Signaleer projectdekking, gaten en overlap per projecttype.
-
-    v0.34.0 vergeleek alle projecttypen op één as met elkaar. Daardoor leek een
-    HRB-project te overlappen met een parallelweg of fietspad. In v0.34.1 wordt
-    per spoor gecontroleerd: HRB met HRB, PWR met PWR, FPR met FPR, enzovoort.
-    We melden alleen interne gaten tussen opeenvolgende projecten van hetzelfde
-    type; het ontbreken van een parallelweg aan het begin/einde van een N-weg is
-    namelijk geen fout.
-    """
+    """Signaleer projectdekking, gaten en overlap op de geijkte as."""
     if project_boundaries is None or project_boundaries.empty:
         return _empty_coverage_frame()
 
     rows: list[dict[str, Any]] = []
     axis_names = {axis["axis_id"]: axis["axis_naam"] for axis in axes}
 
-    group_columns = ["axis_id", "project_type"]
-    for (axis_id_raw, project_type_raw), axis_projects in project_boundaries.groupby(group_columns, dropna=False, sort=True):
-        axis_id = clean_display_value(axis_id_raw)
-        project_type = clean_display_value(project_type_raw)
-        if not axis_id or not project_type:
+    for axis_id, axis_projects in project_boundaries.groupby("axis_id", dropna=False, sort=True):
+        axis_id = clean_display_value(axis_id)
+        if not axis_id:
             continue
-
-        first = axis_projects.iloc[0]
-        project_family = clean_display_value(first.get("project_family", ""))
-        situering = clean_display_value(first.get("situering", ""))
 
         axis_anchors = _anchors_for_axis(anchors, axis_id)
         if len(axis_anchors) >= 2:
@@ -1451,6 +1200,8 @@ def _build_project_coverage(
             span_end = float(pd.to_numeric(axis_anchors["route_m"], errors="coerce").max())
             calibration_span = max(0.0, span_end - span_start)
         else:
+            span_start = None
+            span_end = None
             calibration_span = None
 
         intervals: list[tuple[float, float, str]] = []
@@ -1470,21 +1221,16 @@ def _build_project_coverage(
         intervals = sorted(intervals, key=lambda item: (item[0], item[1], item[2]))
         merged = _merge_intervals_m([(start, end) for start, end, _ in intervals])
         unique_length = sum(end - start for start, end in merged)
-        project_span = max(end for _, end, _ in intervals) - min(start for start, _, _ in intervals)
-        coverage_pct = unique_length / project_span * 100.0 if project_span > 0 else None
-
-        common = {
-            "axis_id": axis_id,
-            "axis_naam": axis_names.get(axis_id, axis_id),
-            "project_type": project_type,
-            "project_family": project_family,
-            "situering": situering,
-            "bronkwaliteit": "experimenteel",
-        }
+        coverage_pct = (
+            unique_length / calibration_span * 100.0
+            if calibration_span is not None and calibration_span > 0
+            else None
+        )
 
         rows.append(
             {
-                **common,
+                "axis_id": axis_id,
+                "axis_naam": axis_names.get(axis_id, axis_id),
                 "controle_type": "dekking",
                 "van_m": _round_or_none(min(start for start, _, _ in intervals), 2),
                 "tot_m": _round_or_none(max(end for _, end, _ in intervals), 2),
@@ -1492,23 +1238,41 @@ def _build_project_coverage(
                 "project_links": "",
                 "project_rechts": "",
                 "dekking_uniek_m": _round_or_none(unique_length, 1),
-                "projectbereik_m": _round_or_none(project_span, 1),
                 "ijking_span_m": _round_or_none(calibration_span, 1),
                 "dekking_pct": _round_or_none(coverage_pct, 1),
                 "status": "overzicht",
-                "advies": (
-                    "Totale projectdekking binnen dit projecttype. "
-                    "Gaten en overlap hieronder worden alleen met hetzelfde projecttype vergeleken."
-                ),
+                "advies": "Totale projectdekking binnen de geijkte hm-range; controleer losse gat/overlap-regels hieronder.",
+                "bronkwaliteit": "experimenteel",
             }
         )
 
         previous_start, previous_end, previous_name = intervals[0]
+        if span_start is not None and previous_start - span_start > gap_tolerance_m:
+            rows.append(
+                {
+                    "axis_id": axis_id,
+                    "axis_naam": axis_names.get(axis_id, axis_id),
+                    "controle_type": "gat_begin_ijking",
+                    "van_m": _round_or_none(span_start, 2),
+                    "tot_m": _round_or_none(previous_start, 2),
+                    "lengte_m": _round_or_none(previous_start - span_start, 1),
+                    "project_links": "",
+                    "project_rechts": previous_name,
+                    "dekking_uniek_m": None,
+                    "ijking_span_m": _round_or_none(calibration_span, 1),
+                    "dekking_pct": None,
+                    "status": "aandacht",
+                    "advies": "Er ligt geen project vanaf het begin van de geijkte range.",
+                    "bronkwaliteit": "experimenteel",
+                }
+            )
+
         for start, end, name in intervals[1:]:
             if start - previous_end > gap_tolerance_m:
                 rows.append(
                     {
-                        **common,
+                        "axis_id": axis_id,
+                        "axis_naam": axis_names.get(axis_id, axis_id),
                         "controle_type": "gat",
                         "van_m": _round_or_none(previous_end, 2),
                         "tot_m": _round_or_none(start, 2),
@@ -1516,17 +1280,18 @@ def _build_project_coverage(
                         "project_links": previous_name,
                         "project_rechts": name,
                         "dekking_uniek_m": None,
-                        "projectbereik_m": _round_or_none(project_span, 1),
                         "ijking_span_m": _round_or_none(calibration_span, 1),
                         "dekking_pct": None,
                         "status": "controleer",
-                        "advies": "Controleer of tussen deze projecten van hetzelfde projecttype bewust een gat zit.",
+                        "advies": "Controleer of tussen deze projecten bewust een gat zit.",
+                        "bronkwaliteit": "experimenteel",
                     }
                 )
             elif previous_end - start > gap_tolerance_m:
                 rows.append(
                     {
-                        **common,
+                        "axis_id": axis_id,
+                        "axis_naam": axis_names.get(axis_id, axis_id),
                         "controle_type": "overlap",
                         "van_m": _round_or_none(start, 2),
                         "tot_m": _round_or_none(previous_end, 2),
@@ -1534,16 +1299,36 @@ def _build_project_coverage(
                         "project_links": previous_name,
                         "project_rechts": name,
                         "dekking_uniek_m": None,
-                        "projectbereik_m": _round_or_none(project_span, 1),
                         "ijking_span_m": _round_or_none(calibration_span, 1),
                         "dekking_pct": None,
                         "status": "controleer",
-                        "advies": "Controleer dubbele dekking of projectnaamgrenzen binnen hetzelfde projecttype.",
+                        "advies": "Controleer dubbele dekking of projectnaamgrenzen.",
+                        "bronkwaliteit": "experimenteel",
                     }
                 )
 
             if end > previous_end:
                 previous_start, previous_end, previous_name = start, end, name
+
+        if span_end is not None and span_end - previous_end > gap_tolerance_m:
+            rows.append(
+                {
+                    "axis_id": axis_id,
+                    "axis_naam": axis_names.get(axis_id, axis_id),
+                    "controle_type": "gat_eind_ijking",
+                    "van_m": _round_or_none(previous_end, 2),
+                    "tot_m": _round_or_none(span_end, 2),
+                    "lengte_m": _round_or_none(span_end - previous_end, 1),
+                    "project_links": previous_name,
+                    "project_rechts": "",
+                    "dekking_uniek_m": None,
+                    "ijking_span_m": _round_or_none(calibration_span, 1),
+                    "dekking_pct": None,
+                    "status": "aandacht",
+                    "advies": "Er ligt geen project tot het einde van de geijkte range.",
+                    "bronkwaliteit": "experimenteel",
+                }
+            )
 
     if not rows:
         return _empty_coverage_frame()

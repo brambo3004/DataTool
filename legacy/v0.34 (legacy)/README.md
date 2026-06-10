@@ -1,33 +1,11 @@
-# iASSET Advisor - refactor v0.34.1
+# iASSET Advisor - refactor v0.34.0
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
 
-## Nieuw in v0.34.1
-
-v0.34.1 is een stabilisatieversie van **Projectgrenzen op referentieas** binnen `🧪 NWB referentieproef`.
-
-Kern:
-- projectdekking, gaten en overlap worden nu per projecttype gecontroleerd, bijvoorbeeld HRB met HRB en PWR met PWR;
-- HRB, parallelwegen en fietspaden worden niet meer als onderlinge overlap gezien;
-- onderhoudsprojectnamen krijgen een aparte validatie op naamvorm, wegnummer, projecttype, situering, voorloopnul en begin/einde;
-- de beheerregel voor projectnaam-hectometrering blijft expliciet vastgelegd: 12.300 -> 12.3, maar 12.301 -> 12.4;
-- fysieke objectligging blijft zichtbaar, maar bepaalt niet meer automatisch de hoofdstatus van de projectgrens;
-- exports bevatten aparte kolommen voor `status_projectnaam`, `status_projectgrens`, `objectligging_status` en eindstatus `status`;
-- er worden nog steeds geen beheerknippen of mutaties in iASSET gemaakt.
-
-Nieuwe of aangepaste exports:
-- `Projectgrenzen_Referentieas_<weg>.csv`
-- `Projectdekking_Referentieas_<weg>.csv`
-- `NWB_Hectopunten_op_iASSET_Wegas_<weg>.csv`
-- `Projectobjecten_Referentieas_<weg>.csv`
-
-De functionaliteit blijft bewust proef/diagnose. iASSET blijft de bron van waarheid; de NWB-ijking is alleen een hulpmiddel voor databeheercontrole.
-
-
 ## Nieuw in v0.34.0
 
-v0.34.0 voegde de diagnose **Projectgrenzen op referentieas** toe binnen het scherm `🧪 NWB referentieproef`.
+v0.34.0 voegt de diagnose **Projectgrenzen op referentieas** toe binnen het scherm `🧪 NWB referentieproef`.
 
 Kern:
 - de iASSET-wegas uit `wegassen_paspoort.geojson` blijft de leidende as;
@@ -40,6 +18,15 @@ Kern:
 
 Nieuwe module:
 - `iasset_tool/project_axis.py`
+
+Nieuwe exports:
+- `Projectgrenzen_Referentieas_<weg>.csv`
+- `Projectdekking_Referentieas_<weg>.csv`
+- `NWB_Hectopunten_op_iASSET_Wegas_<weg>.csv`
+- `Projectobjecten_Referentieas_<weg>.csv`
+
+De functionaliteit is bewust proef/diagnose. iASSET blijft de bron van waarheid; de NWB-ijking is alleen een hulpmiddel voor databeheercontrole.
+
 
 ## Nieuw in v0.33.0
 
