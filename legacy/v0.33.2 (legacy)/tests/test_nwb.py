@@ -7,7 +7,6 @@ from iasset_tool.nwb import (
     build_nwb_source_summary,
     compare_iasset_wegassen_to_nwb,
     compare_iasset_wegassen_to_nwb_detail,
-    build_nwb_wegas_detail_map,
     filter_iasset_wegassen_for_road,
     filter_nwb_hectopunten_for_wegvakken,
     filter_nwb_wegvakken_for_road,
@@ -234,44 +233,3 @@ def test_compare_iasset_wegas_to_nwb_detail_links_nearest_wegvak():
     assert not detail.empty
     assert set(detail["dichtstbijzijnde_nwb_wvk_id"].astype(str)).issubset({"1001.0", "1002.0", "1001", "1002"})
     assert set(detail["status"].tolist()) == {"vergelijking"}
-
-
-
-def test_build_nwb_wegas_detail_map_returns_folium_map():
-    """De detailkaart maakt lokale afwijkingen visueel vindbaar."""
-    nwb_wegvakken = filter_nwb_wegvakken_for_road(_nwb_wegvakken(), "N354")
-    wegassen = gpd.GeoDataFrame(
-        {"nummer": ["WA-N354"], "naam": ["N354"], "Wegnummer": ["N354"]},
-        geometry=[LineString([(0, 2), (100, 2), (200, 80)])],
-        crs="EPSG:28992",
-    )
-    detail = compare_iasset_wegassen_to_nwb_detail(
-        wegassen,
-        nwb_wegvakken,
-        "N354",
-        max_distance_m=25,
-        sample_step_m=100,
-    )
-
-    folium_map = build_nwb_wegas_detail_map(
-        wegassen,
-        nwb_wegvakken,
-        detail,
-        "N354",
-        max_distance_m=25,
-    )
-
-    assert folium_map is not None
-    assert hasattr(folium_map, "_repr_html_")
-
-
-def test_build_nwb_wegas_detail_map_returns_none_without_detail():
-    """Zonder detailregels wordt geen lege kaart getoond."""
-    nwb_wegvakken = filter_nwb_wegvakken_for_road(_nwb_wegvakken(), "N354")
-    wegassen = gpd.GeoDataFrame(
-        {"nummer": ["WA-N354"], "naam": ["N354"]},
-        geometry=[LineString([(0, 0), (100, 0)])],
-        crs="EPSG:28992",
-    )
-
-    assert build_nwb_wegas_detail_map(wegassen, nwb_wegvakken, pd.DataFrame(), "N354") is None

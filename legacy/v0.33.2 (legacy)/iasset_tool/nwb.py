@@ -19,17 +19,16 @@ import json
 import re
 from typing import Any, Iterable
 
-import folium
 import geopandas as gpd
 import pandas as pd
 import requests
-from shapely.geometry import Point, box
+from shapely.geometry import box
 from shapely.ops import unary_union
 
 from .utils import clean_display_value, normalize_text
 
 
-NWB_REFERENCE_SCHEMA_VERSION = "nwb-ref-v0.33.3"
+NWB_REFERENCE_SCHEMA_VERSION = "nwb-ref-v0.33.2"
 NWB_OGC_API_BASE_URL = "https://api.pdok.nl/rws/nationaal-wegenbestand-wegen/ogc/v1"
 
 NWB_ROAD_COLUMNS = (
@@ -697,169 +696,6 @@ def compare_iasset_wegassen_to_nwb_detail(
 
     result = pd.DataFrame(rows, columns=_empty_wegas_comparison_detail().columns)
     return result
-
-
-def _distance_category(distance_m: float | None, max_distance_m: float) -> tuple[str, str]:
-    """Geef kleur en label voor een NWB-detailafstand.
-
-    De kleurindeling is bewust eenvoudig voor beheerders:
-    groen = dicht op NWB, oranje = aandacht maar binnen proefgrens, rood =
-    buiten de gekozen maximale afstand. Dit is alleen kaartdiagnose.
-    """
-    if distance_m is None:
-        return "gray", "geen afstand"
-    try:
-        distance = float(distance_m)
-    except Exception:
-        return "gray", "geen afstand"
-    if distance > float(max_distance_m):
-        return "red", "controleer"
-    if distance > 10.0:
-        return "orange", "aandacht"
-    return "green", "vergelijking"
-
-
-def build_nwb_wegas_detail_map(
-    wegassen_gdf: gpd.GeoDataFrame,
-    nwb_wegvakken: gpd.GeoDataFrame,
-    detail_df: pd.DataFrame,
-    selected_road: str,
-    *,
-    max_distance_m: float = 25.0,
-) -> folium.Map | None:
-    """Maak een kaart voor detailpunten van de iASSET-wegas versus NWB.
-
-    Waarom deze kaart?
-    De CSV-detailtabel laat de afstand per samplepunt zien, maar beheerders
-    moeten vooral kunnen zien wáár een afwijking zit. De kaart is daarom
-    bedoeld als visuele diagnose en niet als beheer-/mutatiebron.
-    """
-    if detail_df is None or detail_df.empty:
-        return None
-
-    filtered_wegassen = filter_iasset_wegassen_for_road(wegassen_gdf, selected_road)
-    nwb_rd = _ensure_rd(nwb_wegvakken)
-
-    layers: list[gpd.GeoDataFrame] = []
-    if filtered_wegassen is not None and not filtered_wegassen.empty:
-        layers.append(_ensure_rd(filtered_wegassen)[["geometry"]].copy())
-    if nwb_rd is not None and not nwb_rd.empty:
-        layers.append(nwb_rd[["geometry"]].copy())
-
-    points_rows = []
-    for _, row in detail_df.iterrows():
-        try:
-            x = float(row.get("x_rd"))
-            y = float(row.get("y_rd"))
-        except Exception:
-            continue
-        if x != x or y != y:
-            continue
-        points_rows.append({"geometry": Point(x, y)})
-
-    points_gdf = gpd.GeoDataFrame(points_rows, geometry="geometry", crs="EPSG:28992")
-    if not points_gdf.empty:
-        layers.append(points_gdf)
-
-    if not layers:
-        return None
-
-    bounds_gdf = gpd.GeoDataFrame(pd.concat(layers, ignore_index=True), geometry="geometry", crs="EPSG:28992")
-    bounds_wgs = bounds_gdf.to_crs(epsg=4326)
-    minx, miny, maxx, maxy = bounds_wgs.total_bounds
-    center_lat = (miny + maxy) / 2
-    center_lon = (minx + maxx) / 2
-
-    folium_map = folium.Map(location=[center_lat, center_lon], zoom_start=14, tiles="CartoDB positron")
-    folium_map.fit_bounds([[miny, minx], [maxy, maxx]])
-
-    if nwb_rd is not None and not nwb_rd.empty:
-        nwb_web = nwb_rd.to_crs(epsg=4326)
-        folium.GeoJson(
-            nwb_web,
-            name="NWB wegvakken",
-            style_function=lambda _: {"color": "#1f77b4", "weight": 3, "opacity": 0.75},
-            tooltip=folium.GeoJsonTooltip(
-                fields=[col for col in ["wvk_id", "wegnummer", "routenr", "beginkm", "eindkm"] if col in nwb_web.columns],
-                aliases=[col for col in ["wvk_id", "wegnummer", "routenr", "beginkm", "eindkm"] if col in nwb_web.columns],
-                sticky=False,
-            )
-            if any(col in nwb_web.columns for col in ["wvk_id", "wegnummer", "routenr", "beginkm", "eindkm"])
-            else None,
-        ).add_to(folium_map)
-
-    if filtered_wegassen is not None and not filtered_wegassen.empty:
-        wegassen_web = _ensure_rd(filtered_wegassen).to_crs(epsg=4326)
-        folium.GeoJson(
-            wegassen_web,
-            name="iASSET-wegas",
-            style_function=lambda _: {"color": "#cc00cc", "weight": 4, "opacity": 0.85},
-            tooltip=folium.GeoJsonTooltip(
-                fields=[col for col in ["nummer", "naam", "Wegnummer"] if col in wegassen_web.columns],
-                aliases=[col for col in ["nummer", "naam", "Wegnummer"] if col in wegassen_web.columns],
-                sticky=False,
-            )
-            if any(col in wegassen_web.columns for col in ["nummer", "naam", "Wegnummer"])
-            else None,
-        ).add_to(folium_map)
-
-    feature_group = folium.FeatureGroup(name="Detailpunten afstand tot NWB", show=True)
-    for _, row in detail_df.iterrows():
-        try:
-            x = float(row.get("x_rd"))
-            y = float(row.get("y_rd"))
-        except Exception:
-            continue
-        if x != x or y != y:
-            continue
-
-        point_wgs = gpd.GeoSeries([Point(x, y)], crs="EPSG:28992").to_crs(epsg=4326).iloc[0]
-        distance = row.get("afstand_tot_nwb_m")
-        color, label = _distance_category(distance, max_distance_m)
-        popup_text = (
-            f"<b>{clean_display_value(row.get('nummer', ''))}</b><br>"
-            f"Status: {clean_display_value(row.get('status', label))}<br>"
-            f"Afstand langs as: {clean_display_value(row.get('afstand_langs_iasset_wegas_m', ''))} m<br>"
-            f"Afstand tot NWB: {clean_display_value(distance)} m<br>"
-            f"NWB wvk_id: {clean_display_value(row.get('dichtstbijzijnde_nwb_wvk_id', ''))}<br>"
-            f"Waarschuwing: {clean_display_value(row.get('waarschuwing', ''))}"
-        )
-        folium.CircleMarker(
-            location=[point_wgs.y, point_wgs.x],
-            radius=5 if color == "red" else 4,
-            color=color,
-            fill=True,
-            fill_color=color,
-            fill_opacity=0.9,
-            weight=2,
-            popup=folium.Popup(popup_text, max_width=350),
-            tooltip=f"{clean_display_value(row.get('nummer', ''))} - {clean_display_value(distance)} m",
-        ).add_to(feature_group)
-
-    feature_group.add_to(folium_map)
-
-    legend_html = f"""
-    <div style="
-        position: fixed;
-        bottom: 35px;
-        left: 35px;
-        z-index: 9999;
-        background: white;
-        padding: 10px 12px;
-        border: 1px solid #999;
-        border-radius: 4px;
-        font-size: 13px;
-        box-shadow: 0 1px 5px rgba(0,0,0,0.25);
-    ">
-        <b>NWB-detailpunten</b><br>
-        <span style="color: green;">●</span> ≤ 10 m<br>
-        <span style="color: orange;">●</span> 10 m - {float(max_distance_m):g} m<br>
-        <span style="color: red;">●</span> &gt; {float(max_distance_m):g} m
-    </div>
-    """
-    folium_map.get_root().html.add_child(folium.Element(legend_html))
-    folium.LayerControl(collapsed=False).add_to(folium_map)
-    return folium_map
 
 def compare_iasset_wegassen_to_nwb(
     wegassen_gdf: gpd.GeoDataFrame,

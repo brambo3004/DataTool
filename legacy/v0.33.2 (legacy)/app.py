@@ -80,7 +80,6 @@ from iasset_tool.nwb import (
     build_nwb_reference_for_road,
     compare_iasset_wegassen_to_nwb,
     compare_iasset_wegassen_to_nwb_detail,
-    build_nwb_wegas_detail_map,
     read_wegassen_geojson_bytes,
 )
 from iasset_tool.performance import measure_step, performance_dataframe
@@ -1943,7 +1942,6 @@ with col_inspector:
 
             wegas_comparison = pd.DataFrame()
             wegas_comparison_detail = pd.DataFrame()
-            wegas_detail_map = None
             uploaded_wegassen_name = ""
             if uploaded_wegassen is not None:
                 uploaded_wegassen_name = uploaded_wegassen.name
@@ -1967,16 +1965,6 @@ with col_inspector:
                     max_distance_m=float(nwb_wegas_max_distance_m),
                     sample_step_m=float(nwb_detail_sample_step_m),
                 )
-                wegas_detail_map = measure_step(
-                    get_performance_log(),
-                    "NWB wegasvergelijking kaart",
-                    build_nwb_wegas_detail_map,
-                    wegassen_gdf,
-                    nwb_result.wegvakken,
-                    wegas_comparison_detail,
-                    selected_road,
-                    max_distance_m=float(nwb_wegas_max_distance_m),
-                )
 
             st.session_state["nwb_reference_diagnostics"] = {
                 "road": selected_road,
@@ -1992,7 +1980,6 @@ with col_inspector:
                 "hectopunten": nwb_result.hectopunten.drop(columns="geometry", errors="ignore"),
                 "wegas_comparison": wegas_comparison,
                 "wegas_comparison_detail": wegas_comparison_detail,
-                "wegas_detail_map": wegas_detail_map,
                 "warning": nwb_result.warning,
             }
 
@@ -2125,20 +2112,6 @@ with col_inspector:
                         "hoe ver dat punt van het dichtstbijzijnde NWB-wegvak ligt. "
                         "Gebruik dit om uitschieters lokaal terug te vinden."
                     )
-                    wegas_detail_map = nwb_state.get("wegas_detail_map")
-                    if wegas_detail_map is not None:
-                        st.markdown("##### Kaart detailpunten")
-                        st.caption(
-                            "Groen ligt dicht bij NWB, oranje vraagt aandacht en rood ligt buiten "
-                            "de gekozen maximale afstand. De kaart is alleen diagnose."
-                        )
-                        st_folium(
-                            wegas_detail_map,
-                            use_container_width=True,
-                            height=650,
-                            returned_objects=[],
-                        )
-
                     detail_preview_columns = [
                         col for col in [
                             "nummer",
