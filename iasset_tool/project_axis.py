@@ -1,5 +1,5 @@
 """
-Projectgrenzen en groenveld-projectvoorstellen op een geijkte iASSET-referentieas (v0.35.0).
+Projectgrenzen en groenveld-projectvoorstellen op een geijkte iASSET-referentieas (v0.35.1).
 
 Deze module draait de eerdere referentieasproef bewust om:
 
@@ -35,7 +35,7 @@ from .trajectory import format_name_hm, parse_project_range
 from .utils import clean_display_value, normalize_text
 
 
-PROJECT_AXIS_SCHEMA_VERSION = "projectaxis-v0.35.0"
+PROJECT_AXIS_SCHEMA_VERSION = "projectaxis-v0.35.1"
 
 HECTOMETER_COLUMN_CANDIDATES = (
     "hectomtrng",
@@ -70,6 +70,24 @@ GREENFIELD_SPLIT_COLUMNS = (
     "Jaar herstrating",
 )
 
+# v0.35.1: niet elk verschil in beheerkenmerken is automatisch een
+# onderhoudsprojectgrens. Deze constants vormen een voorzichtig knipprofiel:
+# harde knippen starten een nieuw voorstel, zachte signalen blijven context.
+GREENFIELD_STRONG_CHANGE_FIELDS = {
+    "Besteknummer",
+    "Soort verharding_N",
+    "Soort deklaag specifiek",
+    "Jaar deklaag",
+}
+GREENFIELD_SOFT_ONLY_FIELDS = {
+    "verhardingssoort",
+    "Jaar aanleg",
+    "Jaar conservering",
+    "Jaar herstrating",
+}
+GREENFIELD_MIN_HARD_SPLIT_SPAN_M = 250.0
+GREENFIELD_STRONG_SINGLE_FIELD_SPAN_M = 750.0
+
 
 @dataclass(frozen=True)
 class ProjectAxisDiagnosticsResult:
@@ -79,7 +97,7 @@ class ProjectAxisDiagnosticsResult:
     Alle tabellen zijn gewone DataFrames. Dat houdt de Streamlit-laag simpel en
     maakt export naar CSV zonder extra conversie mogelijk.
 
-    v0.35.0 voegt naast de bestaande projectgrenscontrole ook groenveld-
+    v0.35.1 verfijnt naast de bestaande projectgrenscontrole ook groenveld-
     projectvoorstellen toe. Die voorstellen gebruiken de bestaande
     onderhoudsprojectnaam uit iASSET niet als uitgangspunt, maar vergelijken daar
     achteraf wel mee.
@@ -267,6 +285,9 @@ def _empty_project_proposal_frame() -> pd.DataFrame:
             "onderhoudsproject_voorgesteld",
             "knipreden_begin",
             "knipreden_eind",
+            "knipprofiel",
+            "harde_knipsignalen",
+            "zachte_signalen",
             "aantal_primaire_objecten",
             "bestaande_onderhoudsprojecten",
             "vergelijking_iasset_status",
@@ -2141,6 +2162,49 @@ def _greenfield_changed_fields(previous_key: dict[str, str], current_key: dict[s
     return changed
 
 
+def _format_changed_fields(fields: Iterable[str]) -> str:
+    """Formatteer kenmerkvelden stabiel en leesbaar voor knipmeldingen."""
+    return ", ".join(field for field in GREENFIELD_SPLIT_COLUMNS if field in set(fields))
+
+
+def _greenfield_change_decision(changed_fields: list[str], current_span_m: float) -> tuple[bool, str, str]:
+    """
+    Bepaal of een kenmerkwijziging een harde knip of alleen contextsignaal is.
+
+    Waarom deze nuance?
+    In v0.35.0 werd bijna elk veldverschil een nieuw onderhoudsproject. Dat
+    leverde bij een moeilijke weg als N354 te veel korte projectvoorstellen op.
+    v0.35.1 knipt daarom alleen hard als het signaal sterk genoeg is én het
+    lopende segment voldoende lengte heeft. Lokale of korte afwijkingen blijven
+    zichtbaar als zacht signaal binnen het voorstel.
+    """
+    fields = [field for field in changed_fields if field in GREENFIELD_SPLIT_COLUMNS]
+    if not fields:
+        return False, "", ""
+
+    field_set = set(fields)
+    formatted = _format_changed_fields(fields)
+    current_span = float(current_span_m or 0.0)
+
+    strong_fields = field_set.intersection(GREENFIELD_STRONG_CHANGE_FIELDS)
+    if not strong_fields:
+        return False, "zacht kenmerksignaal", formatted
+
+    # Een gecombineerde wijziging in bestek/deklaag/verharding is een sterke
+    # kandidaat voor een projectgrens, maar niet als het voorgaande stuk nog
+    # maar een kort detailsegment is.
+    if current_span >= GREENFIELD_MIN_HARD_SPLIT_SPAN_M and len(strong_fields) >= 2:
+        return True, "harde kenmerkknip", formatted
+
+    # Een enkel sterk veld kan ook een knip zijn, maar alleen over een langere
+    # stabiele lengte. Zo voorkomen we dat kleine lokale afwijkingen zelfstandig
+    # onderhoudsproject worden.
+    if current_span >= GREENFIELD_STRONG_SINGLE_FIELD_SPAN_M and field_set <= GREENFIELD_STRONG_CHANGE_FIELDS:
+        return True, "harde kenmerkknip", formatted
+
+    return False, "zacht kenmerksignaal", formatted
+
+
 def _format_project_type_from_row(row: pd.Series) -> tuple[str, str, str]:
     """Lees projecttype/family/situering veilig uit een objectprojectieregel."""
     project_type = clean_display_value(row.get("project_type", ""))
@@ -2292,10 +2356,12 @@ def _build_project_proposals(
         current_key: dict[str, str] | None = None
         current_end_m: float | None = None
         current_begin_reason = "start spoor"
+        current_soft_signals: list[str] = []
+        current_hard_signals: list[str] = []
         previous_segment_end_reason = ""
 
         def flush_segment(end_reason: str) -> None:
-            nonlocal proposal_counter, current_indices, current_key, current_end_m, current_begin_reason, previous_segment_end_reason
+            nonlocal proposal_counter, current_indices, current_key, current_end_m, current_begin_reason, current_soft_signals, current_hard_signals, previous_segment_end_reason
             if not current_indices:
                 return
 
@@ -2336,10 +2402,14 @@ def _build_project_proposals(
             filled_key = ", ".join(
                 f"{column}={value}" for column, value in key_values.items() if clean_display_value(value)
             )
+            hard_signal_text = " | ".join(dict.fromkeys(current_hard_signals))
+            soft_signal_text = " | ".join(dict.fromkeys(current_soft_signals))
             context_parts = [
                 context_status,
                 f"knipreden begin: {current_begin_reason}",
                 f"knipreden eind: {end_reason or 'einde spoor'}",
+                f"harde knipsignalen: {hard_signal_text}" if hard_signal_text else "",
+                f"zachte signalen binnen voorstel: {soft_signal_text}" if soft_signal_text else "",
                 filled_key,
             ]
             context = "; ".join(part for part in context_parts if part)
@@ -2373,6 +2443,9 @@ def _build_project_proposals(
                     "onderhoudsproject_voorgesteld": proposed_name,
                     "knipreden_begin": current_begin_reason,
                     "knipreden_eind": end_reason or "einde spoor",
+                    "knipprofiel": "v0.35.1 hard/zacht",
+                    "harde_knipsignalen": hard_signal_text,
+                    "zachte_signalen": soft_signal_text,
                     "aantal_primaire_objecten": int(len(segment)),
                     "bestaande_onderhoudsprojecten": existing_joined,
                     "vergelijking_iasset_status": comparison_status,
@@ -2420,6 +2493,8 @@ def _build_project_proposals(
             current_key = None
             current_end_m = None
             current_begin_reason = "start spoor"
+            current_soft_signals = []
+            current_hard_signals = []
 
         for idx, object_row in group.iterrows():
             start_m = float(object_row["route_start_norm_m"])
@@ -2436,21 +2511,34 @@ def _build_project_proposals(
             gap_m = start_m - float(current_end_m if current_end_m is not None else start_m)
             changed_fields = _greenfield_changed_fields(current_key or {}, key)
             split_reasons: list[str] = []
+            hard_signals_for_split: list[str] = []
+
             if gap_m > float(gap_tolerance_m):
                 split_reasons.append(f"gat > {gap_tolerance_m:g} m")
+                hard_signals_for_split.append(f"fysiek gat {gap_m:.1f} m")
+
             if changed_fields:
-                split_reasons.append("kenmerk gewijzigd: " + ", ".join(changed_fields))
+                current_span_m = max(float(current_end_m or start_m) - float(segment_start_m := group.loc[current_indices, "route_start_norm_m"].min()), 0.0)
+                is_hard, profile_label, formatted_fields = _greenfield_change_decision(changed_fields, current_span_m)
+                if is_hard:
+                    split_reasons.append(f"{profile_label}: {formatted_fields}")
+                    hard_signals_for_split.append(formatted_fields)
+                elif formatted_fields:
+                    current_soft_signals.append(f"{profile_label}: {formatted_fields}")
 
             if split_reasons:
                 reason = "; ".join(split_reasons)
+                current_hard_signals.extend(hard_signals_for_split)
                 flush_segment(reason)
                 current_indices = [idx]
                 current_key = key
                 current_end_m = end_m
                 current_begin_reason = reason
+                current_hard_signals = hard_signals_for_split.copy()
             else:
                 current_indices.append(idx)
                 current_end_m = max(float(current_end_m or end_m), end_m)
+                current_key = key
 
         flush_segment("einde spoor")
 

@@ -686,7 +686,8 @@ def test_groenveld_projectvoorstellen_knippen_op_beheerkenmerk_niet_op_bestaande
         "N398-HRB-01.0-01.5",
         "N398-HRB-01.5-02.0",
     ]
-    assert "kenmerk gewijzigd" in proposals.iloc[0]["knipreden_eind"]
+    assert "harde kenmerkknip" in proposals.iloc[0]["knipreden_eind"]
+    assert proposals.iloc[0]["knipprofiel"] == "v0.35.1 hard/zacht"
 
     comparison = result.proposal_iasset_comparison
     split_rows = comparison[
@@ -694,6 +695,57 @@ def test_groenveld_projectvoorstellen_knippen_op_beheerkenmerk_niet_op_bestaande
     ]
     assert len(split_rows) == 1
     assert split_rows.iloc[0]["bestaand_onderhoudsproject"] == "N398-HRB-01.0-02.0"
+
+
+
+def test_groenveld_zachte_kenmerkwijziging_blijft_context_geen_projectknip() -> None:
+    """v0.35.1 maakt van een lokale zachte wijziging geen zelfstandig project."""
+    road_gdf = gpd.GeoDataFrame(
+        [
+            {
+                "sys_id": "a",
+                "nummer": "RS-1",
+                "naam": "deel 1",
+                "subthema": "rijstrook",
+                "Wegnummer": "N398",
+                "Onderhoudsproject": "",
+                "Besteknummer": "B-1",
+                "Jaar aanleg": "2000",
+                "Jaar deklaag": "2020",
+                "geometry": LineString([(0, 0), (120, 0)]),
+            },
+            {
+                "sys_id": "b",
+                "nummer": "RS-2",
+                "naam": "deel 2",
+                "subthema": "rijstrook",
+                "Wegnummer": "N398",
+                "Onderhoudsproject": "",
+                "Besteknummer": "B-1",
+                "Jaar aanleg": "2001",
+                "Jaar deklaag": "2020",
+                "geometry": LineString([(120, 0), (240, 0)]),
+            },
+        ],
+        geometry="geometry",
+        crs="EPSG:28992",
+    )
+
+    result = build_project_axis_diagnostics(
+        road_gdf,
+        _wegas(),
+        _hectopoints(),
+        pd.DataFrame(),
+        "N398",
+        gap_tolerance_m=5.0,
+        length_tolerance_m=10.0,
+    )
+
+    proposals = result.project_proposals
+    assert len(proposals) == 1
+    assert proposals.iloc[0]["onderhoudsproject_voorgesteld"] == "N398-HRB-01.0-01.3"
+    assert "Jaar aanleg" in proposals.iloc[0]["zachte_signalen"]
+    assert "zachte signalen binnen voorstel" in proposals.iloc[0]["contextmelding"]
 
 
 def test_groenveld_projectvoorstel_met_object_zonder_bestaand_project_krijgt_voorstelnaam() -> None:

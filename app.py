@@ -2442,7 +2442,8 @@ with col_inspector:
                         st.caption(
                             "Deze voorstellen worden opgebouwd uit primaire objecten op de geijkte iASSET-as. "
                             "De bestaande onderhoudsprojectnaam wordt hierbij niet gebruikt als uitgangspunt, "
-                            "maar alleen achteraf vergeleken. Dit is diagnose/proef en wijzigt niets in iASSET."
+                            "maar alleen achteraf vergeleken. v0.35.1 gebruikt knipzwaarte: harde knippen "
+                            "starten een nieuw voorstel; zachte kenmerken blijven als context binnen het voorstel."
                         )
                         proposal_status = (
                             project_axis_proposals["status_voorstel"].fillna("ok").astype(str).str.lower()
@@ -2470,6 +2471,9 @@ with col_inspector:
                                 "naam_eind",
                                 "knipreden_begin",
                                 "knipreden_eind",
+                                "knipprofiel",
+                                "harde_knipsignalen",
+                                "zachte_signalen",
                                 "aantal_primaire_objecten",
                                 "bestaande_onderhoudsprojecten",
                                 "vergelijking_iasset_status",

@@ -1,7 +1,28 @@
-# iASSET Advisor - refactor v0.35.0
+# iASSET Advisor - refactor v0.35.1
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
+
+## Nieuw in v0.35.1
+
+v0.35.1 verfijnt de groenveld-projectvoorstellen met **knipzwaarte** en samenvoeglogica.
+
+Kern:
+- v0.35.0 kon vanaf nul projectvoorstellen maken, maar knipte te vaak op kleine detailverschillen;
+- v0.35.1 maakt onderscheid tussen harde knippen en zachte kenmerken;
+- harde knippen, zoals een sterk gecombineerd verschil in bestek/deklaag/verharding over voldoende lengte, kunnen een nieuw voorstel starten;
+- zachte signalen, zoals lokale of korte kenmerkverschillen, blijven zichtbaar als context binnen hetzelfde voorstel;
+- nieuwe kolommen in `Projectvoorstellen_Referentieas_<weg>.csv`:
+  - `knipprofiel`;
+  - `harde_knipsignalen`;
+  - `zachte_signalen`;
+- de bestaande iASSET-onderhoudsprojectnamen blijven vergelijkingsmateriaal en zijn nog steeds geen basis voor de voorstellen.
+
+Waarom:
+N398 is een gecontroleerde referentiecase en N354 is een moeilijke, verouderde stress-test. v0.35.1 gebruikt N398 om over-splitsing te remmen en N354 om te blijven zien of de tool moeilijke wegen logisch kan reconstrueren.
+
+Belangrijk:
+Dit blijft diagnose/proef. De app wijzigt niets in iASSET, maakt geen beheerknippen en voert geen automatische objecttoewijzing door.
 
 ## Nieuw in v0.35.0
 
