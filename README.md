@@ -1,11 +1,11 @@
-# iASSET Advisor - refactor v0.34.4
+# iASSET Advisor - refactor v0.34.5
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
 
-## Nieuw in v0.34.4
+## Nieuw in v0.34.5
 
-v0.34.4 is een gebruiksversie van **Projectgrenzen op referentieas** binnen `🧪 NWB referentieproef`.
+v0.34.5 is een gebruiksversie van **Projectgrenzen op referentieas** binnen `🧪 NWB referentieproef`.
 
 Kern:
 - de rekenlogica van v0.34.3 blijft intact;
@@ -633,6 +633,21 @@ Deze versie voegt de eerste **Fase 4-controle** toe: paspoortexport en onderhoud
 Projectgrensdiagnose uitgebreid met een instelbare snap-tolerantie naar hectometerpunten. Standaard 2,5 m. Gatcontrole gebruikt projectnaamzones zodat afrondmarges bij projectgrenzen minder snel als hard gat worden gemeld.
 
 
-## v0.34.4
+## v0.34.5
 
 Gebruiksversionering voor de projectgrensdiagnose: compacte samenvatting in het scherm en nieuwe export `Projectcontrole_Referentieas_<weg>.csv` met alleen actiegerichte regels voor databeheercontrole.
+
+
+### v0.34.5 - compacte controlelijst verder opgeschoond
+
+v0.34.5 houdt de rekenlogica van v0.34.3/v0.34.4 intact, maar maakt
+`Projectcontrole_Referentieas_<weg>.csv` rustiger voor databeheercontrole.
+
+Belangrijkste wijziging:
+
+- `hoofdmelding`: de hoofdreden waarom een regel in de werklijst staat;
+- `contextmelding`: extra context, zoals objectligging;
+- `melding`: blijft beschikbaar voor herkenbaarheid, maar bevat nu dezelfde schone hoofdreden als `hoofdmelding`.
+
+Objectligging wordt dus niet meer vermengd met de hoofdreden van een
+projectgrenscontrole.

@@ -530,7 +530,7 @@ def test_gatcontrole_trekt_projectnaamzone_af_voordat_objecten_worden_getoetst()
 
 
 def test_compacte_controlelijst_bevat_alleen_actiegerichte_regels() -> None:
-    """De v0.34.4-werklijst laat ok-projecten weg en houdt overlap zichtbaar."""
+    """De v0.34.5-werklijst laat ok-projecten weg en houdt overlap zichtbaar."""
     road_gdf = gpd.GeoDataFrame(
         [
             {
@@ -582,8 +582,54 @@ def test_compacte_controlelijst_bevat_alleen_actiegerichte_regels() -> None:
     assert not control.empty
     assert "Projectdekking" in set(control["controle_categorie"])
     assert control["status"].isin(["aandacht", "controleer"]).all()
+    assert "hoofdmelding" in control.columns
+    assert "contextmelding" in control.columns
     assert not control["controlepunt"].astype(str).str.contains("N398-HRB-01.0-01.4").any()
 
+
+
+def test_compacte_controlelijst_splitst_hoofdmelding_en_objectcontext() -> None:
+    """Objectligging komt in v0.34.5 niet meer in de hoofdreden van de werklijst."""
+    boundaries = pd.DataFrame(
+        [
+            {
+                "status": "controleer",
+                "status_projectnaam": "ok",
+                "status_projectgrens": "controleer",
+                "naam_validatie_melding": "",
+                "waarschuwing": "eind buiten ijkbereik",
+                "objectligging_melding": "objectligging wijkt > 25 m af van projectnaam",
+                "begin_buiten_ijkbereik": False,
+                "eind_buiten_ijkbereik": True,
+                "begin_zone_kleur": "",
+                "eind_zone_kleur": "",
+                "lengteverschil_naam_vs_as_m": 100.0,
+                "Onderhoudsproject": "N398-HRB-06.3-06.4",
+                "project_type": "HRB",
+                "project_family": "HRB",
+                "situering": "",
+                "naam_wegnummer": "N398",
+                "axis_id": "WA-N398",
+                "as_begin_m": 530.0,
+                "as_eind_m": 530.0,
+                "as_lengte_m": 0.0,
+                "advies": "Controleer projectgrens en ijkpunten; pas niets automatisch aan.",
+            }
+        ]
+    )
+
+    control = build_project_axis_control_export(
+        boundaries,
+        pd.DataFrame(),
+        pd.DataFrame(),
+        selected_road="N398",
+    )
+
+    row = control.iloc[0]
+    assert row["hoofdmelding"] == "eindgrens buiten ijkbereik"
+    assert "objectligging" not in row["hoofdmelding"]
+    assert "objectligging" in row["contextmelding"]
+    assert row["melding"] == row["hoofdmelding"]
 
 def test_projectassamenvatting_is_robuust_bij_lege_detailtabellen() -> None:
     """De schermsamenvatting crasht niet als detailtabellen leeg zijn."""

@@ -1938,7 +1938,7 @@ with col_inspector:
             ),
         )
 
-        st.markdown("#### v0.34.4 Projectgrenzen op referentieas")
+        st.markdown("#### v0.34.5 Projectgrenzen op referentieas")
         st.caption(
             "Deze stap projecteert NWB-hectopunten op de iASSET-wegas, ijkt die as naar "
             "hectometrering en controleert onderhoudsprojectnamen, projectdekking, gaten, "
@@ -2338,7 +2338,7 @@ with col_inspector:
                     st.warning(nwb_state["project_axis_warning"], icon="⚠️")
 
                 if isinstance(project_axis_boundaries, pd.DataFrame) and not project_axis_boundaries.empty:
-                    st.markdown("#### v0.34.4 Projectgrenzen op geijkte iASSET-wegas")
+                    st.markdown("#### v0.34.5 Projectgrenzen op geijkte iASSET-wegas")
                     st.caption(
                         "Deze tabel vergelijkt de projectnaamrange met de geijkte iASSET-wegas, "
                         "met fysieke objectligging en met oranje/rode NWB-afwijkingszones. "
@@ -2396,6 +2396,8 @@ with col_inspector:
                                 "project_type",
                                 "Onderhoudsproject",
                                 "controlepunt",
+                                "hoofdmelding",
+                                "contextmelding",
                                 "melding",
                                 "advies",
                                 "lengte_m",
@@ -2504,7 +2506,7 @@ with col_inspector:
                     elif isinstance(project_axis_coverage, pd.DataFrame):
                         st.success("Geen gaten of overlaps gevonden binnen dezelfde projecttypes.")
 
-                    with st.expander("IJkpunten en objectprojecties v0.34.4", expanded=False):
+                    with st.expander("IJkpunten en objectprojecties v0.34.5", expanded=False):
                         if isinstance(project_axis_anchors, pd.DataFrame) and not project_axis_anchors.empty:
                             st.markdown("##### NWB-hectopunten geprojecteerd op iASSET-wegas")
                             st.dataframe(project_axis_anchors, use_container_width=True, hide_index=True)

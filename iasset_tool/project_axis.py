@@ -1,5 +1,5 @@
 """
-Projectgrenzen op een geijkte iASSET-referentieas (v0.34.4).
+Projectgrenzen op een geijkte iASSET-referentieas (v0.34.5).
 
 Deze module draait de eerdere referentieasproef bewust om:
 
@@ -35,7 +35,7 @@ from .trajectory import format_name_hm, parse_project_range
 from .utils import clean_display_value, normalize_text
 
 
-PROJECT_AXIS_SCHEMA_VERSION = "projectaxis-v0.34.4"
+PROJECT_AXIS_SCHEMA_VERSION = "projectaxis-v0.34.5"
 
 HECTOMETER_COLUMN_CANDIDATES = (
     "hectomtrng",
@@ -1993,6 +1993,98 @@ def _get_float(row: pd.Series, column: str) -> float | None:
         return None
 
 
+
+def _join_unique_message_parts(parts: Iterable[Any]) -> str:
+    """
+    Voeg meldingsdelen samen zonder dubbele of lege teksten.
+
+    De compacte controlelijst is bedoeld als werklijst voor databeheerders.
+    Daarom houden we de hoofdreden kort en plaatsen we detailcontext apart.
+    """
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        value = clean_display_value(part)
+        if not value:
+            continue
+        for subpart in [item.strip() for item in value.split(";") if item.strip()]:
+            key = subpart.lower()
+            if key not in seen:
+                cleaned.append(subpart)
+                seen.add(key)
+    return "; ".join(cleaned)
+
+
+def _boundary_control_messages(boundary: pd.Series) -> tuple[str, str]:
+    """
+    Splits een projectgrensmelding in hoofdreden en context.
+
+    v0.34.4 zette objectligging soms in dezelfde ``melding`` als de echte
+    projectgrensreden. Dat was technisch niet fout, maar onrustig in de compacte
+    werklijst. Vanaf v0.34.5 staat objectligging daarom in ``contextmelding``.
+    """
+    status_projectnaam = _get_str(boundary, "status_projectnaam", "ok").lower() or "ok"
+    status_projectgrens = _get_str(boundary, "status_projectgrens", "ok").lower() or "ok"
+    naam_melding = _get_str(boundary, "naam_validatie_melding")
+    waarschuwing = _get_str(boundary, "waarschuwing")
+    object_melding = _get_str(boundary, "objectligging_melding")
+
+    warning_parts = [item.strip() for item in waarschuwing.split(";") if item.strip()]
+    boundary_parts = [
+        part for part in warning_parts
+        if part.lower() != naam_melding.lower() and part
+    ]
+
+    # Maak projectgrensredenen expliciet op basis van vaste kolommen. Zo blijft
+    # de compacte export leesbaar, ook als de tekst in ``waarschuwing`` later
+    # iets wijzigt.
+    explicit_boundary_parts: list[str] = []
+    if bool(boundary.get("begin_buiten_ijkbereik", False)):
+        explicit_boundary_parts.append("begingrens buiten ijkbereik")
+    if bool(boundary.get("eind_buiten_ijkbereik", False)):
+        explicit_boundary_parts.append("eindgrens buiten ijkbereik")
+
+    begin_zone = _get_str(boundary, "begin_zone_kleur")
+    eind_zone = _get_str(boundary, "eind_zone_kleur")
+    if begin_zone:
+        explicit_boundary_parts.append(f"begingrens in {begin_zone} afwijkingszone")
+    if eind_zone:
+        explicit_boundary_parts.append(f"eindgrens in {eind_zone} afwijkingszone")
+
+    length_diff = _get_float(boundary, "lengteverschil_naam_vs_as_m")
+    if length_diff is not None and math.isfinite(float(length_diff)) and status_projectgrens in {"aandacht", "controleer"}:
+        if any("lengteverschil" in part.lower() for part in boundary_parts):
+            explicit_boundary_parts.append(
+                next(part for part in boundary_parts if "lengteverschil" in part.lower())
+            )
+
+    filtered_boundary_parts: list[str] = []
+    for part in boundary_parts:
+        lower = part.lower()
+        if "buiten ijkbereik" in lower and any("buiten ijkbereik" in item.lower() for item in explicit_boundary_parts):
+            continue
+        if "afwijkingszone" in lower and any("afwijkingszone" in item.lower() for item in explicit_boundary_parts):
+            continue
+        if "lengteverschil" in lower and any("lengteverschil" in item.lower() for item in explicit_boundary_parts):
+            continue
+        filtered_boundary_parts.append(part)
+
+    if status_projectnaam in {"aandacht", "controleer"}:
+        hoofd = _join_unique_message_parts([
+            naam_melding,
+            "onderhoudsprojectnaam vraagt controle",
+        ])
+        context = _join_unique_message_parts([*explicit_boundary_parts, *filtered_boundary_parts, object_melding])
+    else:
+        hoofd = _join_unique_message_parts([*explicit_boundary_parts, *filtered_boundary_parts])
+        context = _join_unique_message_parts([object_melding])
+
+    if not hoofd:
+        hoofd = "Controleer deze projectregel in de volledige projectgrensdiagnose."
+
+    return hoofd, context
+
+
 def build_project_axis_control_export(
     project_boundaries: pd.DataFrame | None,
     project_coverage: pd.DataFrame | None,
@@ -2013,6 +2105,10 @@ def build_project_axis_control_export(
     detailcontext in ``Projectobjecten_Referentieas_*`` en in de volledige
     projectgrenzen-export, zodat parallelwegen en fietspaden niet onnodig het
     hoofdbeeld domineren.
+
+    v0.34.5 splitst de compacte melding in:
+    - ``hoofdmelding``: de reden waarom de regel in de werklijst staat;
+    - ``contextmelding``: nuttige detailinformatie, zoals objectligging.
     """
     rows: list[dict[str, Any]] = []
     road_label = selected_road or ""
@@ -2028,20 +2124,10 @@ def build_project_axis_control_export(
 
             if status_projectnaam in {"aandacht", "controleer"}:
                 categorie = "Projectnaam"
-                melding_parts = [
-                    _get_str(boundary, "naam_validatie_melding"),
-                    _get_str(boundary, "waarschuwing"),
-                ]
             else:
                 categorie = "Projectgrens"
-                melding_parts = [
-                    _get_str(boundary, "waarschuwing"),
-                    _get_str(boundary, "objectligging_melding") if status in {"aandacht", "controleer"} else "",
-                ]
 
-            melding = " ".join(part for part in melding_parts if part).strip()
-            if not melding:
-                melding = "Controleer deze projectregel in combinatie met de volledige projectgrensdiagnose."
+            hoofdmelding, contextmelding = _boundary_control_messages(boundary)
 
             rows.append(
                 {
@@ -2054,7 +2140,11 @@ def build_project_axis_control_export(
                     "situering": _get_str(boundary, "situering"),
                     "Onderhoudsproject": _get_str(boundary, "Onderhoudsproject"),
                     "controlepunt": _get_str(boundary, "Onderhoudsproject"),
-                    "melding": melding,
+                    "hoofdmelding": hoofdmelding,
+                    "contextmelding": contextmelding,
+                    # Kolom blijft bestaan voor terugwaartse herkenbaarheid, maar is vanaf v0.34.5 schoon:
+                    # hij bevat alleen de hoofdreden, niet meer de objectligging-context.
+                    "melding": hoofdmelding,
                     "advies": _get_str(boundary, "advies"),
                     "axis_id": _get_str(boundary, "axis_id"),
                     "as_van_m": _get_float(boundary, "as_begin_m"),
@@ -2081,13 +2171,13 @@ def build_project_axis_control_export(
 
             advies = _get_str(coverage, "advies")
             if controle_type == "overlap":
-                melding = "Mogelijke overlap binnen hetzelfde projecttype."
+                hoofdmelding = "Mogelijke overlap binnen hetzelfde projecttype."
             elif controle_type == "gat":
-                melding = "Mogelijk hard gat met primair areaal binnen hetzelfde projecttype."
+                hoofdmelding = "Mogelijk hard gat met primair areaal binnen hetzelfde projecttype."
             else:
-                melding = "Controleer dekking op de geijkte referentieas."
-            if advies:
-                melding = f"{melding} {advies}"
+                hoofdmelding = "Controleer dekking op de geijkte referentieas."
+
+            contextmelding = advies
 
             rows.append(
                 {
@@ -2100,7 +2190,9 @@ def build_project_axis_control_export(
                     "situering": _get_str(coverage, "situering"),
                     "Onderhoudsproject": "",
                     "controlepunt": controlepunt,
-                    "melding": melding.strip(),
+                    "hoofdmelding": hoofdmelding,
+                    "contextmelding": contextmelding,
+                    "melding": hoofdmelding,
                     "advies": advies,
                     "axis_id": _get_str(coverage, "axis_id"),
                     "as_van_m": _get_float(coverage, "van_m"),
@@ -2121,6 +2213,8 @@ def build_project_axis_control_export(
         "situering",
         "Onderhoudsproject",
         "controlepunt",
+        "hoofdmelding",
+        "contextmelding",
         "melding",
         "advies",
         "axis_id",
