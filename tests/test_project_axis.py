@@ -637,3 +637,101 @@ def test_projectassamenvatting_is_robuust_bij_lege_detailtabellen() -> None:
 
     assert list(summary["onderdeel"]) == ["Projectgrenzen", "Projectdekking", "Objectprojecties"]
     assert summary["totaal"].sum() == 0
+
+
+def test_groenveld_projectvoorstellen_knippen_op_beheerkenmerk_niet_op_bestaande_projectnaam() -> None:
+    """v0.35 gebruikt bestaande onderhoudsprojecten niet als segmentbasis."""
+    road_gdf = gpd.GeoDataFrame(
+        [
+            {
+                "sys_id": "a",
+                "nummer": "RS-1",
+                "naam": "deel 1",
+                "subthema": "rijstrook",
+                "Wegnummer": "N398",
+                "Onderhoudsproject": "N398-HRB-01.0-02.0",
+                "Besteknummer": "B-1",
+                "Jaar deklaag": "2020",
+                "geometry": LineString([(0, 0), (500, 0)]),
+            },
+            {
+                "sys_id": "b",
+                "nummer": "RS-2",
+                "naam": "deel 2",
+                "subthema": "rijstrook",
+                "Wegnummer": "N398",
+                "Onderhoudsproject": "N398-HRB-01.0-02.0",
+                "Besteknummer": "B-2",
+                "Jaar deklaag": "2021",
+                "geometry": LineString([(500, 0), (1000, 0)]),
+            },
+        ],
+        geometry="geometry",
+        crs="EPSG:28992",
+    )
+
+    result = build_project_axis_diagnostics(
+        road_gdf,
+        _wegas(),
+        _hectopoints(),
+        pd.DataFrame(),
+        "N398",
+        gap_tolerance_m=5.0,
+        length_tolerance_m=10.0,
+    )
+
+    proposals = result.project_proposals
+    assert len(proposals) == 2
+    assert list(proposals["onderhoudsproject_voorgesteld"]) == [
+        "N398-HRB-01.0-01.5",
+        "N398-HRB-01.5-02.0",
+    ]
+    assert "kenmerk gewijzigd" in proposals.iloc[0]["knipreden_eind"]
+
+    comparison = result.proposal_iasset_comparison
+    split_rows = comparison[
+        comparison["verschil_type"] == "bestaand project splitst over meerdere voorstellen"
+    ]
+    assert len(split_rows) == 1
+    assert split_rows.iloc[0]["bestaand_onderhoudsproject"] == "N398-HRB-01.0-02.0"
+
+
+def test_groenveld_projectvoorstel_met_object_zonder_bestaand_project_krijgt_voorstelnaam() -> None:
+    """Primaire objecten zonder onderhoudsproject kunnen toch een voorstel krijgen."""
+    road_gdf = gpd.GeoDataFrame(
+        [
+            {
+                "sys_id": "gap",
+                "nummer": "RS-NIEUW",
+                "naam": "nieuw deel",
+                "subthema": "rijstrook",
+                "Wegnummer": "N398",
+                "Onderhoudsproject": "",
+                "Besteknummer": "B-1",
+                "Jaar deklaag": "2020",
+                "geometry": LineString([(200, 0), (400, 0)]),
+            },
+        ],
+        geometry="geometry",
+        crs="EPSG:28992",
+    )
+
+    result = build_project_axis_diagnostics(
+        road_gdf,
+        _wegas(),
+        _hectopoints(),
+        pd.DataFrame(),
+        "N398",
+        gap_tolerance_m=5.0,
+        length_tolerance_m=10.0,
+    )
+
+    assert len(result.project_proposals) == 1
+    proposal = result.project_proposals.iloc[0]
+    assert proposal["onderhoudsproject_voorgesteld"] == "N398-HRB-01.2-01.4"
+    assert proposal["vergelijking_iasset_status"] == "aandacht"
+    assert "geen bestaand onderhoudsproject" in proposal["contextmelding"]
+
+    assignments = result.proposal_object_assignments
+    assert len(assignments) == 1
+    assert assignments.iloc[0]["voorstel_id"] == proposal["voorstel_id"]

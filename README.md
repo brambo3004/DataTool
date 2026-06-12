@@ -1,7 +1,29 @@
-# iASSET Advisor - refactor v0.34.5
+# iASSET Advisor - refactor v0.35.0
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
+
+## Nieuw in v0.35.0
+
+v0.35.0 voegt **Onderhoudsprojectvoorstellen vanaf nul** toe binnen `🧪 NWB referentieproef`.
+
+Kern:
+- de bestaande projectgrensdiagnose van v0.34.5 blijft intact;
+- de tool bouwt daarnaast groenveld-projectvoorstellen op vanuit primaire iASSET-objecten, alsof er nog geen onderhoudsprojecten bestaan;
+- bestaande iASSET-onderhoudsprojectnamen worden hierbij niet als basis gebruikt, maar alleen achteraf vergeleken;
+- primaire objecten worden per spoor geordend op de geijkte iASSET-referentieas, bijvoorbeeld HRB, PWR, PWL, FPR, FPL en BBLR;
+- er wordt geknipt op fysieke gaten en op inhoudelijke beheerkenmerken, zoals besteknummer, verhardingssoort, soort deklaag en jaren aanleg/deklaag/conservering/herstrating;
+- projectnamen worden voorgesteld met dezelfde 2,5 meter snap-tolerantie en hectometer-naar-boven-regel als v0.34.3;
+- nieuwe exports:
+  - `Projectvoorstellen_Referentieas_<weg>.csv`;
+  - `Projectvoorstel_Objecten_<weg>.csv`;
+  - `Projectvoorstel_Vergelijking_iASSET_<weg>.csv`.
+
+Waarom:
+De tool moet niet oude onderhoudsprojecten reproduceren. Deze versie gebruikt de referentieas om de weg opnieuw te reconstrueren vanuit de objecten en vergelijkt daarna pas met de werkelijkheid in iASSET. Zo kan zichtbaar worden dat een bestaand onderhoudsproject eigenlijk gesplitst moet worden, dat objecten bij een ander voorstel horen, of dat de bestaande naam goed overeenkomt.
+
+Belangrijk:
+Dit blijft diagnose/proef. De app wijzigt niets in iASSET, maakt geen beheerknippen en voert geen automatische objecttoewijzing door.
 
 ## Nieuw in v0.34.5
 

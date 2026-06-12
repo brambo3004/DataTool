@@ -1,5 +1,5 @@
 """
-Projectgrenzen op een geijkte iASSET-referentieas (v0.34.5).
+Projectgrenzen en groenveld-projectvoorstellen op een geijkte iASSET-referentieas (v0.35.0).
 
 Deze module draait de eerdere referentieasproef bewust om:
 
@@ -35,7 +35,7 @@ from .trajectory import format_name_hm, parse_project_range
 from .utils import clean_display_value, normalize_text
 
 
-PROJECT_AXIS_SCHEMA_VERSION = "projectaxis-v0.34.5"
+PROJECT_AXIS_SCHEMA_VERSION = "projectaxis-v0.35.0"
 
 HECTOMETER_COLUMN_CANDIDATES = (
     "hectomtrng",
@@ -59,20 +59,39 @@ ALLOWED_REQUIRED_SITUERING_CODES = {"L", "R", "LR"}
 STATUS_RANK = {"ok": 0, "overzicht": 0, "projectie": 0, "aandacht": 1, "controleer": 2}
 DEFAULT_BOUNDARY_SNAP_TOLERANCE_M = 2.5
 
+GREENFIELD_SPLIT_COLUMNS = (
+    "Besteknummer",
+    "verhardingssoort",
+    "Soort verharding_N",
+    "Soort deklaag specifiek",
+    "Jaar aanleg",
+    "Jaar deklaag",
+    "Jaar conservering",
+    "Jaar herstrating",
+)
+
 
 @dataclass(frozen=True)
 class ProjectAxisDiagnosticsResult:
     """
-    Resultaat van de v0.34.4-projectgrensdiagnose.
+    Resultaat van de referentieasdiagnose.
 
     Alle tabellen zijn gewone DataFrames. Dat houdt de Streamlit-laag simpel en
     maakt export naar CSV zonder extra conversie mogelijk.
+
+    v0.35.0 voegt naast de bestaande projectgrenscontrole ook groenveld-
+    projectvoorstellen toe. Die voorstellen gebruiken de bestaande
+    onderhoudsprojectnaam uit iASSET niet als uitgangspunt, maar vergelijken daar
+    achteraf wel mee.
     """
 
     calibration_anchors: pd.DataFrame
     project_boundaries: pd.DataFrame
     project_coverage: pd.DataFrame
     object_ranges: pd.DataFrame
+    project_proposals: pd.DataFrame
+    proposal_object_assignments: pd.DataFrame
+    proposal_iasset_comparison: pd.DataFrame
     warning: str = ""
 
 
@@ -204,8 +223,108 @@ def _empty_object_range_frame() -> pd.DataFrame:
             "referentie_eind_km",
             "afstand_tot_as_m",
             "primair_object",
+            "naam",
+            "Besteknummer",
+            "verhardingssoort",
+            "Soort verharding_N",
+            "Soort deklaag specifiek",
+            "Jaar aanleg",
+            "Jaar deklaag",
+            "Jaar conservering",
+            "Jaar herstrating",
             "status",
             "waarschuwing",
+            "bronkwaliteit",
+        ]
+    )
+
+
+def _empty_project_proposal_frame() -> pd.DataFrame:
+    """Maak een lege tabel voor groenveld-onderhoudsprojectvoorstellen."""
+    return pd.DataFrame(
+        columns=[
+            "voorstel_id",
+            "wegnummer",
+            "axis_id",
+            "axis_naam",
+            "project_type",
+            "project_family",
+            "situering",
+            "fysiek_begin_m",
+            "fysiek_eind_m",
+            "fysiek_lengte_m",
+            "fysiek_begin_km",
+            "fysiek_eind_km",
+            "snap_tolerantie_m",
+            "begin_dichtstbijzijnde_hm",
+            "begin_snap_afstand_m",
+            "begin_gesnapt_naar_hm",
+            "naam_begin",
+            "eind_dichtstbijzijnde_hm",
+            "eind_snap_afstand_m",
+            "eind_gesnapt_naar_hm",
+            "naam_eind",
+            "onderhoudsproject_voorgesteld",
+            "knipreden_begin",
+            "knipreden_eind",
+            "aantal_primaire_objecten",
+            "bestaande_onderhoudsprojecten",
+            "vergelijking_iasset_status",
+            "status_voorstel",
+            "hoofdmelding",
+            "contextmelding",
+            "bronkwaliteit",
+        ]
+    )
+
+
+def _empty_proposal_object_assignment_frame() -> pd.DataFrame:
+    """Maak een lege object-toewijzingstabel voor projectvoorstellen."""
+    return pd.DataFrame(
+        columns=[
+            "voorstel_id",
+            "onderhoudsproject_voorgesteld",
+            "sys_id",
+            "nummer",
+            "naam",
+            "subthema",
+            "project_type",
+            "project_family",
+            "situering",
+            "bestaand_onderhoudsproject",
+            "axis_id",
+            "fysiek_begin_m",
+            "fysiek_eind_m",
+            "fysiek_begin_km",
+            "fysiek_eind_km",
+            "Besteknummer",
+            "verhardingssoort",
+            "Soort verharding_N",
+            "Soort deklaag specifiek",
+            "Jaar aanleg",
+            "Jaar deklaag",
+            "Jaar conservering",
+            "Jaar herstrating",
+            "toewijzing_status",
+            "toewijzing_melding",
+            "bronkwaliteit",
+        ]
+    )
+
+
+def _empty_proposal_iasset_comparison_frame() -> pd.DataFrame:
+    """Maak een lege vergelijkingstabel tussen groenveldvoorstellen en iASSET."""
+    return pd.DataFrame(
+        columns=[
+            "vergelijking_niveau",
+            "bestaand_onderhoudsproject",
+            "voorstel_id",
+            "onderhoudsproject_voorgesteld",
+            "verschil_type",
+            "aantal_objecten",
+            "status",
+            "hoofdmelding",
+            "contextmelding",
             "bronkwaliteit",
         ]
     )
@@ -1002,8 +1121,10 @@ def _snap_name_rule_details(value_km: Any, snap_tolerance_m: float = DEFAULT_BOU
     return {
         "label": label,
         "nearest_hm_km": float(nearest_hm),
+        "nearest_hm_label": _format_hm_label(nearest_hm),
         "snap_distance_m": float(snap_distance_m),
         "snapped": bool(snapped),
+        "snapped_to_hm": bool(snapped),
         "effective_km": float(effective_km),
     }
 
@@ -1018,7 +1139,7 @@ def _format_name_rule_or_empty(
     Eerst snappen we naar een nabij hectometerpunt. Alleen wanneer de grens
     verder weg ligt dan de snap-tolerantie, wordt naar boven afgerond.
     """
-    return clean_display_value(_snap_name_rule_details(value_km, snap_tolerance_m).get("label"))
+    return str(_snap_name_rule_details(value_km, snap_tolerance_m).get("label") or "")
 
 
 def _namezone_km_range(
@@ -1208,6 +1329,15 @@ def _build_object_ranges(
                     "referentie_eind_km": None,
                     "afstand_tot_as_m": None,
                     "primair_object": is_primary,
+                    "naam": clean_display_value(row.get("naam", "")),
+                    "Besteknummer": clean_display_value(row.get("Besteknummer", "")),
+                    "verhardingssoort": clean_display_value(row.get("verhardingssoort", "")),
+                    "Soort verharding_N": clean_display_value(row.get("Soort verharding_N", "")),
+                    "Soort deklaag specifiek": clean_display_value(row.get("Soort deklaag specifiek", "")),
+                    "Jaar aanleg": clean_display_value(row.get("Jaar aanleg", "")),
+                    "Jaar deklaag": clean_display_value(row.get("Jaar deklaag", "")),
+                    "Jaar conservering": clean_display_value(row.get("Jaar conservering", "")),
+                    "Jaar herstrating": clean_display_value(row.get("Jaar herstrating", "")),
                     "status": "controleer",
                     "waarschuwing": "object heeft geen bruikbare geometrie",
                     "bronkwaliteit": "experimenteel",
@@ -1260,6 +1390,15 @@ def _build_object_ranges(
                 "referentie_eind_km": _round_or_none(max(begin_km, end_km) if begin_km is not None and end_km is not None else None, 3),
                 "afstand_tot_as_m": _round_or_none(offset_m, 2),
                 "primair_object": is_primary,
+                "naam": clean_display_value(row.get("naam", "")),
+                "Besteknummer": clean_display_value(row.get("Besteknummer", "")),
+                "verhardingssoort": clean_display_value(row.get("verhardingssoort", "")),
+                "Soort verharding_N": clean_display_value(row.get("Soort verharding_N", "")),
+                "Soort deklaag specifiek": clean_display_value(row.get("Soort deklaag specifiek", "")),
+                "Jaar aanleg": clean_display_value(row.get("Jaar aanleg", "")),
+                "Jaar deklaag": clean_display_value(row.get("Jaar deklaag", "")),
+                "Jaar conservering": clean_display_value(row.get("Jaar conservering", "")),
+                "Jaar herstrating": clean_display_value(row.get("Jaar herstrating", "")),
                 "status": status,
                 "waarschuwing": "; ".join(warning_parts),
                 "bronkwaliteit": "experimenteel",
@@ -1965,6 +2104,461 @@ def _build_project_coverage(
 
 
 
+
+def _normalise_greenfield_value(value: Any) -> str:
+    """Normaliseer een kenmerkwaarde voor de groenveld-kniplogica."""
+    display = clean_display_value(value)
+    if not display or display.lower() in {"nan", "none", "nat"}:
+        return ""
+    # Jaartallen kunnen soms als 2020.0 binnenkomen; toon ze als 2020.
+    try:
+        numeric = float(display.replace(",", "."))
+        if math.isfinite(numeric) and numeric.is_integer():
+            return str(int(numeric))
+    except (TypeError, ValueError, AttributeError):
+        pass
+    return display.strip()
+
+
+def _greenfield_split_key(row: pd.Series) -> dict[str, str]:
+    """
+    Maak de inhoudelijke sleutel waarmee v0.35 objecten tot voorstellen clustert.
+
+    De bestaande onderhoudsprojectnaam wordt hier bewust niet gebruikt. We kijken
+    alleen naar fysieke ligging en beheerinhoudelijke kenmerken. Ontbrekende
+    waarden blijven leeg; dat is geen crashreden maar kan wel tot een knip leiden
+    zodra de buurwaarde afwijkt.
+    """
+    return {column: _normalise_greenfield_value(row.get(column, "")) for column in GREENFIELD_SPLIT_COLUMNS}
+
+
+def _greenfield_changed_fields(previous_key: dict[str, str], current_key: dict[str, str]) -> list[str]:
+    """Geef terug welke beheerkenmerken tussen twee objecten verschillen."""
+    changed: list[str] = []
+    for column in GREENFIELD_SPLIT_COLUMNS:
+        if previous_key.get(column, "") != current_key.get(column, ""):
+            changed.append(column)
+    return changed
+
+
+def _format_project_type_from_row(row: pd.Series) -> tuple[str, str, str]:
+    """Lees projecttype/family/situering veilig uit een objectprojectieregel."""
+    project_type = clean_display_value(row.get("project_type", ""))
+    family = clean_display_value(row.get("project_family", ""))
+    situering = clean_display_value(row.get("situering", ""))
+    if not project_type:
+        project_type, family, situering = _object_project_type_from_row(row, "")
+    return project_type, family, situering
+
+
+def _name_rule_from_route(
+    route_m: Any,
+    axis_anchors: pd.DataFrame,
+    *,
+    snap_tolerance_m: float,
+) -> dict[str, Any]:
+    """
+    Bepaal de naamregel-details voor een fysieke routepositie op de geijkte as.
+
+    Dit gebruikt dezelfde 2-stapsregel als v0.34.3:
+    1. binnen snap-tolerantie naar hectometerpunt;
+    2. anders naar boven op het eerstvolgende hectometerlabel.
+    """
+    km_value, in_range = _route_to_km(route_m, axis_anchors)
+    details = _snap_name_rule_details(km_value, snap_tolerance_m=float(snap_tolerance_m))
+    details["km"] = km_value
+    details["in_range"] = bool(in_range)
+    return details
+
+
+def _unique_clean_values(values: Iterable[Any]) -> list[str]:
+    """Unieke, niet-lege waarden in stabiele volgorde."""
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        display = clean_display_value(value)
+        if not display or display in seen:
+            continue
+        seen.add(display)
+        result.append(display)
+    return result
+
+
+def _choose_segment_status(object_rows: pd.DataFrame, begin_rule: dict[str, Any], end_rule: dict[str, Any]) -> tuple[str, str]:
+    """Bepaal een voorzichtige status en hoofdmelding voor één groenveldvoorstel."""
+    warnings: list[str] = []
+    status = "ok"
+
+    if not begin_rule.get("label") or not end_rule.get("label"):
+        warnings.append("voorstelgrens kan niet naar onderhoudsprojectnaam worden vertaald")
+        status = _worst_status(status, "controleer")
+    if not begin_rule.get("in_range", False):
+        warnings.append("begin voorstel buiten ijkbereik")
+        status = _worst_status(status, "controleer")
+    if not end_rule.get("in_range", False):
+        warnings.append("eind voorstel buiten ijkbereik")
+        status = _worst_status(status, "controleer")
+
+    object_statuses = object_rows.get("status", pd.Series(dtype="object")).fillna("").astype(str).str.lower()
+    if (object_statuses == "controleer").any():
+        warnings.append("één of meer primaire objecten hebben projectiewaarschuwingen")
+        status = _worst_status(status, "aandacht")
+
+    if not warnings:
+        return status, "Voorstel opgebouwd uit primaire objecten vanaf nul."
+    return status, "; ".join(dict.fromkeys(warnings))
+
+
+def _build_project_proposals(
+    object_ranges: pd.DataFrame,
+    anchors: pd.DataFrame,
+    selected_road: str,
+    *,
+    gap_tolerance_m: float,
+    boundary_snap_tolerance_m: float,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """
+    Bouw v0.35-groenveldvoorstellen voor onderhoudsprojecten.
+
+    Belangrijk uitgangspunt:
+    bestaande iASSET-onderhoudsprojecten bepalen de segmenten niet. We sorteren
+    primaire objecten op de geijkte referentieas, groeperen per fysiek spoor
+    (HRB/PWR/FPR/BBLR/...) en knippen op:
+    - een fysiek gat groter dan de tolerantie;
+    - een wijziging in beheerinhoudelijke kenmerken, zoals besteknummer,
+      verhardingssoort of jaar deklaag.
+
+    De bestaande onderhoudsprojectnaam wordt pas achteraf gebruikt voor de
+    vergelijkingstabel.
+    """
+    if object_ranges is None or object_ranges.empty:
+        return (
+            _empty_project_proposal_frame(),
+            _empty_proposal_object_assignment_frame(),
+            _empty_proposal_iasset_comparison_frame(),
+        )
+
+    working = object_ranges.copy()
+    if "primair_object" not in working.columns:
+        return (
+            _empty_project_proposal_frame(),
+            _empty_proposal_object_assignment_frame(),
+            _empty_proposal_iasset_comparison_frame(),
+        )
+
+    working = working[working["primair_object"].fillna(False).astype(bool)].copy()
+    if working.empty:
+        return (
+            _empty_project_proposal_frame(),
+            _empty_proposal_object_assignment_frame(),
+            _empty_proposal_iasset_comparison_frame(),
+        )
+
+    for column in ["route_begin_m", "route_eind_m"]:
+        working[column] = pd.to_numeric(working.get(column), errors="coerce")
+    working = working.dropna(subset=["route_begin_m", "route_eind_m", "axis_id", "project_type"])
+    if working.empty:
+        return (
+            _empty_project_proposal_frame(),
+            _empty_proposal_object_assignment_frame(),
+            _empty_proposal_iasset_comparison_frame(),
+        )
+
+    working["route_start_norm_m"] = working[["route_begin_m", "route_eind_m"]].min(axis=1)
+    working["route_end_norm_m"] = working[["route_begin_m", "route_eind_m"]].max(axis=1)
+
+    proposal_rows: list[dict[str, Any]] = []
+    assignment_rows: list[dict[str, Any]] = []
+
+    proposal_counter = 0
+    group_columns = ["axis_id", "project_type"]
+    for (axis_id_raw, project_type_raw), group in working.groupby(group_columns, dropna=False, sort=True):
+        axis_id = clean_display_value(axis_id_raw)
+        project_type = clean_display_value(project_type_raw)
+        if not axis_id or not project_type:
+            continue
+
+        axis_anchors = _anchors_for_axis(anchors, axis_id)
+        if not _axis_is_calibrated(axis_anchors):
+            continue
+
+        group = group.sort_values(
+            by=["route_start_norm_m", "route_end_norm_m", "nummer"],
+            ascending=[True, True, True],
+            kind="stable",
+        ).reset_index(drop=True)
+
+        current_indices: list[int] = []
+        current_key: dict[str, str] | None = None
+        current_end_m: float | None = None
+        current_begin_reason = "start spoor"
+        previous_segment_end_reason = ""
+
+        def flush_segment(end_reason: str) -> None:
+            nonlocal proposal_counter, current_indices, current_key, current_end_m, current_begin_reason, previous_segment_end_reason
+            if not current_indices:
+                return
+
+            segment = group.loc[current_indices].copy()
+            proposal_counter += 1
+            first = segment.iloc[0]
+            proposal_id = f"{selected_road}-{project_type}-{proposal_counter:04d}"
+
+            start_m = float(segment["route_start_norm_m"].min())
+            end_m = float(segment["route_end_norm_m"].max())
+            begin_rule = _name_rule_from_route(start_m, axis_anchors, snap_tolerance_m=float(boundary_snap_tolerance_m))
+            end_rule = _name_rule_from_route(end_m, axis_anchors, snap_tolerance_m=float(boundary_snap_tolerance_m))
+            begin_label = str(begin_rule.get("label") or "")
+            end_label = str(end_rule.get("label") or "")
+
+            road_label = clean_display_value(selected_road)
+            proposed_name = f"{road_label}-{project_type}-{begin_label}-{end_label}" if begin_label and end_label else ""
+            status, hoofd = _choose_segment_status(segment, begin_rule, end_rule)
+
+            existing_projects = _unique_clean_values(segment.get("Onderhoudsproject", []))
+            existing_joined = " | ".join(existing_projects)
+            if len(existing_projects) > 1:
+                comparison_status = "controleer"
+                context_status = "objecten komen uit meerdere bestaande onderhoudsprojecten"
+            elif len(existing_projects) == 1 and proposed_name and existing_projects[0] != proposed_name:
+                comparison_status = "aandacht"
+                context_status = "voorgestelde naam wijkt af van bestaande iASSET-naam"
+            elif len(existing_projects) == 1 and proposed_name == existing_projects[0]:
+                comparison_status = "ok"
+                context_status = "bestaande iASSET-naam komt overeen"
+            else:
+                comparison_status = "aandacht"
+                context_status = "geen bestaand onderhoudsproject op primaire objecten"
+
+            status = _worst_status(status, comparison_status if comparison_status != "ok" else "ok")
+
+            key_values = current_key or _greenfield_split_key(first)
+            filled_key = ", ".join(
+                f"{column}={value}" for column, value in key_values.items() if clean_display_value(value)
+            )
+            context_parts = [
+                context_status,
+                f"knipreden begin: {current_begin_reason}",
+                f"knipreden eind: {end_reason or 'einde spoor'}",
+                filled_key,
+            ]
+            context = "; ".join(part for part in context_parts if part)
+
+            family = clean_display_value(first.get("project_family", ""))
+            situering = clean_display_value(first.get("situering", ""))
+
+            proposal_rows.append(
+                {
+                    "voorstel_id": proposal_id,
+                    "wegnummer": road_label,
+                    "axis_id": axis_id,
+                    "axis_naam": clean_display_value(first.get("axis_naam", axis_id)),
+                    "project_type": project_type,
+                    "project_family": family,
+                    "situering": situering,
+                    "fysiek_begin_m": _round_or_none(start_m, 0),
+                    "fysiek_eind_m": _round_or_none(end_m, 0),
+                    "fysiek_lengte_m": _round_or_none(end_m - start_m, 0),
+                    "fysiek_begin_km": _round_or_none(begin_rule.get("km"), 3),
+                    "fysiek_eind_km": _round_or_none(end_rule.get("km"), 3),
+                    "snap_tolerantie_m": float(boundary_snap_tolerance_m),
+                    "begin_dichtstbijzijnde_hm": clean_display_value(begin_rule.get("nearest_hm_label")),
+                    "begin_snap_afstand_m": _round_or_none(begin_rule.get("snap_distance_m"), 2),
+                    "begin_gesnapt_naar_hm": bool(begin_rule.get("snapped_to_hm", False)),
+                    "naam_begin": begin_label,
+                    "eind_dichtstbijzijnde_hm": clean_display_value(end_rule.get("nearest_hm_label")),
+                    "eind_snap_afstand_m": _round_or_none(end_rule.get("snap_distance_m"), 2),
+                    "eind_gesnapt_naar_hm": bool(end_rule.get("snapped_to_hm", False)),
+                    "naam_eind": end_label,
+                    "onderhoudsproject_voorgesteld": proposed_name,
+                    "knipreden_begin": current_begin_reason,
+                    "knipreden_eind": end_reason or "einde spoor",
+                    "aantal_primaire_objecten": int(len(segment)),
+                    "bestaande_onderhoudsprojecten": existing_joined,
+                    "vergelijking_iasset_status": comparison_status,
+                    "status_voorstel": status,
+                    "hoofdmelding": hoofd,
+                    "contextmelding": context,
+                    "bronkwaliteit": "experimenteel-groenveld",
+                }
+            )
+
+            for _, object_row in segment.iterrows():
+                assignment_rows.append(
+                    {
+                        "voorstel_id": proposal_id,
+                        "onderhoudsproject_voorgesteld": proposed_name,
+                        "sys_id": clean_display_value(object_row.get("sys_id", "")),
+                        "nummer": clean_display_value(object_row.get("nummer", "")),
+                        "naam": clean_display_value(object_row.get("naam", "")),
+                        "subthema": clean_display_value(object_row.get("subthema", "")),
+                        "project_type": project_type,
+                        "project_family": family,
+                        "situering": situering,
+                        "bestaand_onderhoudsproject": clean_display_value(object_row.get("Onderhoudsproject", "")),
+                        "axis_id": axis_id,
+                        "fysiek_begin_m": _round_or_none(object_row.get("route_start_norm_m"), 0),
+                        "fysiek_eind_m": _round_or_none(object_row.get("route_end_norm_m"), 0),
+                        "fysiek_begin_km": _round_or_none(object_row.get("referentie_begin_km"), 3),
+                        "fysiek_eind_km": _round_or_none(object_row.get("referentie_eind_km"), 3),
+                        "Besteknummer": clean_display_value(object_row.get("Besteknummer", "")),
+                        "verhardingssoort": clean_display_value(object_row.get("verhardingssoort", "")),
+                        "Soort verharding_N": clean_display_value(object_row.get("Soort verharding_N", "")),
+                        "Soort deklaag specifiek": clean_display_value(object_row.get("Soort deklaag specifiek", "")),
+                        "Jaar aanleg": clean_display_value(object_row.get("Jaar aanleg", "")),
+                        "Jaar deklaag": clean_display_value(object_row.get("Jaar deklaag", "")),
+                        "Jaar conservering": clean_display_value(object_row.get("Jaar conservering", "")),
+                        "Jaar herstrating": clean_display_value(object_row.get("Jaar herstrating", "")),
+                        "toewijzing_status": clean_display_value(object_row.get("status", "")),
+                        "toewijzing_melding": clean_display_value(object_row.get("waarschuwing", "")),
+                        "bronkwaliteit": "experimenteel-groenveld",
+                    }
+                )
+
+            previous_segment_end_reason = end_reason
+            current_indices = []
+            current_key = None
+            current_end_m = None
+            current_begin_reason = "start spoor"
+
+        for idx, object_row in group.iterrows():
+            start_m = float(object_row["route_start_norm_m"])
+            end_m = float(object_row["route_end_norm_m"])
+            key = _greenfield_split_key(object_row)
+
+            if not current_indices:
+                current_indices = [idx]
+                current_key = key
+                current_end_m = end_m
+                current_begin_reason = previous_segment_end_reason or "start spoor"
+                continue
+
+            gap_m = start_m - float(current_end_m if current_end_m is not None else start_m)
+            changed_fields = _greenfield_changed_fields(current_key or {}, key)
+            split_reasons: list[str] = []
+            if gap_m > float(gap_tolerance_m):
+                split_reasons.append(f"gat > {gap_tolerance_m:g} m")
+            if changed_fields:
+                split_reasons.append("kenmerk gewijzigd: " + ", ".join(changed_fields))
+
+            if split_reasons:
+                reason = "; ".join(split_reasons)
+                flush_segment(reason)
+                current_indices = [idx]
+                current_key = key
+                current_end_m = end_m
+                current_begin_reason = reason
+            else:
+                current_indices.append(idx)
+                current_end_m = max(float(current_end_m or end_m), end_m)
+
+        flush_segment("einde spoor")
+
+    proposals = (
+        pd.DataFrame(proposal_rows, columns=_empty_project_proposal_frame().columns)
+        if proposal_rows
+        else _empty_project_proposal_frame()
+    )
+    assignments = (
+        pd.DataFrame(assignment_rows, columns=_empty_proposal_object_assignment_frame().columns)
+        if assignment_rows
+        else _empty_proposal_object_assignment_frame()
+    )
+    comparison = _build_proposal_iasset_comparison(proposals, assignments)
+    return proposals, assignments, comparison
+
+
+def _build_proposal_iasset_comparison(proposals: pd.DataFrame, assignments: pd.DataFrame) -> pd.DataFrame:
+    """Vergelijk groenveldvoorstellen achteraf met bestaande iASSET-onderhoudsprojecten."""
+    if proposals is None or proposals.empty or assignments is None or assignments.empty:
+        return _empty_proposal_iasset_comparison_frame()
+
+    rows: list[dict[str, Any]] = []
+
+    # Niveau 1: per bestaand onderhoudsproject: valt dit volgens de tool in één of meerdere voorstellen?
+    assigned_existing = assignments[
+        assignments["bestaand_onderhoudsproject"].fillna("").astype(str).str.strip() != ""
+    ].copy()
+    if not assigned_existing.empty:
+        for existing_name, group in assigned_existing.groupby("bestaand_onderhoudsproject", sort=True):
+            proposal_ids = _unique_clean_values(group["voorstel_id"])
+            proposed_names = _unique_clean_values(group["onderhoudsproject_voorgesteld"])
+            object_count = int(len(group))
+
+            if len(proposal_ids) > 1:
+                status = "controleer"
+                verschil_type = "bestaand project splitst over meerdere voorstellen"
+                hoofd = "Bestaand iASSET-project valt volgens groenveldlogica uiteen."
+            elif len(proposed_names) == 1 and clean_display_value(existing_name) == proposed_names[0]:
+                status = "ok"
+                verschil_type = "komt overeen"
+                hoofd = "Bestaand iASSET-project komt overeen met groenveldvoorstel."
+            else:
+                status = "aandacht"
+                verschil_type = "naam wijkt af van groenveldvoorstel"
+                hoofd = "Bestaande iASSET-naam wijkt af van de groenveldnaamregel."
+
+            rows.append(
+                {
+                    "vergelijking_niveau": "bestaand_onderhoudsproject",
+                    "bestaand_onderhoudsproject": clean_display_value(existing_name),
+                    "voorstel_id": " | ".join(proposal_ids),
+                    "onderhoudsproject_voorgesteld": " | ".join(proposed_names),
+                    "verschil_type": verschil_type,
+                    "aantal_objecten": object_count,
+                    "status": status,
+                    "hoofdmelding": hoofd,
+                    "contextmelding": f"{object_count} primaire object(en)",
+                    "bronkwaliteit": "experimenteel-groenveld",
+                }
+            )
+
+    # Niveau 2: per voorstel: bundelt dit voorstel geen, één of meerdere bestaande projecten?
+    for _, proposal in proposals.iterrows():
+        proposal_id = clean_display_value(proposal.get("voorstel_id", ""))
+        if not proposal_id:
+            continue
+        proposal_objects = assignments[assignments["voorstel_id"].astype(str) == proposal_id]
+        existing_projects = _unique_clean_values(proposal_objects.get("bestaand_onderhoudsproject", []))
+        proposed_name = clean_display_value(proposal.get("onderhoudsproject_voorgesteld", ""))
+        object_count = int(len(proposal_objects))
+
+        if not existing_projects:
+            status = "aandacht"
+            verschil_type = "nieuw voorstel zonder bestaande iASSET-naam"
+            hoofd = "Groenveldvoorstel bevat primaire objecten zonder bestaand onderhoudsproject."
+        elif len(existing_projects) > 1:
+            status = "controleer"
+            verschil_type = "voorstel bundelt meerdere bestaande projecten"
+            hoofd = "Groenveldvoorstel bundelt objecten uit meerdere bestaande iASSET-projecten."
+        elif existing_projects[0] == proposed_name:
+            status = "ok"
+            verschil_type = "komt overeen"
+            hoofd = "Groenveldvoorstel komt overeen met bestaande iASSET-naam."
+        else:
+            status = "aandacht"
+            verschil_type = "voorgestelde naam wijkt af"
+            hoofd = "Groenveldvoorstel heeft een andere naam dan de bestaande iASSET-naam."
+
+        rows.append(
+            {
+                "vergelijking_niveau": "projectvoorstel",
+                "bestaand_onderhoudsproject": " | ".join(existing_projects),
+                "voorstel_id": proposal_id,
+                "onderhoudsproject_voorgesteld": proposed_name,
+                "verschil_type": verschil_type,
+                "aantal_objecten": object_count,
+                "status": status,
+                "hoofdmelding": hoofd,
+                "contextmelding": clean_display_value(proposal.get("contextmelding", "")),
+                "bronkwaliteit": "experimenteel-groenveld",
+            }
+        )
+
+    if not rows:
+        return _empty_proposal_iasset_comparison_frame()
+    return pd.DataFrame(rows, columns=_empty_proposal_iasset_comparison_frame().columns)
+
 def _get_str(row: pd.Series, column: str, default: str = "") -> str:
     """Lees een cel als nette tekst, ook bij ontbrekende kolommen of NaN."""
     if column not in row.index:
@@ -2392,13 +2986,26 @@ def build_project_axis_diagnostics(
         boundary_snap_tolerance_m=float(boundary_snap_tolerance_m),
     )
 
+    project_proposals, proposal_object_assignments, proposal_iasset_comparison = _build_project_proposals(
+        object_ranges,
+        anchors,
+        selected_road,
+        gap_tolerance_m=float(gap_tolerance_m),
+        boundary_snap_tolerance_m=float(boundary_snap_tolerance_m),
+    )
+
     if project_boundaries.empty:
         warnings.append("Geen onderhoudsprojectnamen met herkenbare hm-range gevonden voor projectgrensdiagnose.")
+    if project_proposals.empty:
+        warnings.append("Geen groenveld-projectvoorstellen gemaakt; controleer primaire objecten en ijking.")
 
     return ProjectAxisDiagnosticsResult(
         calibration_anchors=anchors,
         project_boundaries=project_boundaries,
         project_coverage=project_coverage,
         object_ranges=object_ranges,
+        project_proposals=project_proposals,
+        proposal_object_assignments=proposal_object_assignments,
+        proposal_iasset_comparison=proposal_iasset_comparison,
         warning=" ".join(dict.fromkeys(part for part in warnings if part)),
     )

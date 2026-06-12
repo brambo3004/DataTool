@@ -1878,8 +1878,8 @@ with col_inspector:
         )
 
         st.info(
-            "Scope v0.34: bronverkenning voor N354/N398 en vergelijkbare N-wegen, "
-            "plus projectgrenzen op de geijkte iASSET-wegas. NWB wordt gebruikt als externe "
+            "Scope v0.35: bronverkenning voor N354/N398 en vergelijkbare N-wegen, "
+            "plus projectgrenzen en groenveld-projectvoorstellen op de geijkte iASSET-wegas. NWB wordt gebruikt als externe "
             "diagnosebron; iASSET blijft de single source of truth."
         )
 
@@ -1938,7 +1938,7 @@ with col_inspector:
             ),
         )
 
-        st.markdown("#### v0.34.5 Projectgrenzen op referentieas")
+        st.markdown("#### v0.35.0 Projectgrenzen en voorstellen op referentieas")
         st.caption(
             "Deze stap projecteert NWB-hectopunten op de iASSET-wegas, ijkt die as naar "
             "hectometrering en controleert onderhoudsprojectnamen, projectdekking, gaten, "
@@ -2020,6 +2020,9 @@ with col_inspector:
             project_axis_boundaries = pd.DataFrame()
             project_axis_coverage = pd.DataFrame()
             project_axis_object_ranges = pd.DataFrame()
+            project_axis_proposals = pd.DataFrame()
+            project_axis_proposal_objects = pd.DataFrame()
+            project_axis_proposal_comparison = pd.DataFrame()
             project_axis_warning = ""
             uploaded_wegassen_name = ""
             if uploaded_wegassen is not None:
@@ -2081,6 +2084,9 @@ with col_inspector:
                 project_axis_boundaries = project_axis_result.project_boundaries
                 project_axis_coverage = project_axis_result.project_coverage
                 project_axis_object_ranges = project_axis_result.object_ranges
+                project_axis_proposals = project_axis_result.project_proposals
+                project_axis_proposal_objects = project_axis_result.proposal_object_assignments
+                project_axis_proposal_comparison = project_axis_result.proposal_iasset_comparison
                 project_axis_warning = project_axis_result.warning
 
             st.session_state["nwb_reference_diagnostics"] = {
@@ -2109,6 +2115,9 @@ with col_inspector:
                 "project_axis_boundaries": project_axis_boundaries,
                 "project_axis_coverage": project_axis_coverage,
                 "project_axis_object_ranges": project_axis_object_ranges,
+                "project_axis_proposals": project_axis_proposals,
+                "project_axis_proposal_objects": project_axis_proposal_objects,
+                "project_axis_proposal_comparison": project_axis_proposal_comparison,
                 "project_axis_warning": project_axis_warning,
                 "warning": nwb_result.warning,
             }
@@ -2333,12 +2342,18 @@ with col_inspector:
                 project_axis_coverage = nwb_state.get("project_axis_coverage")
                 project_axis_anchors = nwb_state.get("project_axis_anchors")
                 project_axis_object_ranges = nwb_state.get("project_axis_object_ranges")
+                project_axis_proposals = nwb_state.get("project_axis_proposals")
+                project_axis_proposal_objects = nwb_state.get("project_axis_proposal_objects")
+                project_axis_proposal_comparison = nwb_state.get("project_axis_proposal_comparison")
 
                 if nwb_state.get("project_axis_warning"):
                     st.warning(nwb_state["project_axis_warning"], icon="⚠️")
 
-                if isinstance(project_axis_boundaries, pd.DataFrame) and not project_axis_boundaries.empty:
-                    st.markdown("#### v0.34.5 Projectgrenzen op geijkte iASSET-wegas")
+                has_project_boundaries = isinstance(project_axis_boundaries, pd.DataFrame) and not project_axis_boundaries.empty
+                has_project_proposals = isinstance(project_axis_proposals, pd.DataFrame) and not project_axis_proposals.empty
+
+                if has_project_boundaries or has_project_proposals:
+                    st.markdown("#### v0.35.0 Projectgrenzen en groenveld-projectvoorstellen")
                     st.caption(
                         "Deze tabel vergelijkt de projectnaamrange met de geijkte iASSET-wegas, "
                         "met fysieke objectligging en met oranje/rode NWB-afwijkingszones. "
@@ -2421,6 +2436,127 @@ with col_inspector:
                         )
                     else:
                         st.success("Geen projectgrenzen, gaten of overlaps met aandacht/controleer-status gevonden.")
+
+                    if isinstance(project_axis_proposals, pd.DataFrame) and not project_axis_proposals.empty:
+                        st.markdown("##### v0.35 Projectvoorstellen vanaf nul")
+                        st.caption(
+                            "Deze voorstellen worden opgebouwd uit primaire objecten op de geijkte iASSET-as. "
+                            "De bestaande onderhoudsprojectnaam wordt hierbij niet gebruikt als uitgangspunt, "
+                            "maar alleen achteraf vergeleken. Dit is diagnose/proef en wijzigt niets in iASSET."
+                        )
+                        proposal_status = (
+                            project_axis_proposals["status_voorstel"].fillna("ok").astype(str).str.lower()
+                            if "status_voorstel" in project_axis_proposals.columns
+                            else pd.Series(dtype="object")
+                        )
+                        prop_col_1, prop_col_2, prop_col_3 = st.columns(3)
+                        with prop_col_1:
+                            st.metric("Projectvoorstellen", int(len(project_axis_proposals)))
+                        with prop_col_2:
+                            st.metric("Voorstellen controleer", int((proposal_status == "controleer").sum()))
+                        with prop_col_3:
+                            st.metric("Voorstellen aandacht", int((proposal_status == "aandacht").sum()))
+
+                        proposal_preview_columns = [
+                            col for col in [
+                                "voorstel_id",
+                                "status_voorstel",
+                                "project_type",
+                                "onderhoudsproject_voorgesteld",
+                                "fysiek_begin_m",
+                                "fysiek_eind_m",
+                                "fysiek_lengte_m",
+                                "naam_begin",
+                                "naam_eind",
+                                "knipreden_begin",
+                                "knipreden_eind",
+                                "aantal_primaire_objecten",
+                                "bestaande_onderhoudsprojecten",
+                                "vergelijking_iasset_status",
+                                "hoofdmelding",
+                                "contextmelding",
+                            ]
+                            if col in project_axis_proposals.columns
+                        ]
+                        st.dataframe(
+                            project_axis_proposals[proposal_preview_columns]
+                            if proposal_preview_columns
+                            else project_axis_proposals,
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                        proposals_csv = project_axis_proposals.to_csv(index=False, sep=";").encode("utf-8-sig")
+                        st.download_button(
+                            "📥 Download projectvoorstellen vanaf nul",
+                            data=proposals_csv,
+                            file_name=f"Projectvoorstellen_Referentieas_{sanitize_filename(selected_road)}.csv",
+                            mime="text/csv",
+                        )
+
+                        if isinstance(project_axis_proposal_comparison, pd.DataFrame) and not project_axis_proposal_comparison.empty:
+                            comparison_preview_columns = [
+                                col for col in [
+                                    "vergelijking_niveau",
+                                    "status",
+                                    "verschil_type",
+                                    "bestaand_onderhoudsproject",
+                                    "voorstel_id",
+                                    "onderhoudsproject_voorgesteld",
+                                    "aantal_objecten",
+                                    "hoofdmelding",
+                                    "contextmelding",
+                                ]
+                                if col in project_axis_proposal_comparison.columns
+                            ]
+                            with st.expander("Vergelijking projectvoorstellen met bestaande iASSET-onderhoudsprojecten", expanded=False):
+                                st.dataframe(
+                                    project_axis_proposal_comparison[comparison_preview_columns]
+                                    if comparison_preview_columns
+                                    else project_axis_proposal_comparison,
+                                    use_container_width=True,
+                                    hide_index=True,
+                                )
+                                comparison_csv = project_axis_proposal_comparison.to_csv(index=False, sep=";").encode("utf-8-sig")
+                                st.download_button(
+                                    "📥 Download vergelijking projectvoorstellen met iASSET",
+                                    data=comparison_csv,
+                                    file_name=f"Projectvoorstel_Vergelijking_iASSET_{sanitize_filename(selected_road)}.csv",
+                                    mime="text/csv",
+                                )
+
+                        if isinstance(project_axis_proposal_objects, pd.DataFrame) and not project_axis_proposal_objects.empty:
+                            with st.expander("Objecttoewijzing bij projectvoorstellen", expanded=False):
+                                object_assignment_preview_columns = [
+                                    col for col in [
+                                        "voorstel_id",
+                                        "onderhoudsproject_voorgesteld",
+                                        "nummer",
+                                        "naam",
+                                        "subthema",
+                                        "bestaand_onderhoudsproject",
+                                        "fysiek_begin_m",
+                                        "fysiek_eind_m",
+                                        "Besteknummer",
+                                        "Jaar deklaag",
+                                        "toewijzing_status",
+                                        "toewijzing_melding",
+                                    ]
+                                    if col in project_axis_proposal_objects.columns
+                                ]
+                                st.dataframe(
+                                    project_axis_proposal_objects[object_assignment_preview_columns].head(1500)
+                                    if object_assignment_preview_columns
+                                    else project_axis_proposal_objects.head(1500),
+                                    use_container_width=True,
+                                    hide_index=True,
+                                )
+                                proposal_objects_csv = project_axis_proposal_objects.to_csv(index=False, sep=";").encode("utf-8-sig")
+                                st.download_button(
+                                    "📥 Download objecttoewijzing projectvoorstellen",
+                                    data=proposal_objects_csv,
+                                    file_name=f"Projectvoorstel_Objecten_{sanitize_filename(selected_road)}.csv",
+                                    mime="text/csv",
+                                )
 
                     boundary_preview_columns = [
                         col for col in [
@@ -2506,7 +2642,7 @@ with col_inspector:
                     elif isinstance(project_axis_coverage, pd.DataFrame):
                         st.success("Geen gaten of overlaps gevonden binnen dezelfde projecttypes.")
 
-                    with st.expander("IJkpunten en objectprojecties v0.34.5", expanded=False):
+                    with st.expander("IJkpunten, objectprojecties en voorstellen v0.35.0", expanded=False):
                         if isinstance(project_axis_anchors, pd.DataFrame) and not project_axis_anchors.empty:
                             st.markdown("##### NWB-hectopunten geprojecteerd op iASSET-wegas")
                             st.dataframe(project_axis_anchors, use_container_width=True, hide_index=True)
