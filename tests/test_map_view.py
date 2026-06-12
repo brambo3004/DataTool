@@ -34,3 +34,22 @@ def test_build_road_map_accepts_non_json_native_paspoort_values():
     result = build_road_map(gdf)
 
     assert result.folium_map is not None
+
+
+
+def test_projectvoorstel_highlight_accepts_csv_like_object_ids():
+    """
+    De v0.35.2-kaartinspectie krijgt object-id's uit de voorsteltoewijzing.
+    Na CSV-export/import kunnen die als tekst of 1.0 binnenkomen; de kaart mag
+    dan niet crashen en moet de projectvoorstel-legenda toevoegen.
+    """
+    gdf = make_test_gdf()
+
+    result = build_road_map(
+        gdf,
+        selected_project_proposal_object_ids=["1.0"],
+        selected_project_proposal_existing_object_ids=["2"],
+    )
+
+    html = result.folium_map.get_root().render()
+    assert "Projectvoorstel-inspectie" in html

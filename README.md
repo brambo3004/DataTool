@@ -1,7 +1,26 @@
-# iASSET Advisor - refactor v0.35.1
+# iASSET Advisor - refactor v0.35.2
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
+
+## Nieuw in v0.35.2
+
+v0.35.2 voegt een **interactieve kaartinspectie voor projectvoorstellen** toe.
+
+Kern:
+- de rekenlogica van v0.35.1 blijft intact;
+- in `🧪 NWB referentieproef` kun je een groenveld-projectvoorstel kiezen;
+- de hoofdkaart licht de objecten van dat voorstel paars uit;
+- objecten uit bestaande iASSET-onderhoudsprojecten die volgens de vergelijking raken aan het voorstel, maar niet in het voorstel zitten, worden blauw als context getoond;
+- je kunt filteren op projecttype en status;
+- bij het geselecteerde voorstel zie je de belangrijkste grenzen, knipredenen, harde knipsignalen, zachte signalen en objecttoewijzing;
+- met de zoomknop springt de hoofdkaart naar het geselecteerde voorstel.
+
+Waarom:
+CSV-export blijft nodig voor controle en overdracht, maar databeheer beoordeelt projectgrenzen uiteindelijk ruimtelijk. Deze inspectielaag maakt zichtbaar welke objecten een voorstel vormen en hoe dat zich verhoudt tot de bestaande iASSET-situatie.
+
+Belangrijk:
+v0.35.2 wijzigt niets in iASSET, maakt geen beheerknippen en verandert de v0.35.1-kniplogica niet. Het is een visuele inspectielaag bovenop de bestaande diagnose.
 
 ## Nieuw in v0.35.1
 

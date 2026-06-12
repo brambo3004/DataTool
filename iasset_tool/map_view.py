@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 from numbers import Integral, Real
-from typing import Iterable
+from typing import Any, Iterable
 
 import folium
 import geopandas as gpd
@@ -65,6 +65,51 @@ def _json_safe_object_id(value: object) -> int | str:
         return int(numeric_value)
 
     return text
+
+
+def _object_id_key(value: Any) -> str:
+    """
+    Maak een stabiele vergelijkingssleutel voor object-id's.
+
+    Waarom?
+    De iASSET-exports leveren ``sys_id`` soms als getal, soms als tekst en na een
+    CSV-ronde soms als ``1.0``. Voor kaartselecties willen we dezelfde objecten
+    toch herkennen zonder dat de styling wegvalt.
+    """
+    safe_value = _json_safe_object_id(value)
+    return clean_display_value(safe_value).strip()
+
+
+def _object_id_key_set(values: Iterable[Any] | None) -> set[str]:
+    """Normaliseer een lijst/set object-id's naar veilige vergelijkingssleutels."""
+    if values is None:
+        return set()
+    return {key for key in (_object_id_key(value) for value in values) if key}
+
+
+def _add_project_proposal_legend(m: folium.Map) -> None:
+    """Voeg een compacte legenda toe voor de projectvoorstel-inspectie."""
+    legend_html = """
+    <div style="
+        position: fixed;
+        bottom: 24px;
+        left: 24px;
+        z-index: 9999;
+        background: white;
+        padding: 8px 10px;
+        border: 1px solid #999;
+        border-radius: 4px;
+        font-size: 12px;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+    ">
+      <b>Projectvoorstel-inspectie</b><br>
+      <span style="display:inline-block;width:12px;height:12px;background:#8A2BE2;border:1px solid #333;"></span>
+      geselecteerd voorstel<br>
+      <span style="display:inline-block;width:12px;height:12px;background:#1E90FF;border:1px solid #004C99;"></span>
+      bestaand iASSET-overlap<br>
+    </div>
+    """
+    m.get_root().html.add_child(folium.Element(legend_html))
 
 
 def _json_safe_property_value(value: object) -> str | int | float | bool:
@@ -265,6 +310,8 @@ def build_road_map(
     selected_error_id: int | None = None,
     selected_group_id: str | None = None,
     selected_object_id: int | None = None,
+    selected_project_proposal_object_ids: Iterable[Any] | None = None,
+    selected_project_proposal_existing_object_ids: Iterable[Any] | None = None,
     computed_groups: dict | None = None,
     processed_groups: Iterable[str] | None = None,
     ignored_groups: Iterable[str] | None = None,
@@ -274,13 +321,26 @@ def build_road_map(
 ) -> MapBuildResult:
     """
     Bouw de volledige kaart voor één geselecteerde weg.
+
+    v0.35.2 kan optioneel een groenveld-projectvoorstel uitlichten. De
+    berekening van het voorstel gebeurt elders; deze kaartfunctie blijft alleen
+    verantwoordelijk voor de visuele inspectie.
     """
     road_web = road_gdf.to_crs(epsg=4326)
     m = _base_map(road_web, zoom_bounds)
 
-    error_id_set = set(error_ids or [])
+    error_id_set = _object_id_key_set(error_ids)
+    selected_error_key = _object_id_key(selected_error_id) if selected_error_id is not None else ""
+    selected_object_key = _object_id_key(selected_object_id) if selected_object_id is not None else ""
     selected_group_object_ids = _selected_group_ids(computed_groups, selected_group_id)
+    selected_group_object_keys = _object_id_key_set(selected_group_object_ids)
+    selected_proposal_object_keys = _object_id_key_set(selected_project_proposal_object_ids)
+    selected_proposal_existing_object_keys = (
+        _object_id_key_set(selected_project_proposal_existing_object_ids)
+        - selected_proposal_object_keys
+    )
     open_suggested_ids = _suggested_ids(computed_groups, processed_groups, ignored_groups)
+    open_suggested_keys = _object_id_key_set(open_suggested_ids)
 
     network_node_count = 0
     network_edge_count = 0
@@ -290,16 +350,31 @@ def build_road_map(
 
     def style_fn(feature):
         object_id = feature["properties"]["sys_id"]
+        object_key = _object_id_key(object_id)
         props = feature["properties"]
 
-        # Selectie wint altijd van andere stijlen.
-        if object_id == selected_error_id or object_id == selected_object_id or object_id in selected_group_object_ids:
+        # Handmatige selectie uit de bestaande schermen wint altijd van andere stijlen.
+        if (
+            object_key == selected_error_key
+            or object_key == selected_object_key
+            or object_key in selected_group_object_keys
+        ):
             return {"fillColor": "#00FFFF", "color": "black", "weight": 3, "fillOpacity": 0.9}
 
-        if object_id in error_id_set:
+        # v0.35.2: inspectie van groenveld-projectvoorstellen. Objecten uit het
+        # geselecteerde voorstel krijgen de meest opvallende projectkleur.
+        if object_key in selected_proposal_object_keys:
+            return {"fillColor": "#8A2BE2", "color": "black", "weight": 3, "fillOpacity": 0.85}
+
+        # Objecten uit bestaande iASSET-projecten die met het voorstel overlappen,
+        # maar zelf niet in het voorstel zitten, tonen we als vergelijkingscontext.
+        if object_key in selected_proposal_existing_object_keys:
+            return {"fillColor": "#1E90FF", "color": "#004C99", "weight": 2, "fillOpacity": 0.65}
+
+        if object_key in error_id_set:
             return {"fillColor": "#FFA500", "color": "#cc8400", "weight": 2, "fillOpacity": 0.7}
 
-        if object_id in open_suggested_ids:
+        if object_key in open_suggested_keys:
             return {"fillColor": "#FFFF00", "color": "black", "weight": 1, "fillOpacity": 0.6}
 
         if clean_display_value(props.get("Onderhoudsproject", "")):
@@ -329,6 +404,9 @@ def build_road_map(
     ).add_to(m)
 
     _add_hectometer_layer(m, pdok_hm)
+
+    if selected_proposal_object_keys or selected_proposal_existing_object_keys:
+        _add_project_proposal_legend(m)
 
     return MapBuildResult(
         folium_map=m,

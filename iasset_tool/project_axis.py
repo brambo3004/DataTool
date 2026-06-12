@@ -1,5 +1,5 @@
 """
-Projectgrenzen en groenveld-projectvoorstellen op een geijkte iASSET-referentieas (v0.35.1).
+Projectgrenzen en groenveld-projectvoorstellen op een geijkte iASSET-referentieas (v0.35.2).
 
 Deze module draait de eerdere referentieasproef bewust om:
 
@@ -35,7 +35,7 @@ from .trajectory import format_name_hm, parse_project_range
 from .utils import clean_display_value, normalize_text
 
 
-PROJECT_AXIS_SCHEMA_VERSION = "projectaxis-v0.35.1"
+PROJECT_AXIS_SCHEMA_VERSION = "projectaxis-v0.35.2"
 
 HECTOMETER_COLUMN_CANDIDATES = (
     "hectomtrng",

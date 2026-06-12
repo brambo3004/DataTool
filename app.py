@@ -309,6 +309,127 @@ def current_data_revision_key() -> str:
     return make_short_hash(parts)
 
 
+
+
+def _object_id_key_for_ui(value) -> str:
+    """
+    Normaliseer een iASSET-object-id voor UI-selecties.
+
+    Waarom?
+    In de brondata is ``sys_id`` soms een getal, soms tekst en na CSV-export kan
+    een getal als ``1.0`` terugkomen. Voor kaartselectie willen we robuust blijven
+    en nooit crashen op lege/NaN-waarden.
+    """
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError):
+        return clean_display_value(value).strip()
+
+    if numeric_value == numeric_value and numeric_value.is_integer():
+        return str(int(numeric_value))
+
+    return clean_display_value(value).strip()
+
+
+def _object_id_key_set_for_ui(values) -> set[str]:
+    """Maak een set genormaliseerde object-id's voor kaart-highlight."""
+    if values is None:
+        return set()
+    return {key for key in (_object_id_key_for_ui(value) for value in values) if key}
+
+
+def _project_names_from_comparison(comparison_df: pd.DataFrame, proposal_id: str) -> set[str]:
+    """
+    Haal bestaande iASSET-projectnamen op die volgens de vergelijking raken aan
+    het geselecteerde groenveldvoorstel.
+    """
+    if comparison_df is None or comparison_df.empty:
+        return set()
+    if "voorstel_id" not in comparison_df.columns or "bestaand_onderhoudsproject" not in comparison_df.columns:
+        return set()
+
+    selected = comparison_df[
+        comparison_df["voorstel_id"].map(clean_display_value).str.strip() == clean_display_value(proposal_id).strip()
+    ]
+
+    return {
+        clean_display_value(value).strip()
+        for value in selected["bestaand_onderhoudsproject"]
+        if clean_display_value(value).strip()
+    }
+
+
+def _object_ids_for_existing_projects(road_gdf: pd.DataFrame, project_names: set[str]) -> set[str]:
+    """
+    Zoek object-id's die bij bestaande iASSET-onderhoudsprojecten horen.
+
+    Dit is alleen vergelijkingscontext voor de kaart. De projectvoorstellen zelf
+    blijven groenveld: bestaande projectnamen sturen de voorstelvorming niet.
+    """
+    if road_gdf is None or road_gdf.empty or not project_names:
+        return set()
+    if "Onderhoudsproject" not in road_gdf.columns or "sys_id" not in road_gdf.columns:
+        return set()
+
+    normalized_names = {clean_display_value(name).strip() for name in project_names if clean_display_value(name).strip()}
+    if not normalized_names:
+        return set()
+
+    project_values = road_gdf["Onderhoudsproject"].map(clean_display_value).str.strip()
+    selected = road_gdf[project_values.isin(normalized_names)]
+
+    return _object_id_key_set_for_ui(selected["sys_id"]) if not selected.empty else set()
+
+
+def _bounds_for_object_keys(road_gdf, object_keys: set[str]) -> tuple | None:
+    """
+    Bepaal kaartbounds voor een set object-id's.
+
+    De hoofdkaart verwacht WGS84-bounds. Corrupte of lege geometrieën slaan we
+    over; een kapotte rij mag de inspectiekaart niet laten crashen.
+    """
+    if road_gdf is None or road_gdf.empty or not object_keys or "sys_id" not in road_gdf.columns:
+        return None
+
+    working = road_gdf.copy()
+    working["_sys_id_key_for_proposal_zoom"] = working["sys_id"].map(_object_id_key_for_ui)
+    selected = working[working["_sys_id_key_for_proposal_zoom"].isin(object_keys)].copy()
+
+    if selected.empty or "geometry" not in selected.columns:
+        return None
+
+    try:
+        selected = selected[selected.geometry.notna() & ~selected.geometry.is_empty]
+    except Exception:
+        selected = selected[selected.geometry.notna()]
+
+    if selected.empty:
+        return None
+
+    try:
+        selected_web = selected.to_crs(epsg=4326)
+        bounds = selected_web.total_bounds
+    except Exception:
+        return None
+
+    if len(bounds) != 4:
+        return None
+
+    minx, miny, maxx, maxy = [float(value) for value in bounds]
+    if not all(value == value for value in [minx, miny, maxx, maxy]):
+        return None
+
+    return (minx, miny, maxx, maxy)
+
+
 def road_extent_key(gdf) -> str:
     """
     Maak een compacte sleutel voor de geometrische omvang van een wegselectie.
@@ -726,6 +847,11 @@ with col_inspector:
     )
 
     st.divider()
+
+    if mode != "🧪 NWB referentieproef":
+        st.session_state.pop("selected_project_proposal_id", None)
+        st.session_state.pop("selected_project_proposal_object_ids", None)
+        st.session_state.pop("selected_project_proposal_existing_object_ids", None)
 
     if mode == "🔍 Data Kwaliteit":
         all_violations = get_quality_issues_for_road(selected_road, road_gdf, graph_road)
@@ -2443,7 +2569,7 @@ with col_inspector:
                             "Deze voorstellen worden opgebouwd uit primaire objecten op de geijkte iASSET-as. "
                             "De bestaande onderhoudsprojectnaam wordt hierbij niet gebruikt als uitgangspunt, "
                             "maar alleen achteraf vergeleken. v0.35.1 gebruikt knipzwaarte: harde knippen "
-                            "starten een nieuw voorstel; zachte kenmerken blijven als context binnen het voorstel."
+                            "starten een nieuw voorstel; v0.35.2 voegt daar kaartinspectie aan toe."
                         )
                         proposal_status = (
                             project_axis_proposals["status_voorstel"].fillna("ok").astype(str).str.lower()
@@ -2457,6 +2583,225 @@ with col_inspector:
                             st.metric("Voorstellen controleer", int((proposal_status == "controleer").sum()))
                         with prop_col_3:
                             st.metric("Voorstellen aandacht", int((proposal_status == "aandacht").sum()))
+
+                        with st.expander("🗺️ v0.35.2 Projectvoorstel op kaart inspecteren", expanded=True):
+                            st.caption(
+                                "Kies een groenveldvoorstel om de objecten links op de hoofdkaart uit te lichten. "
+                                "Paars = objecten in het voorstel. Blauw = objecten uit bestaande iASSET-projecten "
+                                "die volgens de vergelijking raken aan dit voorstel, maar niet in het voorstel zitten."
+                            )
+
+                            proposal_filter_df = project_axis_proposals.copy()
+                            filter_col_1, filter_col_2 = st.columns(2)
+
+                            with filter_col_1:
+                                project_type_options = ["Alle projecttypes"]
+                                if "project_type" in proposal_filter_df.columns:
+                                    project_type_options.extend(
+                                        sorted(
+                                            {
+                                                clean_display_value(value).strip()
+                                                for value in proposal_filter_df["project_type"]
+                                                if clean_display_value(value).strip()
+                                            }
+                                        )
+                                    )
+                                selected_project_type_filter = st.selectbox(
+                                    "Filter projecttype",
+                                    project_type_options,
+                                    key=f"projectvoorstel_filter_type_{selected_road}",
+                                )
+
+                            with filter_col_2:
+                                status_options = ["Alle statussen"]
+                                if "status_voorstel" in proposal_filter_df.columns:
+                                    status_options.extend(
+                                        sorted(
+                                            {
+                                                clean_display_value(value).strip()
+                                                for value in proposal_filter_df["status_voorstel"]
+                                                if clean_display_value(value).strip()
+                                            }
+                                        )
+                                    )
+                                selected_status_filter = st.selectbox(
+                                    "Filter status",
+                                    status_options,
+                                    key=f"projectvoorstel_filter_status_{selected_road}",
+                                )
+
+                            if selected_project_type_filter != "Alle projecttypes" and "project_type" in proposal_filter_df.columns:
+                                proposal_filter_df = proposal_filter_df[
+                                    proposal_filter_df["project_type"].map(clean_display_value).str.strip()
+                                    == selected_project_type_filter
+                                ]
+
+                            if selected_status_filter != "Alle statussen" and "status_voorstel" in proposal_filter_df.columns:
+                                proposal_filter_df = proposal_filter_df[
+                                    proposal_filter_df["status_voorstel"].map(clean_display_value).str.strip()
+                                    == selected_status_filter
+                                ]
+
+                            if proposal_filter_df.empty or "voorstel_id" not in proposal_filter_df.columns:
+                                st.info("Geen projectvoorstellen binnen deze filters.")
+                                st.session_state.pop("selected_project_proposal_id", None)
+                                st.session_state.pop("selected_project_proposal_object_ids", None)
+                                st.session_state.pop("selected_project_proposal_existing_object_ids", None)
+                            else:
+                                proposal_filter_df = proposal_filter_df.copy()
+                                proposal_filter_df["voorstel_id"] = proposal_filter_df["voorstel_id"].map(clean_display_value).str.strip()
+                                proposal_filter_df = proposal_filter_df[proposal_filter_df["voorstel_id"] != ""]
+
+                                label_by_id: dict[str, str] = {}
+                                for _, proposal_row in proposal_filter_df.iterrows():
+                                    proposal_id = clean_display_value(proposal_row.get("voorstel_id", "")).strip()
+                                    proposed_name = clean_display_value(
+                                        proposal_row.get("onderhoudsproject_voorgesteld", proposal_id)
+                                    ).strip() or proposal_id
+                                    status_text = clean_display_value(proposal_row.get("status_voorstel", ""))
+                                    project_type_text = clean_display_value(proposal_row.get("project_type", ""))
+                                    object_count = clean_display_value(proposal_row.get("aantal_primaire_objecten", ""))
+                                    begin_m = clean_display_value(proposal_row.get("fysiek_begin_m", ""))
+                                    eind_m = clean_display_value(proposal_row.get("fysiek_eind_m", ""))
+                                    label_parts = [proposed_name]
+                                    details = [
+                                        part
+                                        for part in [
+                                            status_text,
+                                            project_type_text,
+                                            f"{object_count} objecten" if object_count else "",
+                                            f"{begin_m}-{eind_m} m" if begin_m or eind_m else "",
+                                        ]
+                                        if part
+                                    ]
+                                    if details:
+                                        label_parts.append(" · ".join(details))
+                                    label_by_id[proposal_id] = " | ".join(label_parts)
+
+                                selected_proposal_id = st.selectbox(
+                                    "Kies projectvoorstel",
+                                    list(label_by_id.keys()),
+                                    format_func=lambda proposal_id: label_by_id.get(proposal_id, proposal_id),
+                                    key=f"projectvoorstel_selectie_{selected_road}",
+                                )
+
+                                selected_proposal_rows = project_axis_proposals[
+                                    project_axis_proposals["voorstel_id"].map(clean_display_value).str.strip()
+                                    == selected_proposal_id
+                                ]
+                                selected_proposal_row = (
+                                    selected_proposal_rows.iloc[0]
+                                    if not selected_proposal_rows.empty
+                                    else pd.Series(dtype="object")
+                                )
+
+                                selected_assignment_rows = pd.DataFrame()
+                                selected_object_ids: set[str] = set()
+                                if (
+                                    isinstance(project_axis_proposal_objects, pd.DataFrame)
+                                    and not project_axis_proposal_objects.empty
+                                    and "voorstel_id" in project_axis_proposal_objects.columns
+                                ):
+                                    selected_assignment_rows = project_axis_proposal_objects[
+                                        project_axis_proposal_objects["voorstel_id"].map(clean_display_value).str.strip()
+                                        == selected_proposal_id
+                                    ].copy()
+                                    if "sys_id" in selected_assignment_rows.columns:
+                                        selected_object_ids = _object_id_key_set_for_ui(selected_assignment_rows["sys_id"])
+
+                                existing_project_names = _project_names_from_comparison(
+                                    project_axis_proposal_comparison,
+                                    selected_proposal_id,
+                                )
+                                existing_object_ids = _object_ids_for_existing_projects(road_gdf, existing_project_names)
+                                comparison_only_ids = existing_object_ids - selected_object_ids
+
+                                st.session_state["selected_project_proposal_id"] = selected_proposal_id
+                                st.session_state["selected_project_proposal_object_ids"] = sorted(selected_object_ids)
+                                st.session_state["selected_project_proposal_existing_object_ids"] = sorted(comparison_only_ids)
+
+                                metric_col_1, metric_col_2, metric_col_3 = st.columns(3)
+                                with metric_col_1:
+                                    st.metric("Objecten in voorstel", len(selected_object_ids))
+                                with metric_col_2:
+                                    st.metric("Bestaande projecten", len(existing_project_names))
+                                with metric_col_3:
+                                    st.metric("Extra iASSET-contextobjecten", len(comparison_only_ids))
+
+                                detail_columns = [
+                                    col for col in [
+                                        "voorstel_id",
+                                        "onderhoudsproject_voorgesteld",
+                                        "status_voorstel",
+                                        "project_type",
+                                        "fysiek_begin_m",
+                                        "fysiek_eind_m",
+                                        "fysiek_lengte_m",
+                                        "naam_begin",
+                                        "naam_eind",
+                                        "knipreden_begin",
+                                        "knipreden_eind",
+                                        "harde_knipsignalen",
+                                        "zachte_signalen",
+                                        "bestaande_onderhoudsprojecten",
+                                        "hoofdmelding",
+                                        "contextmelding",
+                                    ]
+                                    if col in selected_proposal_row.index
+                                ]
+                                if detail_columns:
+                                    st.dataframe(
+                                        pd.DataFrame([selected_proposal_row[detail_columns].to_dict()]),
+                                        use_container_width=True,
+                                        hide_index=True,
+                                    )
+
+                                if existing_project_names:
+                                    st.caption(
+                                        "Bestaande iASSET-projecten in de vergelijking: "
+                                        + ", ".join(sorted(existing_project_names))
+                                    )
+
+                                zoom_bounds = _bounds_for_object_keys(road_gdf, selected_object_ids)
+                                if st.button(
+                                    "🔎 Zoom hoofdkaart op geselecteerd voorstel",
+                                    key=f"zoom_projectvoorstel_{selected_road}_{selected_proposal_id}",
+                                    disabled=zoom_bounds is None,
+                                ):
+                                    st.session_state["zoom_bounds"] = zoom_bounds
+                                    st.rerun()
+
+                                if isinstance(selected_assignment_rows, pd.DataFrame) and not selected_assignment_rows.empty:
+                                    selected_assignment_columns = [
+                                        col for col in [
+                                            "sys_id",
+                                            "nummer",
+                                            "naam",
+                                            "subthema",
+                                            "bestaand_onderhoudsproject",
+                                            "fysiek_begin_m",
+                                            "fysiek_eind_m",
+                                            "Besteknummer",
+                                            "Soort deklaag specifiek",
+                                            "Jaar deklaag",
+                                            "toewijzing_status",
+                                            "toewijzing_melding",
+                                        ]
+                                        if col in selected_assignment_rows.columns
+                                    ]
+                                    st.dataframe(
+                                        selected_assignment_rows[selected_assignment_columns].head(250)
+                                        if selected_assignment_columns
+                                        else selected_assignment_rows.head(250),
+                                        use_container_width=True,
+                                        hide_index=True,
+                                    )
+                                else:
+                                    st.warning(
+                                        "Geen objecttoewijzing gevonden voor dit voorstel. "
+                                        "De kaart kan dan geen voorstelobjecten uitlichten."
+                                    )
+
 
                         proposal_preview_columns = [
                             col for col in [
@@ -3068,6 +3413,8 @@ with col_map:
             selected_error_id=st.session_state.get("selected_error_id"),
             selected_group_id=st.session_state.get("selected_group_id"),
             selected_object_id=st.session_state.get("selected_object_id"),
+            selected_project_proposal_object_ids=st.session_state.get("selected_project_proposal_object_ids"),
+            selected_project_proposal_existing_object_ids=st.session_state.get("selected_project_proposal_existing_object_ids"),
             computed_groups=st.session_state.get("computed_groups"),
             processed_groups=st.session_state.get("processed_groups"),
             ignored_groups=st.session_state.get("ignored_groups"),
@@ -3087,7 +3434,7 @@ with col_map:
             width=None,
             height=600,
             returned_objects=["last_object_clicked"],
-            key="folium_map",
+            key=f"folium_map_{sanitize_filename(clean_display_value(st.session_state.get('selected_project_proposal_id', 'geen_projectvoorstel')))}",
         )
 
         if mode == "🧪 Referentieas / PDOK-proef":
