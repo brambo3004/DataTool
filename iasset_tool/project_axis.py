@@ -1,5 +1,5 @@
 """
-Projectgrenzen op een geijkte iASSET-referentieas (v0.34.2).
+Projectgrenzen op een geijkte iASSET-referentieas (v0.34.3).
 
 Deze module draait de eerdere referentieasproef bewust om:
 
@@ -19,6 +19,7 @@ uitbreiden naar andere wegen of domeinen.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP
 import math
 import re
 from typing import Any, Iterable
@@ -34,7 +35,7 @@ from .trajectory import format_name_hm, parse_project_range
 from .utils import clean_display_value, normalize_text
 
 
-PROJECT_AXIS_SCHEMA_VERSION = "projectaxis-v0.34.2"
+PROJECT_AXIS_SCHEMA_VERSION = "projectaxis-v0.34.3"
 
 HECTOMETER_COLUMN_CANDIDATES = (
     "hectomtrng",
@@ -56,12 +57,13 @@ PROJECT_TYPE_FAMILIES = ("LBP", "HRB", "PW", "FP", "BB")
 PROJECT_TYPES_WITH_REQUIRED_SITUERING = {"PW", "FP", "BB", "LBP"}
 ALLOWED_REQUIRED_SITUERING_CODES = {"L", "R", "LR"}
 STATUS_RANK = {"ok": 0, "overzicht": 0, "projectie": 0, "aandacht": 1, "controleer": 2}
+DEFAULT_BOUNDARY_SNAP_TOLERANCE_M = 2.5
 
 
 @dataclass(frozen=True)
 class ProjectAxisDiagnosticsResult:
     """
-    Resultaat van de v0.34.2-projectgrensdiagnose.
+    Resultaat van de v0.34.3-projectgrensdiagnose.
 
     Alle tabellen zijn gewone DataFrames. Dat houdt de Streamlit-laag simpel en
     maakt export naar CSV zonder extra conversie mogelijk.
@@ -130,7 +132,14 @@ def _empty_project_boundary_frame() -> pd.DataFrame:
             "fysiek_object_begin_km",
             "fysiek_object_eind_km",
             "fysiek_object_lengte_m",
+            "snap_tolerantie_m",
+            "object_begin_dichtstbijzijnde_hm",
+            "object_begin_snap_afstand_m",
+            "object_begin_gesnapt_naar_hm",
             "object_begin_naamregel",
+            "object_eind_dichtstbijzijnde_hm",
+            "object_eind_snap_afstand_m",
+            "object_eind_gesnapt_naar_hm",
             "object_eind_naamregel",
             "verschil_projectnaam_vs_objectligging_m",
             "objectligging_status",
@@ -158,6 +167,11 @@ def _empty_coverage_frame() -> pd.DataFrame:
             "van_m",
             "tot_m",
             "lengte_m",
+            "hard_gat_van_m",
+            "hard_gat_tot_m",
+            "hard_gat_lengte_m",
+            "naamzone_marge_links_m",
+            "naamzone_marge_rechts_m",
             "project_links",
             "project_rechts",
             "dekking_uniek_m",
@@ -930,20 +944,132 @@ def _validate_project_name(project_name: Any, selected_road: str) -> dict[str, A
     return result
 
 
-def _format_name_rule_or_empty(value_km: Any) -> str:
+def _format_hm_label(value_km: float | Decimal) -> str:
     """
-    Format een fysieke km-waarde volgens de onderhoudsprojectnaamregel.
+    Format een hectometerwaarde als beheerlabel ``xx.x``.
 
-    De regel is naar boven afronden op het volgende hectometerpunt:
-    12.300 -> 12.3, maar 12.301 -> 12.4. De implementatie zit centraal in
-    ``trajectory.format_name_hm``; hier vangen we alleen lege/corrupte waarden af.
+    Deze helper gebruikt geen ``round()`` om binaire float-ruis te vermijden.
     """
+    value = Decimal(str(float(value_km))).quantize(Decimal("0.1"))
+    value_float = float(value)
+    return f"{value_float:04.1f}" if value_float < 10 else f"{value_float:.1f}"
+
+
+def _snap_name_rule_details(value_km: Any, snap_tolerance_m: float = DEFAULT_BOUNDARY_SNAP_TOLERANCE_M) -> dict[str, Any]:
+    """
+    Bepaal het projectnaamlabel voor een fysieke grens met snap-tolerantie.
+
+    Beheerregel v0.34.3:
+    - ligt een fysieke grens binnen ``snap_tolerance_m`` van een hectometerpunt,
+      dan gebruiken we dat hectometerpunt;
+    - ligt de grens daarbuiten, dan geldt de bestaande naar-boven-regel.
+
+    Waarom?
+    Objectgeometrie zal vrijwel nooit exact op hetzelfde coördinaat liggen als
+    een hectometerpunt. Zonder snap-tolerantie zou bijvoorbeeld 12.301 altijd
+    12.4 worden, terwijl dit in de praktijk gewoon de grens op hm 12.3 kan zijn.
+    """
+    empty = {
+        "label": "",
+        "nearest_hm_km": None,
+        "snap_distance_m": None,
+        "snapped": False,
+        "effective_km": None,
+    }
     try:
         if value_km is None or pd.isna(value_km):
-            return ""
-        return format_name_hm(float(value_km))
+            return empty
+        value = Decimal(str(float(value_km)))
+        tolerance = max(Decimal("0"), Decimal(str(float(snap_tolerance_m)))) / Decimal("1000")
     except (TypeError, ValueError, OverflowError):
-        return ""
+        return empty
+
+    if not math.isfinite(float(value)) or value < 0:
+        return empty
+
+    nearest_hm_index = (value * Decimal("10")).to_integral_value(rounding=ROUND_HALF_UP)
+    nearest_hm = nearest_hm_index / Decimal("10")
+    snap_distance_m = abs(value - nearest_hm) * Decimal("1000")
+    snapped = snap_distance_m <= tolerance * Decimal("1000")
+
+    if snapped:
+        effective_km = nearest_hm
+        label = _format_hm_label(effective_km)
+    else:
+        effective_km = (value * Decimal("10")).to_integral_value(rounding=ROUND_CEILING) / Decimal("10")
+        label = _format_hm_label(effective_km)
+
+    return {
+        "label": label,
+        "nearest_hm_km": float(nearest_hm),
+        "snap_distance_m": float(snap_distance_m),
+        "snapped": bool(snapped),
+        "effective_km": float(effective_km),
+    }
+
+
+def _format_name_rule_or_empty(
+    value_km: Any,
+    snap_tolerance_m: float = DEFAULT_BOUNDARY_SNAP_TOLERANCE_M,
+) -> str:
+    """
+    Format een fysieke km-waarde volgens snap-tolerantie + onderhoudsnaamregel.
+
+    Eerst snappen we naar een nabij hectometerpunt. Alleen wanneer de grens
+    verder weg ligt dan de snap-tolerantie, wordt naar boven afgerond.
+    """
+    return clean_display_value(_snap_name_rule_details(value_km, snap_tolerance_m).get("label"))
+
+
+def _namezone_km_range(
+    label_km: Any,
+    snap_tolerance_m: float = DEFAULT_BOUNDARY_SNAP_TOLERANCE_M,
+) -> tuple[float | None, float | None]:
+    """
+    Geef de fysieke km-zone terug die bij één geschreven hm-label past.
+
+    Voor label 34.8 en snap-tolerantie 2,5 m hoort grofweg:
+    - vanaf net na de snapzone rond 34.7: 34.7025 km;
+    - tot en met de snapzone rond 34.8: 34.8025 km.
+
+    Dit gebruiken we niet om iASSET te muteren, maar om gatmeldingen niet te
+    baseren op een te exacte interpretatie van projectnamen.
+    """
+    try:
+        value = Decimal(str(float(label_km)))
+        tolerance_km = max(Decimal("0"), Decimal(str(float(snap_tolerance_m)))) / Decimal("1000")
+    except (TypeError, ValueError, OverflowError):
+        return None, None
+
+    if not math.isfinite(float(value)) or value < 0:
+        return None, None
+
+    # Projectnamen hebben één cijfer achter de punt; normaliseer daarom eerst
+    # naar het bijbehorende hectometerpunt.
+    label_hm = (value * Decimal("10")).to_integral_value(rounding=ROUND_HALF_UP) / Decimal("10")
+    lower = label_hm - Decimal("0.1") + tolerance_km
+    upper = label_hm + tolerance_km
+    if lower < 0:
+        lower = Decimal("0")
+    return float(lower), float(upper)
+
+
+def _namezone_route_range(
+    label_km: Any,
+    axis_anchors: pd.DataFrame,
+    snap_tolerance_m: float = DEFAULT_BOUNDARY_SNAP_TOLERANCE_M,
+) -> tuple[float | None, float | None]:
+    """Vertaal de naamzone rond een geschreven hm-label naar route-meters."""
+    lower_km, upper_km = _namezone_km_range(label_km, snap_tolerance_m)
+    lower_route = upper_route = None
+    if lower_km is not None:
+        lower_route, _ = _km_to_route(lower_km, axis_anchors)
+    if upper_km is not None:
+        upper_route, _ = _km_to_route(upper_km, axis_anchors)
+    if lower_route is None or upper_route is None:
+        return None, None
+    return min(float(lower_route), float(upper_route)), max(float(lower_route), float(upper_route))
+
 
 
 def _selected_project_names(road_gdf: gpd.GeoDataFrame, selected_road: str) -> list[str]:
@@ -1055,7 +1181,7 @@ def _build_object_ranges(
         subthema_norm = normalize_text(row.get("subthema", ""))
         is_primary = subthema_norm in PRIMARY_SUBTHEMES
 
-        # v0.34.2: primaire objecten zonder onderhoudsproject blijven zichtbaar
+        # v0.34.3: primaire objecten zonder onderhoudsproject blijven zichtbaar
         # voor de gatcontrole. Secundaire objecten zonder projectnaam voegen we
         # niet toe, anders wordt de export te druk en minder bruikbaar.
         if not project_name and not is_primary:
@@ -1265,6 +1391,7 @@ def _build_project_boundaries(
     *,
     boundary_zone_buffer_m: float,
     length_tolerance_m: float,
+    boundary_snap_tolerance_m: float,
 ) -> pd.DataFrame:
     """Bouw de diagnose per onderhoudsprojectgrens."""
     project_names = _selected_project_names(road_gdf, selected_road)
@@ -1335,7 +1462,14 @@ def _build_project_boundaries(
                     "fysiek_object_begin_km": None,
                     "fysiek_object_eind_km": None,
                     "fysiek_object_lengte_m": None,
+                    "snap_tolerantie_m": _round_or_none(boundary_snap_tolerance_m, 2),
+                    "object_begin_dichtstbijzijnde_hm": None,
+                    "object_begin_snap_afstand_m": None,
+                    "object_begin_gesnapt_naar_hm": False,
                     "object_begin_naamregel": "",
+                    "object_eind_dichtstbijzijnde_hm": None,
+                    "object_eind_snap_afstand_m": None,
+                    "object_eind_gesnapt_naar_hm": False,
                     "object_eind_naamregel": "",
                     "verschil_projectnaam_vs_objectligging_m": None,
                     "objectligging_status": "niet_beschikbaar",
@@ -1376,8 +1510,16 @@ def _build_project_boundaries(
                 abs(float(object_summary["end_km"]) - project_end_km),
             ) * 1000.0
 
-        object_begin_name_rule = _format_name_rule_or_empty(object_summary.get("begin_km"))
-        object_end_name_rule = _format_name_rule_or_empty(object_summary.get("end_km"))
+        object_begin_rule = _snap_name_rule_details(
+            object_summary.get("begin_km"),
+            snap_tolerance_m=float(boundary_snap_tolerance_m),
+        )
+        object_end_rule = _snap_name_rule_details(
+            object_summary.get("end_km"),
+            snap_tolerance_m=float(boundary_snap_tolerance_m),
+        )
+        object_begin_name_rule = clean_display_value(object_begin_rule.get("label"))
+        object_end_name_rule = clean_display_value(object_end_rule.get("label"))
 
         boundary_warnings: list[str] = []
         if not chosen["start_in_range"]:
@@ -1461,7 +1603,14 @@ def _build_project_boundaries(
                 "fysiek_object_begin_km": _round_or_none(object_summary["begin_km"], 3),
                 "fysiek_object_eind_km": _round_or_none(object_summary["end_km"], 3),
                 "fysiek_object_lengte_m": _round_or_none(object_summary["length_m"], 1),
+                "snap_tolerantie_m": _round_or_none(boundary_snap_tolerance_m, 2),
+                "object_begin_dichtstbijzijnde_hm": _round_or_none(object_begin_rule.get("nearest_hm_km"), 3),
+                "object_begin_snap_afstand_m": _round_or_none(object_begin_rule.get("snap_distance_m"), 2),
+                "object_begin_gesnapt_naar_hm": bool(object_begin_rule.get("snapped", False)),
                 "object_begin_naamregel": object_begin_name_rule,
+                "object_eind_dichtstbijzijnde_hm": _round_or_none(object_end_rule.get("nearest_hm_km"), 3),
+                "object_eind_snap_afstand_m": _round_or_none(object_end_rule.get("snap_distance_m"), 2),
+                "object_eind_gesnapt_naar_hm": bool(object_end_rule.get("snapped", False)),
                 "object_eind_naamregel": object_end_name_rule,
                 "verschil_projectnaam_vs_objectligging_m": _round_or_none(physical_delta_m, 1),
                 "objectligging_status": object_status,
@@ -1611,12 +1760,13 @@ def _build_project_coverage(
     object_ranges: pd.DataFrame,
     *,
     gap_tolerance_m: float,
+    boundary_snap_tolerance_m: float,
 ) -> pd.DataFrame:
     """
     Signaleer projectdekking, gaten en overlap per projecttype.
 
     v0.34.0 vergeleek alle projecttypen op één as met elkaar. Daardoor leek een
-    HRB-project te overlappen met een parallelweg of fietspad. In v0.34.2 wordt
+    HRB-project te overlappen met een parallelweg of fietspad. In v0.34.3 wordt
     per spoor gecontroleerd: HRB met HRB, PWR met PWR, FPR met FPR, enzovoort.
     We melden alleen interne gaten tussen opeenvolgende projecten van hetzelfde
     type; het ontbreken van een parallelweg aan het begin/einde van een N-weg is
@@ -1647,7 +1797,7 @@ def _build_project_coverage(
         else:
             calibration_span = None
 
-        intervals: list[tuple[float, float, str]] = []
+        intervals: list[dict[str, Any]] = []
         for _, row in axis_projects.iterrows():
             try:
                 start = float(row.get("as_begin_m"))
@@ -1656,15 +1806,23 @@ def _build_project_coverage(
                 continue
             if not math.isfinite(start) or not math.isfinite(end) or start == end:
                 continue
-            intervals.append((min(start, end), max(start, end), clean_display_value(row.get("Onderhoudsproject", ""))))
+            intervals.append(
+                {
+                    "start_m": min(start, end),
+                    "end_m": max(start, end),
+                    "name": clean_display_value(row.get("Onderhoudsproject", "")),
+                    "project_begin_km": row.get("project_begin_km"),
+                    "project_eind_km": row.get("project_eind_km"),
+                }
+            )
 
         if not intervals:
             continue
 
-        intervals = sorted(intervals, key=lambda item: (item[0], item[1], item[2]))
-        merged = _merge_intervals_m([(start, end) for start, end, _ in intervals])
+        intervals = sorted(intervals, key=lambda item: (item["start_m"], item["end_m"], item["name"]))
+        merged = _merge_intervals_m([(item["start_m"], item["end_m"]) for item in intervals])
         unique_length = sum(end - start for start, end in merged)
-        project_span = max(end for _, end, _ in intervals) - min(start for start, _, _ in intervals)
+        project_span = max(item["end_m"] for item in intervals) - min(item["start_m"] for item in intervals)
         coverage_pct = unique_length / project_span * 100.0 if project_span > 0 else None
 
         common = {
@@ -1680,9 +1838,14 @@ def _build_project_coverage(
             {
                 **common,
                 "controle_type": "dekking",
-                "van_m": _round_or_none(min(start for start, _, _ in intervals), 2),
-                "tot_m": _round_or_none(max(end for _, end, _ in intervals), 2),
+                "van_m": _round_or_none(min(item["start_m"] for item in intervals), 2),
+                "tot_m": _round_or_none(max(item["end_m"] for item in intervals), 2),
                 "lengte_m": _round_or_none(unique_length, 1),
+                "hard_gat_van_m": None,
+                "hard_gat_tot_m": None,
+                "hard_gat_lengte_m": None,
+                "naamzone_marge_links_m": None,
+                "naamzone_marge_rechts_m": None,
                 "project_links": "",
                 "project_rechts": "",
                 "dekking_uniek_m": _round_or_none(unique_length, 1),
@@ -1697,45 +1860,76 @@ def _build_project_coverage(
             }
         )
 
-        previous_start, previous_end, previous_name = intervals[0]
-        for start, end, name in intervals[1:]:
+        previous = intervals[0]
+        for current in intervals[1:]:
+            previous_start = float(previous["start_m"])
+            previous_end = float(previous["end_m"])
+            previous_name = clean_display_value(previous["name"])
+            start = float(current["start_m"])
+            end = float(current["end_m"])
+            name = clean_display_value(current["name"])
+
             if start - previous_end > gap_tolerance_m:
-                gap_presence = _primary_object_presence_in_gap(
-                    object_ranges,
-                    axis_id=axis_id,
-                    project_type=project_type,
-                    start_m=previous_end,
-                    end_m=start,
+                prev_zone_start, prev_zone_end = _namezone_route_range(
+                    previous.get("project_eind_km"),
+                    axis_anchors,
+                    snap_tolerance_m=float(boundary_snap_tolerance_m),
+                )
+                current_zone_start, current_zone_end = _namezone_route_range(
+                    current.get("project_begin_km"),
+                    axis_anchors,
+                    snap_tolerance_m=float(boundary_snap_tolerance_m),
                 )
 
-                # Alleen echte gatkandidaten melden: een onderbreking zonder
-                # primaire objecten is bij parallelwegen/fietspaden meestal
-                # geen fout maar gewoon een ontbrekend fysiek spoor.
-                if int(gap_presence["count"]) > 0:
-                    rows.append(
-                        {
-                            **common,
-                            "controle_type": "gat",
-                            "van_m": _round_or_none(previous_end, 2),
-                            "tot_m": _round_or_none(start, 2),
-                            "lengte_m": _round_or_none(start - previous_end, 1),
-                            "project_links": previous_name,
-                            "project_rechts": name,
-                            "dekking_uniek_m": None,
-                            "projectbereik_m": _round_or_none(project_span, 1),
-                            "ijking_span_m": _round_or_none(calibration_span, 1),
-                            "dekking_pct": None,
-                            "status": "controleer",
-                            "advies": (
-                                "Controleer dit gat: er liggen primaire objecten van hetzelfde spoor in dit interval"
-                                + (
-                                    f" ({gap_presence['objects']})."
-                                    if clean_display_value(gap_presence.get("objects", ""))
-                                    else "."
-                                )
-                            ),
-                        }
+                hard_gap_start = max(previous_end, float(prev_zone_end)) if prev_zone_end is not None else previous_end
+                hard_gap_end = min(start, float(current_zone_start)) if current_zone_start is not None else start
+                hard_gap_length = max(0.0, hard_gap_end - hard_gap_start)
+                naamzone_marge_links = max(0.0, hard_gap_start - previous_end)
+                naamzone_marge_rechts = max(0.0, start - hard_gap_end)
+
+                if hard_gap_length > gap_tolerance_m:
+                    gap_presence = _primary_object_presence_in_gap(
+                        object_ranges,
+                        axis_id=axis_id,
+                        project_type=project_type,
+                        start_m=hard_gap_start,
+                        end_m=hard_gap_end,
                     )
+
+                    # Alleen echte gatkandidaten melden: een onderbreking zonder
+                    # primaire objecten is bij parallelwegen/fietspaden meestal
+                    # geen fout maar gewoon een ontbrekend fysiek spoor.
+                    if int(gap_presence["count"]) > 0:
+                        rows.append(
+                            {
+                                **common,
+                                "controle_type": "gat",
+                                "van_m": _round_or_none(previous_end, 2),
+                                "tot_m": _round_or_none(start, 2),
+                                "lengte_m": _round_or_none(start - previous_end, 1),
+                                "hard_gat_van_m": _round_or_none(hard_gap_start, 2),
+                                "hard_gat_tot_m": _round_or_none(hard_gap_end, 2),
+                                "hard_gat_lengte_m": _round_or_none(hard_gap_length, 1),
+                                "naamzone_marge_links_m": _round_or_none(naamzone_marge_links, 1),
+                                "naamzone_marge_rechts_m": _round_or_none(naamzone_marge_rechts, 1),
+                                "project_links": previous_name,
+                                "project_rechts": name,
+                                "dekking_uniek_m": None,
+                                "projectbereik_m": _round_or_none(project_span, 1),
+                                "ijking_span_m": _round_or_none(calibration_span, 1),
+                                "dekking_pct": None,
+                                "status": "controleer",
+                                "advies": (
+                                    "Controleer dit harde gat: na aftrek van de toegestane projectnaamzone "
+                                    "liggen er nog primaire objecten van hetzelfde spoor in dit interval"
+                                    + (
+                                        f" ({gap_presence['objects']})."
+                                        if clean_display_value(gap_presence.get("objects", ""))
+                                        else "."
+                                    )
+                                ),
+                            }
+                        )
             elif previous_end - start > gap_tolerance_m:
                 rows.append(
                     {
@@ -1744,6 +1938,11 @@ def _build_project_coverage(
                         "van_m": _round_or_none(start, 2),
                         "tot_m": _round_or_none(previous_end, 2),
                         "lengte_m": _round_or_none(previous_end - start, 1),
+                        "hard_gat_van_m": None,
+                        "hard_gat_tot_m": None,
+                        "hard_gat_lengte_m": None,
+                        "naamzone_marge_links_m": None,
+                        "naamzone_marge_rechts_m": None,
                         "project_links": previous_name,
                         "project_rechts": name,
                         "dekking_uniek_m": None,
@@ -1755,8 +1954,8 @@ def _build_project_coverage(
                     }
                 )
 
-            if end > previous_end:
-                previous_start, previous_end, previous_name = start, end, name
+            if end > float(previous["end_m"]):
+                previous = current
 
     if not rows:
         return _empty_coverage_frame()
@@ -1776,6 +1975,7 @@ def build_project_axis_diagnostics(
     boundary_zone_buffer_m: float = 25.0,
     length_tolerance_m: float = 25.0,
     gap_tolerance_m: float = 5.0,
+    boundary_snap_tolerance_m: float = DEFAULT_BOUNDARY_SNAP_TOLERANCE_M,
 ) -> ProjectAxisDiagnosticsResult:
     """
     Bouw v0.34-diagnose: projectgrenzen op geijkte iASSET-wegas.
@@ -1784,6 +1984,8 @@ def build_project_axis_diagnostics(
     - ``max_anchor_distance_m`` voorkomt dat hectopunten van parallelle of
       kruisende wegen de ijking vervuilen;
     - ``boundary_zone_buffer_m`` vangt sample-gebaseerde afwijkingszones op;
+    - ``boundary_snap_tolerance_m`` laat fysieke grenzen nabij een hectometerpunt
+      naar dat hectometerpunt snappen voordat de naamregel wordt toegepast;
     - ``length_tolerance_m`` en ``gap_tolerance_m`` zijn diagnosegrenzen, geen
       automatische beslisregels.
     """
@@ -1815,6 +2017,7 @@ def build_project_axis_diagnostics(
         selected_road,
         boundary_zone_buffer_m=float(boundary_zone_buffer_m),
         length_tolerance_m=float(length_tolerance_m),
+        boundary_snap_tolerance_m=float(boundary_snap_tolerance_m),
     )
 
     project_coverage = _build_project_coverage(
@@ -1823,6 +2026,7 @@ def build_project_axis_diagnostics(
         axes,
         object_ranges,
         gap_tolerance_m=float(gap_tolerance_m),
+        boundary_snap_tolerance_m=float(boundary_snap_tolerance_m),
     )
 
     if project_boundaries.empty:

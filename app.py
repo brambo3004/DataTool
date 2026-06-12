@@ -1936,14 +1936,14 @@ with col_inspector:
             ),
         )
 
-        st.markdown("#### v0.34.2 Projectgrenzen op referentieas")
+        st.markdown("#### v0.34.3 Projectgrenzen op referentieas")
         st.caption(
             "Deze stap projecteert NWB-hectopunten op de iASSET-wegas, ijkt die as naar "
             "hectometrering en controleert onderhoudsprojectnamen, projectdekking, gaten, "
             "overlap en afwijkingszones. De uitkomst is diagnose/proef en past niets in iASSET aan."
         )
 
-        project_axis_col_1, project_axis_col_2, project_axis_col_3, project_axis_col_4 = st.columns(4)
+        project_axis_col_1, project_axis_col_2, project_axis_col_3, project_axis_col_4, project_axis_col_5 = st.columns(5)
         with project_axis_col_1:
             project_axis_anchor_max_m = st.number_input(
                 "Max. afstand NWB-hectopunt tot iASSET-wegas (m)",
@@ -1985,6 +1985,18 @@ with col_inspector:
                 value=25.0,
                 step=5.0,
                 help="Grotere verschillen tussen projectnaam en geijkte as krijgen een projectgrenswaarschuwing; objectligging wordt apart getoond.",
+            )
+        with project_axis_col_5:
+            project_axis_snap_tolerance_m = st.number_input(
+                "Snap-tolerantie projectgrens naar hectometerpunt (m)",
+                min_value=0.0,
+                max_value=25.0,
+                value=2.5,
+                step=0.5,
+                help=(
+                    "Een fysieke grens binnen deze afstand van een hectometerpunt wordt als dat "
+                    "hectometerpunt behandeld. Buiten deze tolerantie geldt de naar-boven-naamregel."
+                ),
             )
 
         if st.button("Haal NWB-wegvakken en hectopunten op", key=f"build_nwb_reference_{selected_road}"):
@@ -2061,6 +2073,7 @@ with col_inspector:
                     max_object_offset_m=float(project_axis_object_max_m),
                     boundary_zone_buffer_m=float(project_axis_boundary_buffer_m),
                     length_tolerance_m=float(project_axis_length_tolerance_m),
+                    boundary_snap_tolerance_m=float(project_axis_snap_tolerance_m),
                 )
                 project_axis_anchors = project_axis_result.calibration_anchors
                 project_axis_boundaries = project_axis_result.project_boundaries
@@ -2081,6 +2094,7 @@ with col_inspector:
                 "project_axis_object_max_m": float(project_axis_object_max_m),
                 "project_axis_boundary_buffer_m": float(project_axis_boundary_buffer_m),
                 "project_axis_length_tolerance_m": float(project_axis_length_tolerance_m),
+                "project_axis_snap_tolerance_m": float(project_axis_snap_tolerance_m),
                 "uploaded_wegassen_name": uploaded_wegassen_name,
                 "source_summary": nwb_result.source_summary,
                 "wegvakken": nwb_result.wegvakken.drop(columns="geometry", errors="ignore"),
@@ -2114,7 +2128,8 @@ with col_inspector:
                 f"Buffer: {nwb_state.get('buffer_meters', nwb_buffer_m):g} m. "
                 f"Wegasafstand: {nwb_state.get('wegas_max_distance_m', nwb_wegas_max_distance_m):g} m. "
                 f"Detailstap: {nwb_state.get('wegas_detail_sample_step_m', nwb_detail_sample_step_m):g} m. "
-                f"Projectas-ijkafstand: {nwb_state.get('project_axis_anchor_max_m', project_axis_anchor_max_m):g} m."
+                f"Projectas-ijkafstand: {nwb_state.get('project_axis_anchor_max_m', project_axis_anchor_max_m):g} m. "
+                f"Snap-tolerantie: {nwb_state.get('project_axis_snap_tolerance_m', project_axis_snap_tolerance_m):g} m."
             )
 
             if nwb_state.get("warning"):
@@ -2321,7 +2336,7 @@ with col_inspector:
                     st.warning(nwb_state["project_axis_warning"], icon="⚠️")
 
                 if isinstance(project_axis_boundaries, pd.DataFrame) and not project_axis_boundaries.empty:
-                    st.markdown("#### v0.34.2 Projectgrenzen op geijkte iASSET-wegas")
+                    st.markdown("#### v0.34.3 Projectgrenzen op geijkte iASSET-wegas")
                     st.caption(
                         "Deze tabel vergelijkt de projectnaamrange met de geijkte iASSET-wegas, "
                         "met fysieke objectligging en met oranje/rode NWB-afwijkingszones. "
@@ -2345,7 +2360,11 @@ with col_inspector:
                             "begin_buiten_ijkbereik",
                             "eind_buiten_ijkbereik",
                             "object_begin_naamregel",
+                            "object_begin_snap_afstand_m",
+                            "object_begin_gesnapt_naar_hm",
                             "object_eind_naamregel",
+                            "object_eind_snap_afstand_m",
+                            "object_eind_gesnapt_naar_hm",
                             "objectligging_melding",
                             "waarschuwing",
                         ]
@@ -2377,6 +2396,9 @@ with col_inspector:
                                 "van_m",
                                 "tot_m",
                                 "lengte_m",
+                                "hard_gat_lengte_m",
+                                "naamzone_marge_links_m",
+                                "naamzone_marge_rechts_m",
                                 "project_links",
                                 "project_rechts",
                                 "projectbereik_m",
@@ -2402,7 +2424,7 @@ with col_inspector:
                             mime="text/csv",
                         )
 
-                    with st.expander("IJkpunten en objectprojecties v0.34.2", expanded=False):
+                    with st.expander("IJkpunten en objectprojecties v0.34.3", expanded=False):
                         if isinstance(project_axis_anchors, pd.DataFrame) and not project_axis_anchors.empty:
                             st.markdown("##### NWB-hectopunten geprojecteerd op iASSET-wegas")
                             st.dataframe(project_axis_anchors, use_container_width=True, hide_index=True)

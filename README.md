@@ -597,3 +597,8 @@ Deze versie voegt de eerste **Fase 4-controle** toe: paspoortexport en onderhoud
 - Toegevoegd: datakwaliteitsrapport voor de Onderhoudscontrole.
 - Controleert de gebruikte paspoort- en onderhoudsexports op ontbrekende kolommen, lege waarden, dubbele objectnummers, afwijkende projectnamen, ongeldige metrering en geometrieproblemen.
 - Blijft alleen signalerend: de tool voert geen automatische wijzigingen door in iASSET.
+
+
+## v0.34.3
+
+Projectgrensdiagnose uitgebreid met een instelbare snap-tolerantie naar hectometerpunten. Standaard 2,5 m. Gatcontrole gebruikt projectnaamzones zodat afrondmarges bij projectgrenzen minder snel als hard gat worden gemeld.
