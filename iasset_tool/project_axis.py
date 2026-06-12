@@ -1,5 +1,5 @@
 """
-Projectgrenzen op een geijkte iASSET-referentieas (v0.34.3).
+Projectgrenzen op een geijkte iASSET-referentieas (v0.34.4).
 
 Deze module draait de eerdere referentieasproef bewust om:
 
@@ -35,7 +35,7 @@ from .trajectory import format_name_hm, parse_project_range
 from .utils import clean_display_value, normalize_text
 
 
-PROJECT_AXIS_SCHEMA_VERSION = "projectaxis-v0.34.3"
+PROJECT_AXIS_SCHEMA_VERSION = "projectaxis-v0.34.4"
 
 HECTOMETER_COLUMN_CANDIDATES = (
     "hectomtrng",
@@ -63,7 +63,7 @@ DEFAULT_BOUNDARY_SNAP_TOLERANCE_M = 2.5
 @dataclass(frozen=True)
 class ProjectAxisDiagnosticsResult:
     """
-    Resultaat van de v0.34.3-projectgrensdiagnose.
+    Resultaat van de v0.34.4-projectgrensdiagnose.
 
     Alle tabellen zijn gewone DataFrames. Dat houdt de Streamlit-laag simpel en
     maakt export naar CSV zonder extra conversie mogelijk.
@@ -1962,6 +1962,275 @@ def _build_project_coverage(
 
     return pd.DataFrame(rows, columns=_empty_coverage_frame().columns)
 
+
+
+
+def _get_str(row: pd.Series, column: str, default: str = "") -> str:
+    """Lees een cel als nette tekst, ook bij ontbrekende kolommen of NaN."""
+    if column not in row.index:
+        return default
+    value = row.get(column, default)
+    if value is None:
+        return default
+    try:
+        if pd.isna(value):
+            return default
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip()
+
+
+def _get_float(row: pd.Series, column: str) -> float | None:
+    """Lees een cel als float voor compacte exports."""
+    if column not in row.index:
+        return None
+    value = row.get(column)
+    try:
+        if value is None or pd.isna(value):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def build_project_axis_control_export(
+    project_boundaries: pd.DataFrame | None,
+    project_coverage: pd.DataFrame | None,
+    object_ranges: pd.DataFrame | None = None,
+    *,
+    selected_road: str | None = None,
+) -> pd.DataFrame:
+    """
+    Maak een compacte controlelijst voor databeheerders.
+
+    Waarom?
+    De volledige diagnosebestanden blijven belangrijk voor analyse, maar zijn
+    breed en technisch. Deze lijst bevat alleen de regels die actie of handmatige
+    controle vragen: projectgrenzen met ``aandacht``/``controleer`` en dekking-
+    regels zoals overlap of harde gaten.
+
+    Objectligging nemen we bewust niet als zelfstandige hoofdregel op. Die blijft
+    detailcontext in ``Projectobjecten_Referentieas_*`` en in de volledige
+    projectgrenzen-export, zodat parallelwegen en fietspaden niet onnodig het
+    hoofdbeeld domineren.
+    """
+    rows: list[dict[str, Any]] = []
+    road_label = selected_road or ""
+
+    if isinstance(project_boundaries, pd.DataFrame) and not project_boundaries.empty:
+        for _, boundary in project_boundaries.iterrows():
+            status = _get_str(boundary, "status", "ok").lower() or "ok"
+            status_projectnaam = _get_str(boundary, "status_projectnaam", "ok").lower() or "ok"
+            status_projectgrens = _get_str(boundary, "status_projectgrens", "ok").lower() or "ok"
+
+            if status not in {"aandacht", "controleer"} and status_projectnaam == "ok" and status_projectgrens == "ok":
+                continue
+
+            if status_projectnaam in {"aandacht", "controleer"}:
+                categorie = "Projectnaam"
+                melding_parts = [
+                    _get_str(boundary, "naam_validatie_melding"),
+                    _get_str(boundary, "waarschuwing"),
+                ]
+            else:
+                categorie = "Projectgrens"
+                melding_parts = [
+                    _get_str(boundary, "waarschuwing"),
+                    _get_str(boundary, "objectligging_melding") if status in {"aandacht", "controleer"} else "",
+                ]
+
+            melding = " ".join(part for part in melding_parts if part).strip()
+            if not melding:
+                melding = "Controleer deze projectregel in combinatie met de volledige projectgrensdiagnose."
+
+            rows.append(
+                {
+                    "prioriteit": 2 if status == "controleer" else 1,
+                    "status": status,
+                    "controle_categorie": categorie,
+                    "wegnummer": road_label or _get_str(boundary, "naam_wegnummer"),
+                    "project_type": _get_str(boundary, "project_type"),
+                    "project_family": _get_str(boundary, "project_family"),
+                    "situering": _get_str(boundary, "situering"),
+                    "Onderhoudsproject": _get_str(boundary, "Onderhoudsproject"),
+                    "controlepunt": _get_str(boundary, "Onderhoudsproject"),
+                    "melding": melding,
+                    "advies": _get_str(boundary, "advies"),
+                    "axis_id": _get_str(boundary, "axis_id"),
+                    "as_van_m": _get_float(boundary, "as_begin_m"),
+                    "as_tot_m": _get_float(boundary, "as_eind_m"),
+                    "lengte_m": _get_float(boundary, "as_lengte_m"),
+                    "verschil_m": _get_float(boundary, "lengteverschil_naam_vs_as_m"),
+                    "bronbestand": "Projectgrenzen_Referentieas",
+                }
+            )
+
+    if isinstance(project_coverage, pd.DataFrame) and not project_coverage.empty:
+        for _, coverage in project_coverage.iterrows():
+            status = _get_str(coverage, "status", "ok").lower() or "ok"
+            controle_type = _get_str(coverage, "controle_type", "dekking").lower()
+            if status not in {"aandacht", "controleer"} and controle_type not in {"gat", "overlap"}:
+                continue
+
+            project_links = _get_str(coverage, "project_links")
+            project_rechts = _get_str(coverage, "project_rechts")
+            if project_links and project_rechts:
+                controlepunt = f"{project_links} → {project_rechts}"
+            else:
+                controlepunt = controle_type
+
+            advies = _get_str(coverage, "advies")
+            if controle_type == "overlap":
+                melding = "Mogelijke overlap binnen hetzelfde projecttype."
+            elif controle_type == "gat":
+                melding = "Mogelijk hard gat met primair areaal binnen hetzelfde projecttype."
+            else:
+                melding = "Controleer dekking op de geijkte referentieas."
+            if advies:
+                melding = f"{melding} {advies}"
+
+            rows.append(
+                {
+                    "prioriteit": 2 if status == "controleer" else 1,
+                    "status": status,
+                    "controle_categorie": "Projectdekking",
+                    "wegnummer": road_label,
+                    "project_type": _get_str(coverage, "project_type"),
+                    "project_family": _get_str(coverage, "project_family"),
+                    "situering": _get_str(coverage, "situering"),
+                    "Onderhoudsproject": "",
+                    "controlepunt": controlepunt,
+                    "melding": melding.strip(),
+                    "advies": advies,
+                    "axis_id": _get_str(coverage, "axis_id"),
+                    "as_van_m": _get_float(coverage, "van_m"),
+                    "as_tot_m": _get_float(coverage, "tot_m"),
+                    "lengte_m": _get_float(coverage, "hard_gat_lengte_m") or _get_float(coverage, "lengte_m"),
+                    "verschil_m": None,
+                    "bronbestand": "Projectdekking_Referentieas",
+                }
+            )
+
+    columns = [
+        "prioriteit",
+        "status",
+        "controle_categorie",
+        "wegnummer",
+        "project_type",
+        "project_family",
+        "situering",
+        "Onderhoudsproject",
+        "controlepunt",
+        "melding",
+        "advies",
+        "axis_id",
+        "as_van_m",
+        "as_tot_m",
+        "lengte_m",
+        "verschil_m",
+        "bronbestand",
+    ]
+    if not rows:
+        return pd.DataFrame(columns=columns)
+
+    result = pd.DataFrame(rows)
+    result = result.sort_values(
+        by=["prioriteit", "controle_categorie", "project_type", "controlepunt"],
+        ascending=[False, True, True, True],
+        kind="stable",
+    ).reset_index(drop=True)
+    return result[columns]
+
+
+def build_project_axis_summary(
+    project_boundaries: pd.DataFrame | None,
+    project_coverage: pd.DataFrame | None,
+    object_ranges: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """
+    Maak een kleine samenvatting voor het scherm en voor snelle acceptatietests.
+
+    De tabel is bewust eenvoudig gehouden: aantallen per controleblok. Daarmee
+    kunnen databeheerders snel zien of een weg rustig is of aandacht vraagt,
+    zonder direct de brede diagnosebestanden te hoeven openen.
+    """
+    rows: list[dict[str, Any]] = []
+
+    if isinstance(project_boundaries, pd.DataFrame) and not project_boundaries.empty:
+        status_counts = project_boundaries.get("status", pd.Series(dtype="object")).fillna("ok").astype(str).str.lower().value_counts()
+        rows.append(
+            {
+                "onderdeel": "Projectgrenzen",
+                "totaal": int(len(project_boundaries)),
+                "ok": int(status_counts.get("ok", 0)),
+                "aandacht": int(status_counts.get("aandacht", 0)),
+                "controleer": int(status_counts.get("controleer", 0)),
+                "toelichting": "Hoofdstatus van onderhoudsprojectgrenzen op de geijkte as.",
+            }
+        )
+    else:
+        rows.append(
+            {
+                "onderdeel": "Projectgrenzen",
+                "totaal": 0,
+                "ok": 0,
+                "aandacht": 0,
+                "controleer": 0,
+                "toelichting": "Geen projectgrenzen berekend.",
+            }
+        )
+
+    if isinstance(project_coverage, pd.DataFrame) and not project_coverage.empty:
+        status_counts = project_coverage.get("status", pd.Series(dtype="object")).fillna("ok").astype(str).str.lower().value_counts()
+        overlap_count = int((project_coverage.get("controle_type", pd.Series(dtype="object")).astype(str).str.lower() == "overlap").sum())
+        gap_count = int((project_coverage.get("controle_type", pd.Series(dtype="object")).astype(str).str.lower() == "gat").sum())
+        rows.append(
+            {
+                "onderdeel": "Projectdekking",
+                "totaal": int(len(project_coverage)),
+                "ok": int(status_counts.get("ok", 0)),
+                "aandacht": int(status_counts.get("aandacht", 0)),
+                "controleer": int(status_counts.get("controleer", 0)),
+                "toelichting": f"{gap_count} gaten en {overlap_count} overlaps in de compacte dekkingstabel.",
+            }
+        )
+    else:
+        rows.append(
+            {
+                "onderdeel": "Projectdekking",
+                "totaal": 0,
+                "ok": 0,
+                "aandacht": 0,
+                "controleer": 0,
+                "toelichting": "Geen gaten of overlaps geëxporteerd.",
+            }
+        )
+
+    if isinstance(object_ranges, pd.DataFrame) and not object_ranges.empty:
+        status_counts = object_ranges.get("status", pd.Series(dtype="object")).fillna("ok").astype(str).str.lower().value_counts()
+        rows.append(
+            {
+                "onderdeel": "Objectprojecties",
+                "totaal": int(len(object_ranges)),
+                "ok": int(status_counts.get("ok", 0)),
+                "aandacht": int(status_counts.get("aandacht", 0)),
+                "controleer": int(status_counts.get("controleer", 0)),
+                "toelichting": "Detailcontext; bepaalt niet zelfstandig de hoofdstatus.",
+            }
+        )
+    else:
+        rows.append(
+            {
+                "onderdeel": "Objectprojecties",
+                "totaal": 0,
+                "ok": 0,
+                "aandacht": 0,
+                "controleer": 0,
+                "toelichting": "Geen objectprojecties beschikbaar.",
+            }
+        )
+
+    return pd.DataFrame(rows)
 
 def build_project_axis_diagnostics(
     road_gdf: gpd.GeoDataFrame,

@@ -77,7 +77,9 @@ from iasset_tool.reference_axis import (
 )
 from iasset_tool.project_axis import (
     PROJECT_AXIS_SCHEMA_VERSION,
+    build_project_axis_control_export,
     build_project_axis_diagnostics,
+    build_project_axis_summary,
 )
 from iasset_tool.nwb import (
     NWB_REFERENCE_SCHEMA_VERSION,
@@ -1936,7 +1938,7 @@ with col_inspector:
             ),
         )
 
-        st.markdown("#### v0.34.3 Projectgrenzen op referentieas")
+        st.markdown("#### v0.34.4 Projectgrenzen op referentieas")
         st.caption(
             "Deze stap projecteert NWB-hectopunten op de iASSET-wegas, ijkt die as naar "
             "hectometrering en controleert onderhoudsprojectnamen, projectdekking, gaten, "
@@ -2336,12 +2338,88 @@ with col_inspector:
                     st.warning(nwb_state["project_axis_warning"], icon="⚠️")
 
                 if isinstance(project_axis_boundaries, pd.DataFrame) and not project_axis_boundaries.empty:
-                    st.markdown("#### v0.34.3 Projectgrenzen op geijkte iASSET-wegas")
+                    st.markdown("#### v0.34.4 Projectgrenzen op geijkte iASSET-wegas")
                     st.caption(
                         "Deze tabel vergelijkt de projectnaamrange met de geijkte iASSET-wegas, "
                         "met fysieke objectligging en met oranje/rode NWB-afwijkingszones. "
                         "Dit is controle-informatie; de tool wijzigt niets in iASSET."
                     )
+
+                    project_axis_summary = build_project_axis_summary(
+                        project_axis_boundaries,
+                        project_axis_coverage,
+                        project_axis_object_ranges,
+                    )
+                    project_axis_control = build_project_axis_control_export(
+                        project_axis_boundaries,
+                        project_axis_coverage,
+                        project_axis_object_ranges,
+                        selected_road=selected_road,
+                    )
+
+                    st.markdown("##### Kernsamenvatting databeheercontrole")
+                    summary_col_1, summary_col_2, summary_col_3, summary_col_4 = st.columns(4)
+                    boundary_status = (
+                        project_axis_boundaries["status"].fillna("ok").astype(str).str.lower()
+                        if "status" in project_axis_boundaries.columns
+                        else pd.Series(dtype="object")
+                    )
+                    coverage_type = (
+                        project_axis_coverage["controle_type"].fillna("").astype(str).str.lower()
+                        if isinstance(project_axis_coverage, pd.DataFrame)
+                        and not project_axis_coverage.empty
+                        and "controle_type" in project_axis_coverage.columns
+                        else pd.Series(dtype="object")
+                    )
+                    with summary_col_1:
+                        st.metric("Projectgrenzen controleer", int((boundary_status == "controleer").sum()))
+                    with summary_col_2:
+                        st.metric("Projectgrenzen aandacht", int((boundary_status == "aandacht").sum()))
+                    with summary_col_3:
+                        st.metric("Gaten", int((coverage_type == "gat").sum()))
+                    with summary_col_4:
+                        st.metric("Overlaps", int((coverage_type == "overlap").sum()))
+
+                    st.dataframe(project_axis_summary, use_container_width=True, hide_index=True)
+
+                    if not project_axis_control.empty:
+                        st.markdown("##### Compacte controlelijst")
+                        st.caption(
+                            "Deze lijst bevat alleen aandacht- en controleerregels. "
+                            "Gebruik dit bestand als praktische werklijst; de brede exports blijven beschikbaar "
+                            "voor detailanalyse."
+                        )
+                        control_preview_columns = [
+                            col for col in [
+                                "status",
+                                "controle_categorie",
+                                "project_type",
+                                "Onderhoudsproject",
+                                "controlepunt",
+                                "melding",
+                                "advies",
+                                "lengte_m",
+                                "bronbestand",
+                            ]
+                            if col in project_axis_control.columns
+                        ]
+                        st.dataframe(
+                            project_axis_control[control_preview_columns]
+                            if control_preview_columns
+                            else project_axis_control,
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                        control_csv = project_axis_control.to_csv(index=False, sep=";").encode("utf-8-sig")
+                        st.download_button(
+                            "📥 Download compacte controlelijst referentieas",
+                            data=control_csv,
+                            file_name=f"Projectcontrole_Referentieas_{sanitize_filename(selected_road)}.csv",
+                            mime="text/csv",
+                        )
+                    else:
+                        st.success("Geen projectgrenzen, gaten of overlaps met aandacht/controleer-status gevonden.")
+
                     boundary_preview_columns = [
                         col for col in [
                             "Onderhoudsproject",
@@ -2423,8 +2501,10 @@ with col_inspector:
                             file_name=f"Projectdekking_Referentieas_{sanitize_filename(selected_road)}.csv",
                             mime="text/csv",
                         )
+                    elif isinstance(project_axis_coverage, pd.DataFrame):
+                        st.success("Geen gaten of overlaps gevonden binnen dezelfde projecttypes.")
 
-                    with st.expander("IJkpunten en objectprojecties v0.34.3", expanded=False):
+                    with st.expander("IJkpunten en objectprojecties v0.34.4", expanded=False):
                         if isinstance(project_axis_anchors, pd.DataFrame) and not project_axis_anchors.empty:
                             st.markdown("##### NWB-hectopunten geprojecteerd op iASSET-wegas")
                             st.dataframe(project_axis_anchors, use_container_width=True, hide_index=True)

@@ -1,6 +1,35 @@
-# iASSET Advisor - refactor v0.34.2
+# iASSET Advisor - refactor v0.34.4
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
+
+
+## Nieuw in v0.34.4
+
+v0.34.4 is een gebruiksversie van **Projectgrenzen op referentieas** binnen `🧪 NWB referentieproef`.
+
+Kern:
+- de rekenlogica van v0.34.3 blijft intact;
+- boven de brede projectgrenstabel staat nu een compacte samenvatting met aantallen `controleer`, `aandacht`, gaten en overlaps;
+- er is een nieuwe compacte werklijst-export: `Projectcontrole_Referentieas_<weg>.csv`;
+- de compacte werklijst bevat alleen regels die handmatige controle vragen, zodat databeheerders niet eerst door alle brede diagnosekolommen hoeven te zoeken;
+- objectligging blijft detailcontext en wordt niet als zelfstandige hoofdwaarschuwing opgevoerd;
+- als er geen gaten of overlaps zijn, toont het scherm dat expliciet als groene melding.
+
+Waarom:
+N398 en N354 lieten zien dat de rekenlogica bruikbaar is. Deze versie maakt de output beter geschikt om als praktische controlelijst naast iASSET en het N-wegendocument te gebruiken.
+
+## Nieuw in v0.34.3
+
+v0.34.3 voegde snap- en naamzone-logica toe aan **Projectgrenzen op referentieas**.
+
+Kern:
+- fysieke projectgrenzen binnen 2,5 meter van een hectometerpunt worden naar dat hectometerpunt gesnapt;
+- grenzen buiten deze snap-tolerantie volgen de beheerregel voor naar-boven afronden;
+- projectdekking gebruikt naamzones, zodat objecten net binnen een logische projectnaammarge niet onterecht als hard gat worden gemeld;
+- nieuwe diagnosekolommen tonen onder meer `snap_tolerantie_m`, dichtstbijzijnde hm-punten, snap-afstanden en harde-gat-marges.
+
+Waarom:
+Objecten beginnen of eindigen in GIS zelden exact op hetzelfde coördinaat als een hectometerpunt. De 2,5 meter snap-tolerantie voorkomt dat praktische hectometergrenzen door minieme geometrieverschillen verkeerd worden geïnterpreteerd.
 
 
 ## Nieuw in v0.34.2
@@ -602,3 +631,8 @@ Deze versie voegt de eerste **Fase 4-controle** toe: paspoortexport en onderhoud
 ## v0.34.3
 
 Projectgrensdiagnose uitgebreid met een instelbare snap-tolerantie naar hectometerpunten. Standaard 2,5 m. Gatcontrole gebruikt projectnaamzones zodat afrondmarges bij projectgrenzen minder snel als hard gat worden gemeld.
+
+
+## v0.34.4
+
+Gebruiksversionering voor de projectgrensdiagnose: compacte samenvatting in het scherm en nieuwe export `Projectcontrole_Referentieas_<weg>.csv` met alleen actiegerichte regels voor databeheercontrole.

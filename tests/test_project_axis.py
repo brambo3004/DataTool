@@ -4,7 +4,7 @@ import geopandas as gpd
 import pandas as pd
 from shapely.geometry import LineString, Point
 
-from iasset_tool.project_axis import build_project_axis_diagnostics
+from iasset_tool.project_axis import build_project_axis_control_export, build_project_axis_diagnostics, build_project_axis_summary
 
 
 def _wegas() -> gpd.GeoDataFrame:
@@ -526,3 +526,68 @@ def test_gatcontrole_trekt_projectnaamzone_af_voordat_objecten_worden_getoetst()
 
     gap_rows = result.project_coverage[result.project_coverage["controle_type"] == "gat"]
     assert gap_rows.empty
+
+
+
+def test_compacte_controlelijst_bevat_alleen_actiegerichte_regels() -> None:
+    """De v0.34.4-werklijst laat ok-projecten weg en houdt overlap zichtbaar."""
+    road_gdf = gpd.GeoDataFrame(
+        [
+            {
+                "sys_id": "ok",
+                "nummer": "RS-OK",
+                "subthema": "rijstrook",
+                "Wegnummer": "N398",
+                "Onderhoudsproject": "N398-HRB-01.0-01.4",
+                "geometry": LineString([(0, 0), (400, 0)]),
+            },
+            {
+                "sys_id": "a",
+                "nummer": "RS-A",
+                "subthema": "rijstrook",
+                "Wegnummer": "N398",
+                "Onderhoudsproject": "N398-HRB-01.5-02.0",
+                "geometry": LineString([(500, 0), (1000, 0)]),
+            },
+            {
+                "sys_id": "b",
+                "nummer": "RS-B",
+                "subthema": "rijstrook",
+                "Wegnummer": "N398",
+                "Onderhoudsproject": "N398-HRB-01.6-02.0",
+                "geometry": LineString([(600, 0), (1000, 0)]),
+            },
+        ],
+        geometry="geometry",
+        crs="EPSG:28992",
+    )
+
+    result = build_project_axis_diagnostics(
+        road_gdf,
+        _wegas(),
+        _hectopoints(),
+        pd.DataFrame(),
+        "N398",
+        gap_tolerance_m=5.0,
+        length_tolerance_m=10.0,
+    )
+
+    control = build_project_axis_control_export(
+        result.project_boundaries,
+        result.project_coverage,
+        result.object_ranges,
+        selected_road="N398",
+    )
+
+    assert not control.empty
+    assert "Projectdekking" in set(control["controle_categorie"])
+    assert control["status"].isin(["aandacht", "controleer"]).all()
+    assert not control["controlepunt"].astype(str).str.contains("N398-HRB-01.0-01.4").any()
+
+
+def test_projectassamenvatting_is_robuust_bij_lege_detailtabellen() -> None:
+    """De schermsamenvatting crasht niet als detailtabellen leeg zijn."""
+    summary = build_project_axis_summary(pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
+
+    assert list(summary["onderdeel"]) == ["Projectgrenzen", "Projectdekking", "Objectprojecties"]
+    assert summary["totaal"].sum() == 0
