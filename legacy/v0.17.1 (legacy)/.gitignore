@@ -1,9 +1,0 @@
-\
-__pycache__/
-*.pyc
-.streamlit/
-autosave_log.csv
-iASSET_Mutaties.csv
-iASSET_Mutaties.xlsx
-*.egg-info/
-.pytest_cache/
