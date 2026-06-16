@@ -322,7 +322,7 @@ def build_road_map(
     """
     Bouw de volledige kaart voor één geselecteerde weg.
 
-    v0.35.2 kan optioneel een groenveld-projectvoorstel uitlichten. De
+    v0.35.3 kan optioneel een groenveld-projectvoorstel uitlichten. De
     berekening van het voorstel gebeurt elders; deze kaartfunctie blijft alleen
     verantwoordelijk voor de visuele inspectie.
     """
@@ -361,7 +361,7 @@ def build_road_map(
         ):
             return {"fillColor": "#00FFFF", "color": "black", "weight": 3, "fillOpacity": 0.9}
 
-        # v0.35.2: inspectie van groenveld-projectvoorstellen. Objecten uit het
+        # v0.35.3: inspectie van groenveld-projectvoorstellen. Objecten uit het
         # geselecteerde voorstel krijgen de meest opvallende projectkleur.
         if object_key in selected_proposal_object_keys:
             return {"fillColor": "#8A2BE2", "color": "black", "weight": 3, "fillOpacity": 0.85}

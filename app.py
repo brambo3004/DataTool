@@ -2568,8 +2568,8 @@ with col_inspector:
                         st.caption(
                             "Deze voorstellen worden opgebouwd uit primaire objecten op de geijkte iASSET-as. "
                             "De bestaande onderhoudsprojectnaam wordt hierbij niet gebruikt als uitgangspunt, "
-                            "maar alleen achteraf vergeleken. v0.35.1 gebruikt knipzwaarte: harde knippen "
-                            "starten een nieuw voorstel; v0.35.2 voegt daar kaartinspectie aan toe."
+                            "maar alleen achteraf vergeleken. v0.35.3 gebruikt reeksherkenning: korte "
+                            "lokale afwijkingen worden context, structurele technische wijzigingen worden knip."
                         )
                         proposal_status = (
                             project_axis_proposals["status_voorstel"].fillna("ok").astype(str).str.lower()
@@ -2584,7 +2584,7 @@ with col_inspector:
                         with prop_col_3:
                             st.metric("Voorstellen aandacht", int((proposal_status == "aandacht").sum()))
 
-                        with st.expander("🗺️ v0.35.2 Projectvoorstel op kaart inspecteren", expanded=True):
+                        with st.expander("🗺️ v0.35.3 Projectvoorstel op kaart inspecteren", expanded=True):
                             st.caption(
                                 "Kies een groenveldvoorstel om de objecten links op de hoofdkaart uit te lichten. "
                                 "Paars = objecten in het voorstel. Blauw = objecten uit bestaande iASSET-projecten "
@@ -2741,6 +2741,10 @@ with col_inspector:
                                         "naam_eind",
                                         "knipreden_begin",
                                         "knipreden_eind",
+                                        "technisch_profiel",
+                                        "bestek_signalen",
+                                        "datakwaliteit_signalen",
+                                        "lokale_afwijkingen",
                                         "harde_knipsignalen",
                                         "zachte_signalen",
                                         "bestaande_onderhoudsprojecten",
@@ -2784,6 +2788,9 @@ with col_inspector:
                                             "Besteknummer",
                                             "Soort deklaag specifiek",
                                             "Jaar deklaag",
+                                            "technisch_profiel",
+                                            "object_kniprol",
+                                            "lokale_afwijking_type",
                                             "toewijzing_status",
                                             "toewijzing_melding",
                                         ]
@@ -2817,6 +2824,10 @@ with col_inspector:
                                 "knipreden_begin",
                                 "knipreden_eind",
                                 "knipprofiel",
+                                "technisch_profiel",
+                                "bestek_signalen",
+                                "datakwaliteit_signalen",
+                                "lokale_afwijkingen",
                                 "harde_knipsignalen",
                                 "zachte_signalen",
                                 "aantal_primaire_objecten",
@@ -2887,6 +2898,9 @@ with col_inspector:
                                         "fysiek_eind_m",
                                         "Besteknummer",
                                         "Jaar deklaag",
+                                        "technisch_profiel",
+                                        "object_kniprol",
+                                        "lokale_afwijking_type",
                                         "toewijzing_status",
                                         "toewijzing_melding",
                                     ]

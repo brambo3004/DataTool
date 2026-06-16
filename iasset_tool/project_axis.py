@@ -1,5 +1,5 @@
 """
-Projectgrenzen en groenveld-projectvoorstellen op een geijkte iASSET-referentieas (v0.35.2).
+Projectgrenzen en groenveld-projectvoorstellen op een geijkte iASSET-referentieas (v0.35.3).
 
 Deze module draait de eerdere referentieasproef bewust om:
 
@@ -35,7 +35,7 @@ from .trajectory import format_name_hm, parse_project_range
 from .utils import clean_display_value, normalize_text
 
 
-PROJECT_AXIS_SCHEMA_VERSION = "projectaxis-v0.35.2"
+PROJECT_AXIS_SCHEMA_VERSION = "projectaxis-v0.35.3"
 
 HECTOMETER_COLUMN_CANDIDATES = (
     "hectomtrng",
@@ -59,9 +59,10 @@ ALLOWED_REQUIRED_SITUERING_CODES = {"L", "R", "LR"}
 STATUS_RANK = {"ok": 0, "overzicht": 0, "projectie": 0, "aandacht": 1, "controleer": 2}
 DEFAULT_BOUNDARY_SNAP_TOLERANCE_M = 2.5
 
-GREENFIELD_SPLIT_COLUMNS = (
-    "Besteknummer",
-    "verhardingssoort",
+# v0.35.3: de groenveld-kniplogica werkt niet meer object-voor-object,
+# maar eerst met technische reeksen. Besteknummer is ondersteunend; het lege
+# veld "verhardingssoort" wordt bewust genegeerd.
+GREENFIELD_TECHNICAL_PROFILE_FIELDS = (
     "Soort verharding_N",
     "Soort deklaag specifiek",
     "Jaar aanleg",
@@ -70,21 +71,26 @@ GREENFIELD_SPLIT_COLUMNS = (
     "Jaar herstrating",
 )
 
-# v0.35.1: niet elk verschil in beheerkenmerken is automatisch een
-# onderhoudsprojectgrens. Deze constants vormen een voorzichtig knipprofiel:
-# harde knippen starten een nieuw voorstel, zachte signalen blijven context.
-GREENFIELD_STRONG_CHANGE_FIELDS = {
+GREENFIELD_SUPPORTING_PROFILE_FIELDS = (
     "Besteknummer",
-    "Soort verharding_N",
-    "Soort deklaag specifiek",
-    "Jaar deklaag",
-}
-GREENFIELD_SOFT_ONLY_FIELDS = {
+)
+
+GREENFIELD_IGNORED_FIELDS = (
     "verhardingssoort",
-    "Jaar aanleg",
-    "Jaar conservering",
-    "Jaar herstrating",
-}
+)
+
+GREENFIELD_SPLIT_COLUMNS = GREENFIELD_TECHNICAL_PROFILE_FIELDS + GREENFIELD_SUPPORTING_PROFILE_FIELDS
+
+# Lokale afwijking volgens beheerafspraak:
+# maximaal 2 objecten én korter dan 100 m én links/rechts hetzelfde technische
+# profiel. Zo wordt een slordige paspoortwaarde geen zelfstandig project.
+GREENFIELD_LOCAL_DEVIATION_MAX_OBJECTS = 2
+GREENFIELD_LOCAL_DEVIATION_MAX_LENGTH_M = 100.0
+
+# Oude constants blijven beschikbaar voor backwards-compatible tests/imports,
+# maar worden sinds v0.35.3 niet meer als beslislaag gebruikt.
+GREENFIELD_STRONG_CHANGE_FIELDS = set(GREENFIELD_TECHNICAL_PROFILE_FIELDS)
+GREENFIELD_SOFT_ONLY_FIELDS = set(GREENFIELD_SUPPORTING_PROFILE_FIELDS)
 GREENFIELD_MIN_HARD_SPLIT_SPAN_M = 250.0
 GREENFIELD_STRONG_SINGLE_FIELD_SPAN_M = 750.0
 
@@ -286,6 +292,11 @@ def _empty_project_proposal_frame() -> pd.DataFrame:
             "knipreden_begin",
             "knipreden_eind",
             "knipprofiel",
+            "technisch_profiel",
+            "bestek_signalen",
+            "datakwaliteit_signalen",
+            "lokale_afwijkingen",
+            "ingesloten_objecten",
             "harde_knipsignalen",
             "zachte_signalen",
             "aantal_primaire_objecten",
@@ -326,6 +337,11 @@ def _empty_proposal_object_assignment_frame() -> pd.DataFrame:
             "Jaar deklaag",
             "Jaar conservering",
             "Jaar herstrating",
+            "technisch_profiel",
+            "besteknummer_norm",
+            "lokale_afwijking_type",
+            "ingesloten_in_voorstel",
+            "object_kniprol",
             "toewijzing_status",
             "toewijzing_melding",
             "bronkwaliteit",
@@ -2127,9 +2143,15 @@ def _build_project_coverage(
 
 
 def _normalise_greenfield_value(value: Any) -> str:
-    """Normaliseer een kenmerkwaarde voor de groenveld-kniplogica."""
+    """Normaliseer een kenmerkwaarde voor de groenveld-kniplogica.
+
+    iASSET-exports bevatten geregeld lege cellen, NaN-achtige teksten of
+    jaartallen als ``2020.0``. Voor de kniplogica willen we die waarden
+    consequent behandelen. Een lege waarde blijft leeg: dat is geen crashreden,
+    maar later wél input voor een datakwaliteitsmelding.
+    """
     display = clean_display_value(value)
-    if not display or display.lower() in {"nan", "none", "nat"}:
+    if not display or display.lower() in {"nan", "none", "nat", "null", "-", "n.v.t.", "nvt"}:
         return ""
     # Jaartallen kunnen soms als 2020.0 binnenkomen; toon ze als 2020.
     try:
@@ -2141,66 +2163,128 @@ def _normalise_greenfield_value(value: Any) -> str:
     return display.strip()
 
 
+def _greenfield_technical_profile(row: pd.Series) -> dict[str, str]:
+    """Maak het leidende technische profiel voor projectvoorstellen.
+
+    Besteknummer zit hier bewust niet in. Dat veld is nuttig als ondersteunend
+    signaal, maar in de praktijk ook vaak ontbrekend of achterhaald. Een
+    onderhoudsprojectknip moet daarom primair uit de technische paspoortvelden
+    volgen.
+    """
+    return {
+        column: _normalise_greenfield_value(row.get(column, ""))
+        for column in GREENFIELD_TECHNICAL_PROFILE_FIELDS
+    }
+
+
+def _greenfield_supporting_profile(row: pd.Series) -> dict[str, str]:
+    """Maak het ondersteunende profiel voor signalen zoals besteknummer."""
+    return {
+        column: _normalise_greenfield_value(row.get(column, ""))
+        for column in GREENFIELD_SUPPORTING_PROFILE_FIELDS
+    }
+
+
+def _greenfield_bestek_value(row: pd.Series) -> str:
+    """Lees het besteknummer als ondersteunend signaal."""
+    return _normalise_greenfield_value(row.get("Besteknummer", ""))
+
+
 def _greenfield_split_key(row: pd.Series) -> dict[str, str]:
+    """Maak een complete uitlegsleutel voor exports en debugging.
+
+    De technische beslislaag gebruikt ``_greenfield_technical_profile``. Deze
+    sleutel bevat daarnaast het ondersteunende besteknummer, zodat de CSV blijft
+    uitleggen welke beheerwaarden binnen een voorstel zijn aangetroffen.
     """
-    Maak de inhoudelijke sleutel waarmee v0.35 objecten tot voorstellen clustert.
-
-    De bestaande onderhoudsprojectnaam wordt hier bewust niet gebruikt. We kijken
-    alleen naar fysieke ligging en beheerinhoudelijke kenmerken. Ontbrekende
-    waarden blijven leeg; dat is geen crashreden maar kan wel tot een knip leiden
-    zodra de buurwaarde afwijkt.
-    """
-    return {column: _normalise_greenfield_value(row.get(column, "")) for column in GREENFIELD_SPLIT_COLUMNS}
+    key: dict[str, str] = {}
+    key.update(_greenfield_technical_profile(row))
+    key.update(_greenfield_supporting_profile(row))
+    return key
 
 
-def _greenfield_changed_fields(previous_key: dict[str, str], current_key: dict[str, str]) -> list[str]:
-    """Geef terug welke beheerkenmerken tussen twee objecten verschillen."""
+def _greenfield_changed_fields(
+    previous_key: dict[str, str],
+    current_key: dict[str, str],
+    fields: Iterable[str] | None = None,
+) -> list[str]:
+    """Geef terug welke beheerkenmerken tussen twee profielen verschillen."""
+    field_order = tuple(fields) if fields is not None else GREENFIELD_SPLIT_COLUMNS
     changed: list[str] = []
-    for column in GREENFIELD_SPLIT_COLUMNS:
+    for column in field_order:
         if previous_key.get(column, "") != current_key.get(column, ""):
             changed.append(column)
     return changed
 
 
+def _greenfield_profiles_equal(left: dict[str, str], right: dict[str, str]) -> bool:
+    """Vergelijk twee technische profielen in vaste veldvolgorde."""
+    return not _greenfield_changed_fields(left, right, GREENFIELD_TECHNICAL_PROFILE_FIELDS)
+
+
 def _format_changed_fields(fields: Iterable[str]) -> str:
     """Formatteer kenmerkvelden stabiel en leesbaar voor knipmeldingen."""
-    return ", ".join(field for field in GREENFIELD_SPLIT_COLUMNS if field in set(fields))
+    field_set = set(fields)
+    return ", ".join(field for field in GREENFIELD_SPLIT_COLUMNS if field in field_set)
+
+
+def _format_technical_profile(profile: dict[str, str]) -> str:
+    """Formatteer het technische profiel compact voor CSV en kaartinspectie."""
+    return ", ".join(
+        f"{column}={value or '<leeg>'}"
+        for column, value in profile.items()
+    )
+
+
+def _profile_has_missing_values(profile: dict[str, str]) -> bool:
+    """Bepaal of een technisch profiel één of meer ontbrekende waarden bevat."""
+    return any(not clean_display_value(value) for value in profile.values())
+
+
+def _candidate_is_missing_only_deviation(
+    base_profile: dict[str, str],
+    candidate_profile: dict[str, str],
+) -> bool:
+    """Bepaal of een lokale afwijking alleen uit ontbrekende waarden bestaat.
+
+    Voorbeeld:
+    profiel A -> korte reeks met leeg ``Jaar deklaag`` -> profiel A.
+    Dat is eerder datakwaliteit dan een onderhoudsprojectgrens.
+    """
+    changed_fields = _greenfield_changed_fields(
+        base_profile,
+        candidate_profile,
+        GREENFIELD_TECHNICAL_PROFILE_FIELDS,
+    )
+    if not changed_fields:
+        return False
+    for field in changed_fields:
+        candidate_value = clean_display_value(candidate_profile.get(field, ""))
+        if candidate_value:
+            return False
+    return True
 
 
 def _greenfield_change_decision(changed_fields: list[str], current_span_m: float) -> tuple[bool, str, str]:
-    """
-    Bepaal of een kenmerkwijziging een harde knip of alleen contextsignaal is.
+    """Backwards-compatible beslisfunctie uit v0.35.1.
 
-    Waarom deze nuance?
-    In v0.35.0 werd bijna elk veldverschil een nieuw onderhoudsproject. Dat
-    leverde bij een moeilijke weg als N354 te veel korte projectvoorstellen op.
-    v0.35.1 knipt daarom alleen hard als het signaal sterk genoeg is én het
-    lopende segment voldoende lengte heeft. Lokale of korte afwijkingen blijven
-    zichtbaar als zacht signaal binnen het voorstel.
+    Sinds v0.35.3 gebruikt de echte projectvoorstellenlogica reeksherkenning.
+    Deze functie blijft bestaan omdat tests of externe notebooks haar kunnen
+    importeren, maar nieuwe code hoort via technische profielen te lopen.
     """
     fields = [field for field in changed_fields if field in GREENFIELD_SPLIT_COLUMNS]
     if not fields:
         return False, "", ""
 
-    field_set = set(fields)
     formatted = _format_changed_fields(fields)
-    current_span = float(current_span_m or 0.0)
+    technical_fields = set(fields).intersection(GREENFIELD_TECHNICAL_PROFILE_FIELDS)
+    bestek_only = set(fields) == set(GREENFIELD_SUPPORTING_PROFILE_FIELDS)
 
-    strong_fields = field_set.intersection(GREENFIELD_STRONG_CHANGE_FIELDS)
-    if not strong_fields:
-        return False, "zacht kenmerksignaal", formatted
+    if bestek_only:
+        return False, "ondersteunend besteksignaal", formatted
 
-    # Een gecombineerde wijziging in bestek/deklaag/verharding is een sterke
-    # kandidaat voor een projectgrens, maar niet als het voorgaande stuk nog
-    # maar een kort detailsegment is.
-    if current_span >= GREENFIELD_MIN_HARD_SPLIT_SPAN_M and len(strong_fields) >= 2:
-        return True, "harde kenmerkknip", formatted
-
-    # Een enkel sterk veld kan ook een knip zijn, maar alleen over een langere
-    # stabiele lengte. Zo voorkomen we dat kleine lokale afwijkingen zelfstandig
-    # onderhoudsproject worden.
-    if current_span >= GREENFIELD_STRONG_SINGLE_FIELD_SPAN_M and field_set <= GREENFIELD_STRONG_CHANGE_FIELDS:
-        return True, "harde kenmerkknip", formatted
+    if technical_fields and float(current_span_m or 0.0) >= GREENFIELD_MIN_HARD_SPLIT_SPAN_M:
+        return True, "harde technische profielknip", formatted
 
     return False, "zacht kenmerksignaal", formatted
 
@@ -2284,16 +2368,13 @@ def _build_project_proposals(
     """
     Bouw v0.35-groenveldvoorstellen voor onderhoudsprojecten.
 
-    Belangrijk uitgangspunt:
-    bestaande iASSET-onderhoudsprojecten bepalen de segmenten niet. We sorteren
-    primaire objecten op de geijkte referentieas, groeperen per fysiek spoor
-    (HRB/PWR/FPR/BBLR/...) en knippen op:
-    - een fysiek gat groter dan de tolerantie;
-    - een wijziging in beheerinhoudelijke kenmerken, zoals besteknummer,
-      verhardingssoort of jaar deklaag.
+    v0.35.3 gebruikt reeksherkenning:
+    - eerst technische profielen bepalen;
+    - dan aaneengesloten reeksen vormen;
+    - lokale afwijkingen insluiten als datakwaliteit/controle;
+    - pas daarna onderhoudsprojectgrenzen voorstellen.
 
-    De bestaande onderhoudsprojectnaam wordt pas achteraf gebruikt voor de
-    vergelijkingstabel.
+    Bestaande iASSET-onderhoudsprojecten blijven alleen vergelijkingsmateriaal.
     """
     if object_ranges is None or object_ranges.empty:
         return (
@@ -2333,8 +2414,342 @@ def _build_project_proposals(
 
     proposal_rows: list[dict[str, Any]] = []
     assignment_rows: list[dict[str, Any]] = []
-
     proposal_counter = 0
+
+    def _object_label(row: pd.Series) -> str:
+        """Maak een korte objectidentificatie voor signalen in exports."""
+        for column in ("nummer", "naam", "sys_id"):
+            value = clean_display_value(row.get(column, ""))
+            if value:
+                return value
+        return "object"
+
+    def _run_extent_m(group_df: pd.DataFrame, indices: list[int]) -> tuple[float, float, float]:
+        """Bepaal begin, eind en lengte van een technische reeks."""
+        if not indices:
+            return 0.0, 0.0, 0.0
+        segment = group_df.loc[indices]
+        start_m = float(segment["route_start_norm_m"].min())
+        end_m = float(segment["route_end_norm_m"].max())
+        return start_m, end_m, max(end_m - start_m, 0.0)
+
+    def _bestek_values_for_indices(group_df: pd.DataFrame, indices: list[int]) -> list[str]:
+        """Lees unieke, gevulde besteknummers binnen een reeks."""
+        if not indices:
+            return []
+        values = [
+            _greenfield_bestek_value(row)
+            for _, row in group_df.loc[indices].iterrows()
+        ]
+        return list(dict.fromkeys(value for value in values if value))
+
+    def _make_run(
+        group_df: pd.DataFrame,
+        indices: list[int],
+        technical_profile: dict[str, str],
+        *,
+        gap_before_reason: str = "",
+    ) -> dict[str, Any]:
+        """Maak een technische reeks met metadata voor latere voorstelvorming."""
+        start_m, end_m, length_m = _run_extent_m(group_df, indices)
+        return {
+            "indices": list(indices),
+            "technical_profile": dict(technical_profile),
+            "start_m": start_m,
+            "end_m": end_m,
+            "length_m": length_m,
+            "gap_before_reason": gap_before_reason,
+            "data_quality_signals": [],
+            "local_deviation_signals": [],
+            "bestek_signals": [],
+            "hard_signals": [],
+            "included_object_labels": [],
+        }
+
+    def _build_initial_runs(group_df: pd.DataFrame) -> list[dict[str, Any]]:
+        """Vorm aaneengesloten technische reeksen binnen één fysiek spoor.
+
+        Besteknummer wordt hierbij bewust genegeerd. Een wijziging of ontbrekende
+        waarde in besteknummer kan later een signaal worden, maar mag niet alleen
+        een onderhoudsprojectknip afdwingen.
+        """
+        runs: list[dict[str, Any]] = []
+        current_indices: list[int] = []
+        current_profile: dict[str, str] | None = None
+        current_gap_before = ""
+        previous_end_m: float | None = None
+
+        def flush_current() -> None:
+            nonlocal current_indices, current_profile, current_gap_before
+            if current_indices and current_profile is not None:
+                runs.append(
+                    _make_run(
+                        group_df,
+                        current_indices,
+                        current_profile,
+                        gap_before_reason=current_gap_before,
+                    )
+                )
+            current_indices = []
+            current_profile = None
+            current_gap_before = ""
+
+        for idx, object_row in group_df.iterrows():
+            start_m = float(object_row["route_start_norm_m"])
+            end_m = float(object_row["route_end_norm_m"])
+            profile = _greenfield_technical_profile(object_row)
+            gap_before_reason = ""
+            if previous_end_m is not None:
+                gap_m = start_m - float(previous_end_m)
+                if gap_m > float(gap_tolerance_m):
+                    gap_before_reason = f"gat > {gap_tolerance_m:g} m"
+
+            if not current_indices:
+                current_indices = [idx]
+                current_profile = profile
+                current_gap_before = gap_before_reason
+                previous_end_m = end_m
+                continue
+
+            if gap_before_reason:
+                flush_current()
+                current_indices = [idx]
+                current_profile = profile
+                current_gap_before = gap_before_reason
+            elif current_profile is not None and _greenfield_profiles_equal(current_profile, profile):
+                current_indices.append(idx)
+            else:
+                flush_current()
+                current_indices = [idx]
+                current_profile = profile
+                current_gap_before = ""
+
+            previous_end_m = max(float(previous_end_m or end_m), end_m)
+
+        flush_current()
+        return runs
+
+    def _classify_local_run(
+        base_profile: dict[str, str],
+        candidate_profile: dict[str, str],
+    ) -> tuple[str, str]:
+        """Classificeer een lokale tussenreeks als datakwaliteit of controle."""
+        changed_fields = _greenfield_changed_fields(
+            base_profile,
+            candidate_profile,
+            GREENFIELD_TECHNICAL_PROFILE_FIELDS,
+        )
+        formatted_fields = _format_changed_fields(changed_fields)
+        if _candidate_is_missing_only_deviation(base_profile, candidate_profile):
+            return "lokale_datakwaliteit", formatted_fields
+        return "lokale_technische_afwijking", formatted_fields
+
+    def _merge_local_deviation_runs(
+        group_df: pd.DataFrame,
+        runs: list[dict[str, Any]],
+        object_roles: dict[int, str],
+    ) -> list[dict[str, Any]]:
+        """Sluit lokale A-B-A-afwijkingen in de omliggende stabiele reeks in.
+
+        Beheerregel:
+        maximaal 2 objecten én korter dan 100 meter én links/rechts hetzelfde
+        technische profiel. Een missende waarde wordt datakwaliteit; een echte
+        korte technische afwijking wordt controle, maar geen projectknip.
+        """
+        changed = True
+        while changed and len(runs) >= 3:
+            changed = False
+            i = 1
+            while i < len(runs) - 1:
+                left = runs[i - 1]
+                candidate = runs[i]
+                right = runs[i + 1]
+
+                if not _greenfield_profiles_equal(left["technical_profile"], right["technical_profile"]):
+                    i += 1
+                    continue
+
+                # Niet over fysieke gaten heen samenvoegen.
+                if clean_display_value(candidate.get("gap_before_reason", "")) or clean_display_value(right.get("gap_before_reason", "")):
+                    i += 1
+                    continue
+
+                object_count = len(candidate["indices"])
+                _, _, candidate_length_m = _run_extent_m(group_df, candidate["indices"])
+                is_local = (
+                    object_count <= GREENFIELD_LOCAL_DEVIATION_MAX_OBJECTS
+                    and candidate_length_m < GREENFIELD_LOCAL_DEVIATION_MAX_LENGTH_M
+                )
+                if not is_local:
+                    i += 1
+                    continue
+
+                deviation_type, changed_fields_text = _classify_local_run(
+                    left["technical_profile"],
+                    candidate["technical_profile"],
+                )
+                labels = [_object_label(row) for _, row in group_df.loc[candidate["indices"]].iterrows()]
+                label_text = ", ".join(labels)
+                length_text = f"{candidate_length_m:.0f} m"
+                if deviation_type == "lokale_datakwaliteit":
+                    signal = (
+                        "lokale datakwaliteit: "
+                        f"{changed_fields_text or 'technisch profiel'} ontbreekt bij "
+                        f"{object_count} object(en), {length_text}; links/rechts hetzelfde profiel"
+                    )
+                    signal_bucket = "data_quality_signals"
+                else:
+                    signal = (
+                        "lokale technische afwijking: "
+                        f"{changed_fields_text or 'technisch profiel'} wijkt af bij "
+                        f"{object_count} object(en), {length_text}; geen projectknip"
+                    )
+                    signal_bucket = "local_deviation_signals"
+
+                merged_indices = left["indices"] + candidate["indices"] + right["indices"]
+                merged_run = _make_run(
+                    group_df,
+                    merged_indices,
+                    left["technical_profile"],
+                    gap_before_reason=left.get("gap_before_reason", ""),
+                )
+
+                for bucket in ("data_quality_signals", "local_deviation_signals", "bestek_signals", "hard_signals", "included_object_labels"):
+                    values: list[str] = []
+                    for run in (left, candidate, right):
+                        for value in run.get(bucket, []):
+                            value_text = clean_display_value(value)
+                            if value_text and value_text not in values:
+                                values.append(value_text)
+                    merged_run[bucket] = values
+
+                merged_run[signal_bucket].append(signal)
+                for label in labels:
+                    if label and label not in merged_run["included_object_labels"]:
+                        merged_run["included_object_labels"].append(label)
+
+                for object_idx in candidate["indices"]:
+                    object_roles[object_idx] = deviation_type
+
+                runs = runs[: i - 1] + [merged_run] + runs[i + 2 :]
+                changed = True
+                i = max(1, i - 1)
+
+        return runs
+
+    def _add_bestek_signals(group_df: pd.DataFrame, run: dict[str, Any], object_roles: dict[int, str]) -> None:
+        """Voeg ondersteunende besteksignalen toe zonder op bestek te knippen."""
+        indices = run["indices"]
+        if not indices:
+            return
+
+        bestek_values: list[str] = []
+        missing_indices: list[int] = []
+        for idx, object_row in group_df.loc[indices].iterrows():
+            bestek = _greenfield_bestek_value(object_row)
+            if bestek:
+                if bestek not in bestek_values:
+                    bestek_values.append(bestek)
+            else:
+                missing_indices.append(idx)
+
+        if len(bestek_values) > 1:
+            run["bestek_signals"].append(
+                "ondersteunend besteksignaal: meerdere besteknummers binnen hetzelfde technische profiel: "
+                + ", ".join(bestek_values)
+            )
+
+        if missing_indices:
+            missing_segment = group_df.loc[missing_indices]
+            missing_length_m = float(
+                (missing_segment["route_end_norm_m"] - missing_segment["route_start_norm_m"]).clip(lower=0).sum()
+            )
+            if (
+                len(missing_indices) <= GREENFIELD_LOCAL_DEVIATION_MAX_OBJECTS
+                and missing_length_m < GREENFIELD_LOCAL_DEVIATION_MAX_LENGTH_M
+                and len(bestek_values) == 1
+            ):
+                run["data_quality_signals"].append(
+                    "lokale datakwaliteit: enkele objecten missen Besteknummer binnen verder stabiel technisch profiel"
+                )
+                for idx in missing_indices:
+                    if not object_roles.get(idx):
+                        object_roles[idx] = "lokale_datakwaliteit"
+            elif len(bestek_values) == 0:
+                run["bestek_signals"].append("ondersteunend besteksignaal: Besteknummer ontbreekt voor alle objecten")
+            else:
+                run["bestek_signals"].append(
+                    f"ondersteunend besteksignaal: Besteknummer ontbreekt bij {len(missing_indices)} object(en)"
+                )
+
+    def _transition_reason(
+        group_df: pd.DataFrame,
+        current_run: dict[str, Any],
+        next_run: dict[str, Any] | None,
+    ) -> str:
+        """Beschrijf waarom een projectvoorstel eindigt richting de volgende reeks."""
+        if next_run is None:
+            return "einde spoor"
+
+        gap_reason = clean_display_value(next_run.get("gap_before_reason", ""))
+        if gap_reason:
+            return gap_reason
+
+        changed_fields = _greenfield_changed_fields(
+            current_run["technical_profile"],
+            next_run["technical_profile"],
+            GREENFIELD_TECHNICAL_PROFILE_FIELDS,
+        )
+        if not changed_fields:
+            return "geen technische knip"
+
+        changed_text = _format_changed_fields(changed_fields)
+        current_bestek = set(_bestek_values_for_indices(group_df, current_run["indices"]))
+        next_bestek = set(_bestek_values_for_indices(group_df, next_run["indices"]))
+        bestek_changed = bool(current_bestek and next_bestek and current_bestek.isdisjoint(next_bestek))
+
+        changed_has_missing = any(
+            not clean_display_value(current_run["technical_profile"].get(field, ""))
+            or not clean_display_value(next_run["technical_profile"].get(field, ""))
+            for field in changed_fields
+        )
+        if changed_has_missing:
+            base = f"controleer structurele technische profielknip: {changed_text}"
+        else:
+            base = f"harde technische profielknip: {changed_text}"
+
+        if bestek_changed:
+            base += "; besteknummer wijzigt mee"
+        return base
+
+    def _run_hard_signals(begin_reason: str, end_reason: str) -> list[str]:
+        """Selecteer harde signalen uit begin/eindredenen."""
+        signals: list[str] = []
+        for reason in (begin_reason, end_reason):
+            reason_text = clean_display_value(reason)
+            if not reason_text:
+                continue
+            lower = reason_text.lower()
+            if "harde" in lower or "gat >" in lower or "structurele technische" in lower:
+                signals.append(reason_text)
+        return list(dict.fromkeys(signals))
+
+    def _proposal_status_with_run_signals(
+        status: str,
+        hoofd: str,
+        run: dict[str, Any],
+    ) -> tuple[str, str]:
+        """Verwerk datakwaliteit en lokale afwijkingen in de voorstelstatus."""
+        if run.get("local_deviation_signals"):
+            status = _worst_status(status, "controleer")
+            if hoofd == "Voorstel opgebouwd uit primaire objecten vanaf nul.":
+                hoofd = "Voorstel bevat lokale technische afwijking binnen verder stabiele reeks."
+        elif run.get("data_quality_signals") or run.get("bestek_signals"):
+            status = _worst_status(status, "aandacht")
+            if hoofd == "Voorstel opgebouwd uit primaire objecten vanaf nul.":
+                hoofd = "Voorstel bevat datakwaliteits- of besteksignaal binnen stabiele reeks."
+        return status, hoofd
+
     group_columns = ["axis_id", "project_type"]
     for (axis_id_raw, project_type_raw), group in working.groupby(group_columns, dropna=False, sort=True):
         axis_id = clean_display_value(axis_id_raw)
@@ -2352,20 +2767,25 @@ def _build_project_proposals(
             kind="stable",
         ).reset_index(drop=True)
 
-        current_indices: list[int] = []
-        current_key: dict[str, str] | None = None
-        current_end_m: float | None = None
-        current_begin_reason = "start spoor"
-        current_soft_signals: list[str] = []
-        current_hard_signals: list[str] = []
-        previous_segment_end_reason = ""
+        object_roles: dict[int, str] = {}
+        runs = _build_initial_runs(group)
+        runs = _merge_local_deviation_runs(group, runs, object_roles)
+        for run in runs:
+            _add_bestek_signals(group, run, object_roles)
 
-        def flush_segment(end_reason: str) -> None:
-            nonlocal proposal_counter, current_indices, current_key, current_end_m, current_begin_reason, current_soft_signals, current_hard_signals, previous_segment_end_reason
-            if not current_indices:
-                return
+        previous_end_reason = "start spoor"
+        for run_index, run in enumerate(runs):
+            next_run = runs[run_index + 1] if run_index + 1 < len(runs) else None
+            begin_reason = previous_end_reason or "start spoor"
+            if clean_display_value(run.get("gap_before_reason", "")):
+                begin_reason = clean_display_value(run.get("gap_before_reason", ""))
+            end_reason = _transition_reason(group, run, next_run)
 
-            segment = group.loc[current_indices].copy()
+            segment = group.loc[run["indices"]].copy()
+            if segment.empty:
+                previous_end_reason = end_reason
+                continue
+
             proposal_counter += 1
             first = segment.iloc[0]
             proposal_id = f"{selected_road}-{project_type}-{proposal_counter:04d}"
@@ -2380,6 +2800,7 @@ def _build_project_proposals(
             road_label = clean_display_value(selected_road)
             proposed_name = f"{road_label}-{project_type}-{begin_label}-{end_label}" if begin_label and end_label else ""
             status, hoofd = _choose_segment_status(segment, begin_rule, end_rule)
+            status, hoofd = _proposal_status_with_run_signals(status, hoofd, run)
 
             existing_projects = _unique_clean_values(segment.get("Onderhoudsproject", []))
             existing_joined = " | ".join(existing_projects)
@@ -2398,19 +2819,33 @@ def _build_project_proposals(
 
             status = _worst_status(status, comparison_status if comparison_status != "ok" else "ok")
 
-            key_values = current_key or _greenfield_split_key(first)
-            filled_key = ", ".join(
-                f"{column}={value}" for column, value in key_values.items() if clean_display_value(value)
+            technical_profile_text = _format_technical_profile(run["technical_profile"])
+            bestek_signal_text = " | ".join(dict.fromkeys(run.get("bestek_signals", [])))
+            data_quality_signal_text = " | ".join(dict.fromkeys(run.get("data_quality_signals", [])))
+            local_deviation_text = " | ".join(dict.fromkeys(run.get("local_deviation_signals", [])))
+            included_objects_text = " | ".join(dict.fromkeys(run.get("included_object_labels", [])))
+            hard_signal_text = " | ".join(dict.fromkeys(run.get("hard_signals", []) + _run_hard_signals(begin_reason, end_reason)))
+            soft_signal_text = " | ".join(
+                dict.fromkeys(
+                    [
+                        value
+                        for value in (
+                            run.get("bestek_signals", [])
+                            + run.get("data_quality_signals", [])
+                            + run.get("local_deviation_signals", [])
+                        )
+                        if clean_display_value(value)
+                    ]
+                )
             )
-            hard_signal_text = " | ".join(dict.fromkeys(current_hard_signals))
-            soft_signal_text = " | ".join(dict.fromkeys(current_soft_signals))
+
             context_parts = [
                 context_status,
-                f"knipreden begin: {current_begin_reason}",
+                f"knipreden begin: {begin_reason}",
                 f"knipreden eind: {end_reason or 'einde spoor'}",
                 f"harde knipsignalen: {hard_signal_text}" if hard_signal_text else "",
                 f"zachte signalen binnen voorstel: {soft_signal_text}" if soft_signal_text else "",
-                filled_key,
+                f"technisch profiel: {technical_profile_text}" if technical_profile_text else "",
             ]
             context = "; ".join(part for part in context_parts if part)
 
@@ -2441,9 +2876,14 @@ def _build_project_proposals(
                     "eind_gesnapt_naar_hm": bool(end_rule.get("snapped_to_hm", False)),
                     "naam_eind": end_label,
                     "onderhoudsproject_voorgesteld": proposed_name,
-                    "knipreden_begin": current_begin_reason,
+                    "knipreden_begin": begin_reason,
                     "knipreden_eind": end_reason or "einde spoor",
-                    "knipprofiel": "v0.35.1 hard/zacht",
+                    "knipprofiel": "v0.35.3 reeksherkenning/lokale afwijking",
+                    "technisch_profiel": technical_profile_text,
+                    "bestek_signalen": bestek_signal_text,
+                    "datakwaliteit_signalen": data_quality_signal_text,
+                    "lokale_afwijkingen": local_deviation_text,
+                    "ingesloten_objecten": included_objects_text,
                     "harde_knipsignalen": hard_signal_text,
                     "zachte_signalen": soft_signal_text,
                     "aantal_primaire_objecten": int(len(segment)),
@@ -2456,7 +2896,9 @@ def _build_project_proposals(
                 }
             )
 
-            for _, object_row in segment.iterrows():
+            for object_idx, object_row in segment.iterrows():
+                object_profile = _greenfield_technical_profile(object_row)
+                object_role = clean_display_value(object_roles.get(int(object_idx), "normaal"))
                 assignment_rows.append(
                     {
                         "voorstel_id": proposal_id,
@@ -2482,65 +2924,18 @@ def _build_project_proposals(
                         "Jaar deklaag": clean_display_value(object_row.get("Jaar deklaag", "")),
                         "Jaar conservering": clean_display_value(object_row.get("Jaar conservering", "")),
                         "Jaar herstrating": clean_display_value(object_row.get("Jaar herstrating", "")),
+                        "technisch_profiel": _format_technical_profile(object_profile),
+                        "besteknummer_norm": _greenfield_bestek_value(object_row),
+                        "lokale_afwijking_type": object_role if object_role != "normaal" else "",
+                        "ingesloten_in_voorstel": bool(object_role != "normaal"),
+                        "object_kniprol": object_role,
                         "toewijzing_status": clean_display_value(object_row.get("status", "")),
                         "toewijzing_melding": clean_display_value(object_row.get("waarschuwing", "")),
                         "bronkwaliteit": "experimenteel-groenveld",
                     }
                 )
 
-            previous_segment_end_reason = end_reason
-            current_indices = []
-            current_key = None
-            current_end_m = None
-            current_begin_reason = "start spoor"
-            current_soft_signals = []
-            current_hard_signals = []
-
-        for idx, object_row in group.iterrows():
-            start_m = float(object_row["route_start_norm_m"])
-            end_m = float(object_row["route_end_norm_m"])
-            key = _greenfield_split_key(object_row)
-
-            if not current_indices:
-                current_indices = [idx]
-                current_key = key
-                current_end_m = end_m
-                current_begin_reason = previous_segment_end_reason or "start spoor"
-                continue
-
-            gap_m = start_m - float(current_end_m if current_end_m is not None else start_m)
-            changed_fields = _greenfield_changed_fields(current_key or {}, key)
-            split_reasons: list[str] = []
-            hard_signals_for_split: list[str] = []
-
-            if gap_m > float(gap_tolerance_m):
-                split_reasons.append(f"gat > {gap_tolerance_m:g} m")
-                hard_signals_for_split.append(f"fysiek gat {gap_m:.1f} m")
-
-            if changed_fields:
-                current_span_m = max(float(current_end_m or start_m) - float(segment_start_m := group.loc[current_indices, "route_start_norm_m"].min()), 0.0)
-                is_hard, profile_label, formatted_fields = _greenfield_change_decision(changed_fields, current_span_m)
-                if is_hard:
-                    split_reasons.append(f"{profile_label}: {formatted_fields}")
-                    hard_signals_for_split.append(formatted_fields)
-                elif formatted_fields:
-                    current_soft_signals.append(f"{profile_label}: {formatted_fields}")
-
-            if split_reasons:
-                reason = "; ".join(split_reasons)
-                current_hard_signals.extend(hard_signals_for_split)
-                flush_segment(reason)
-                current_indices = [idx]
-                current_key = key
-                current_end_m = end_m
-                current_begin_reason = reason
-                current_hard_signals = hard_signals_for_split.copy()
-            else:
-                current_indices.append(idx)
-                current_end_m = max(float(current_end_m or end_m), end_m)
-                current_key = key
-
-        flush_segment("einde spoor")
+            previous_end_reason = end_reason
 
     proposals = (
         pd.DataFrame(proposal_rows, columns=_empty_project_proposal_frame().columns)

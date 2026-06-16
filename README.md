@@ -1,6 +1,31 @@
-# iASSET Advisor - refactor v0.35.2
+# iASSET Advisor - refactor v0.35.3
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
+
+
+## Nieuw in v0.35.3
+
+v0.35.3 verbetert de greenfield-kniplogica voor projectvoorstellen. De tool knipt niet meer direct object-voor-object op losse veldverschillen, maar vormt eerst technische reeksen.
+
+Kern:
+- leidend technisch profiel: `Soort verharding_N`, `Soort deklaag specifiek`, `Jaar aanleg`, `Jaar deklaag`, `Jaar conservering`, `Jaar herstrating`;
+- `Besteknummer` is ondersteunend signaal, geen zelfstandig leidend knipveld;
+- `verhardingssoort` wordt genegeerd voor de kniplogica, omdat dit veld in de praktijk leeg is;
+- lokale afwijking = maximaal 2 objecten én korter dan 100 m én links/rechts hetzelfde technische profiel;
+- korte ontbrekende waarden binnen een stabiele reeks worden datakwaliteit, geen onderhoudsprojectknip;
+- korte echte technische afwijkingen binnen een stabiele reeks worden `controleer`, maar geen apart project;
+- structurele technische profielwijzigingen blijven projectknipkandidaat.
+
+Nieuwe uitlegbaarheidskolommen in de v0.35-projectvoorstelexports:
+- `technisch_profiel`
+- `bestek_signalen`
+- `datakwaliteit_signalen`
+- `lokale_afwijkingen`
+- `ingesloten_objecten`
+- `object_kniprol` in de objecttoewijzing
+
+Waarom:
+De N398-kaartinspectie liet zien dat enkele objecten met ontbrekend besteknummer binnen een verder stabiel traject geen projectgrens mogen veroorzaken. v0.35.3 vertaalt die beheerregel naar code.
 
 
 ## Nieuw in v0.35.2

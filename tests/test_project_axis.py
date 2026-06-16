@@ -686,8 +686,8 @@ def test_groenveld_projectvoorstellen_knippen_op_beheerkenmerk_niet_op_bestaande
         "N398-HRB-01.0-01.5",
         "N398-HRB-01.5-02.0",
     ]
-    assert "harde kenmerkknip" in proposals.iloc[0]["knipreden_eind"]
-    assert proposals.iloc[0]["knipprofiel"] == "v0.35.1 hard/zacht"
+    assert "harde technische profielknip" in proposals.iloc[0]["knipreden_eind"]
+    assert proposals.iloc[0]["knipprofiel"] == "v0.35.3 reeksherkenning/lokale afwijking"
 
     comparison = result.proposal_iasset_comparison
     split_rows = comparison[
@@ -698,8 +698,8 @@ def test_groenveld_projectvoorstellen_knippen_op_beheerkenmerk_niet_op_bestaande
 
 
 
-def test_groenveld_zachte_kenmerkwijziging_blijft_context_geen_projectknip() -> None:
-    """v0.35.1 maakt van een lokale zachte wijziging geen zelfstandig project."""
+def test_groenveld_lokale_technische_afwijking_blijft_context_geen_projectknip() -> None:
+    """v0.35.3 sluit korte A-B-A-afwijkingen in als controle, geen project."""
     road_gdf = gpd.GeoDataFrame(
         [
             {
@@ -710,6 +710,7 @@ def test_groenveld_zachte_kenmerkwijziging_blijft_context_geen_projectknip() -> 
                 "Wegnummer": "N398",
                 "Onderhoudsproject": "",
                 "Besteknummer": "B-1",
+                "Soort verharding_N": "asfalt",
                 "Jaar aanleg": "2000",
                 "Jaar deklaag": "2020",
                 "geometry": LineString([(0, 0), (120, 0)]),
@@ -717,14 +718,28 @@ def test_groenveld_zachte_kenmerkwijziging_blijft_context_geen_projectknip() -> 
             {
                 "sys_id": "b",
                 "nummer": "RS-2",
-                "naam": "deel 2",
+                "naam": "korte afwijking",
                 "subthema": "rijstrook",
                 "Wegnummer": "N398",
                 "Onderhoudsproject": "",
                 "Besteknummer": "B-1",
+                "Soort verharding_N": "asfalt",
                 "Jaar aanleg": "2001",
                 "Jaar deklaag": "2020",
-                "geometry": LineString([(120, 0), (240, 0)]),
+                "geometry": LineString([(120, 0), (180, 0)]),
+            },
+            {
+                "sys_id": "c",
+                "nummer": "RS-3",
+                "naam": "deel 3",
+                "subthema": "rijstrook",
+                "Wegnummer": "N398",
+                "Onderhoudsproject": "",
+                "Besteknummer": "B-1",
+                "Soort verharding_N": "asfalt",
+                "Jaar aanleg": "2000",
+                "Jaar deklaag": "2020",
+                "geometry": LineString([(180, 0), (300, 0)]),
             },
         ],
         geometry="geometry",
@@ -744,8 +759,93 @@ def test_groenveld_zachte_kenmerkwijziging_blijft_context_geen_projectknip() -> 
     proposals = result.project_proposals
     assert len(proposals) == 1
     assert proposals.iloc[0]["onderhoudsproject_voorgesteld"] == "N398-HRB-01.0-01.3"
+    assert "lokale technische afwijking" in proposals.iloc[0]["lokale_afwijkingen"]
     assert "Jaar aanleg" in proposals.iloc[0]["zachte_signalen"]
-    assert "zachte signalen binnen voorstel" in proposals.iloc[0]["contextmelding"]
+    assert proposals.iloc[0]["status_voorstel"] == "controleer"
+
+    assignments = result.proposal_object_assignments
+    afwijking = assignments[assignments["sys_id"] == "b"].iloc[0]
+    assert afwijking["object_kniprol"] == "lokale_technische_afwijking"
+    assert bool(afwijking["ingesloten_in_voorstel"]) is True
+
+
+def test_groenveld_kort_ontbrekend_besteknummer_wordt_datakwaliteit_geen_knip() -> None:
+    """v0.35.3: N398-patroon A, kort leeg bestek, A blijft één voorstel."""
+    road_gdf = gpd.GeoDataFrame(
+        [
+            {
+                "sys_id": "a",
+                "nummer": "RS-1",
+                "naam": "deel 1",
+                "subthema": "rijstrook",
+                "Wegnummer": "N398",
+                "Onderhoudsproject": "",
+                "Besteknummer": "B-1",
+                "Soort verharding_N": "asfalt",
+                "Jaar deklaag": "2020",
+                "geometry": LineString([(0, 0), (150, 0)]),
+            },
+            {
+                "sys_id": "b",
+                "nummer": "RS-2",
+                "naam": "bestek mist 1",
+                "subthema": "rijstrook",
+                "Wegnummer": "N398",
+                "Onderhoudsproject": "",
+                "Besteknummer": "",
+                "Soort verharding_N": "asfalt",
+                "Jaar deklaag": "2020",
+                "geometry": LineString([(150, 0), (180, 0)]),
+            },
+            {
+                "sys_id": "c",
+                "nummer": "RS-3",
+                "naam": "bestek mist 2",
+                "subthema": "rijstrook",
+                "Wegnummer": "N398",
+                "Onderhoudsproject": "",
+                "Besteknummer": None,
+                "Soort verharding_N": "asfalt",
+                "Jaar deklaag": "2020",
+                "geometry": LineString([(180, 0), (210, 0)]),
+            },
+            {
+                "sys_id": "d",
+                "nummer": "RS-4",
+                "naam": "deel 4",
+                "subthema": "rijstrook",
+                "Wegnummer": "N398",
+                "Onderhoudsproject": "",
+                "Besteknummer": "B-1",
+                "Soort verharding_N": "asfalt",
+                "Jaar deklaag": "2020",
+                "geometry": LineString([(210, 0), (360, 0)]),
+            },
+        ],
+        geometry="geometry",
+        crs="EPSG:28992",
+    )
+
+    result = build_project_axis_diagnostics(
+        road_gdf,
+        _wegas(),
+        _hectopoints(),
+        pd.DataFrame(),
+        "N398",
+        gap_tolerance_m=5.0,
+        length_tolerance_m=10.0,
+    )
+
+    proposals = result.project_proposals
+    assert len(proposals) == 1
+    proposal = proposals.iloc[0]
+    assert "enkele objecten missen Besteknummer" in proposal["datakwaliteit_signalen"]
+    assert "Besteknummer" in proposal["zachte_signalen"]
+
+    assignments = result.proposal_object_assignments
+    missing_roles = assignments[assignments["sys_id"].isin(["b", "c"])]["object_kniprol"].tolist()
+    assert missing_roles == ["lokale_datakwaliteit", "lokale_datakwaliteit"]
+
 
 
 def test_groenveld_projectvoorstel_met_object_zonder_bestaand_project_krijgt_voorstelnaam() -> None:
