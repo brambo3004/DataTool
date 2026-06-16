@@ -1,5 +1,5 @@
 """
-Projectgrenzen en groenveld-projectvoorstellen op een geijkte iASSET-referentieas (v0.35.3).
+Projectgrenzen en groenveld-projectvoorstellen op een geijkte iASSET-referentieas (v0.35.4).
 
 Deze module draait de eerdere referentieasproef bewust om:
 
@@ -35,7 +35,7 @@ from .trajectory import format_name_hm, parse_project_range
 from .utils import clean_display_value, normalize_text
 
 
-PROJECT_AXIS_SCHEMA_VERSION = "projectaxis-v0.35.3"
+PROJECT_AXIS_SCHEMA_VERSION = "projectaxis-v0.35.4"
 
 HECTOMETER_COLUMN_CANDIDATES = (
     "hectomtrng",
@@ -59,7 +59,7 @@ ALLOWED_REQUIRED_SITUERING_CODES = {"L", "R", "LR"}
 STATUS_RANK = {"ok": 0, "overzicht": 0, "projectie": 0, "aandacht": 1, "controleer": 2}
 DEFAULT_BOUNDARY_SNAP_TOLERANCE_M = 2.5
 
-# v0.35.3: de groenveld-kniplogica werkt niet meer object-voor-object,
+# v0.35.4: de groenveld-kniplogica werkt niet meer object-voor-object,
 # maar eerst met technische reeksen. Besteknummer is ondersteunend; het lege
 # veld "verhardingssoort" wordt bewust genegeerd.
 GREENFIELD_TECHNICAL_PROFILE_FIELDS = (
@@ -87,8 +87,14 @@ GREENFIELD_SPLIT_COLUMNS = GREENFIELD_TECHNICAL_PROFILE_FIELDS + GREENFIELD_SUPP
 GREENFIELD_LOCAL_DEVIATION_MAX_OBJECTS = 2
 GREENFIELD_LOCAL_DEVIATION_MAX_LENGTH_M = 100.0
 
+# v0.35.4: diagnose van hectometerintervallen. Een interval kan fysiek korter
+# of langer zijn dan de administratieve 100 m. Dat is geen automatische fout,
+# maar wel belangrijke uitleg bij grenzen zoals einde N398.
+HECTOMETER_INTERVAL_ATTENTION_M = 10.0
+GREENFIELD_NEAR_ZERO_LENGTH_M = 0.5
+
 # Oude constants blijven beschikbaar voor backwards-compatible tests/imports,
-# maar worden sinds v0.35.3 niet meer als beslislaag gebruikt.
+# maar worden sinds v0.35.4 niet meer als beslislaag gebruikt.
 GREENFIELD_STRONG_CHANGE_FIELDS = set(GREENFIELD_TECHNICAL_PROFILE_FIELDS)
 GREENFIELD_SOFT_ONLY_FIELDS = set(GREENFIELD_SUPPORTING_PROFILE_FIELDS)
 GREENFIELD_MIN_HARD_SPLIT_SPAN_M = 250.0
@@ -288,6 +294,21 @@ def _empty_project_proposal_frame() -> pd.DataFrame:
             "eind_snap_afstand_m",
             "eind_gesnapt_naar_hm",
             "naam_eind",
+            "begin_hm_interval",
+            "begin_hm_interval_lengte_m",
+            "begin_hm_interval_verwacht_m",
+            "begin_hm_interval_afwijking_m",
+            "begin_grenspositie_in_interval_m",
+            "begin_grenspositie_in_interval_pct",
+            "begin_grensdiagnose",
+            "eind_hm_interval",
+            "eind_hm_interval_lengte_m",
+            "eind_hm_interval_verwacht_m",
+            "eind_hm_interval_afwijking_m",
+            "eind_grenspositie_in_interval_m",
+            "eind_grenspositie_in_interval_pct",
+            "eind_grensdiagnose",
+            "grensdiagnose",
             "onderhoudsproject_voorgesteld",
             "knipreden_begin",
             "knipreden_eind",
@@ -2268,7 +2289,7 @@ def _candidate_is_missing_only_deviation(
 def _greenfield_change_decision(changed_fields: list[str], current_span_m: float) -> tuple[bool, str, str]:
     """Backwards-compatible beslisfunctie uit v0.35.1.
 
-    Sinds v0.35.3 gebruikt de echte projectvoorstellenlogica reeksherkenning.
+    Sinds v0.35.4 gebruikt de echte projectvoorstellenlogica reeksherkenning.
     Deze functie blijft bestaan omdat tests of externe notebooks haar kunnen
     importeren, maar nieuwe code hoort via technische profielen te lopen.
     """
@@ -2319,6 +2340,123 @@ def _name_rule_from_route(
     return details
 
 
+
+def _hectometer_interval_diagnostics(route_m: Any, axis_anchors: pd.DataFrame) -> dict[str, Any]:
+    """
+    Beschrijf in welk geijkt hectometerinterval een routepositie valt.
+
+    Waarom deze diagnose?
+    Bij de N398 zagen we dat het interval 6.2-6.3 fysiek ongeveer 73 m is,
+    terwijl de administratieve hectometrering 100 m opschuift. De lineaire
+    ijking is dan rekenkundig logisch, maar zonder uitleg lijkt de grenswaarde
+    onverklaarbaar. Deze helper maakt dat expliciet in de exports.
+    """
+    empty = {
+        "hm_interval": "",
+        "hm_interval_lengte_m": None,
+        "hm_interval_verwacht_m": None,
+        "hm_interval_afwijking_m": None,
+        "grenspositie_in_interval_m": None,
+        "grenspositie_in_interval_pct": None,
+        "grensdiagnose": "",
+    }
+    if axis_anchors is None or len(axis_anchors) < 2:
+        return empty
+
+    try:
+        route_value = float(route_m)
+    except (TypeError, ValueError, OverflowError):
+        return empty
+
+    if not math.isfinite(route_value):
+        return empty
+
+    work = axis_anchors.copy()
+    work["route_m"] = pd.to_numeric(work.get("route_m"), errors="coerce")
+    work["hm_km"] = pd.to_numeric(work.get("hm_km"), errors="coerce")
+    work = work.dropna(subset=["route_m", "hm_km"]).sort_values("route_m").reset_index(drop=True)
+    if len(work) < 2:
+        return empty
+
+    routes = work["route_m"].astype(float).tolist()
+    hms = work["hm_km"].astype(float).tolist()
+
+    interval_index: int | None = None
+    buiten_ijkbereik = False
+    if route_value < routes[0]:
+        interval_index = 1
+        buiten_ijkbereik = True
+    elif route_value > routes[-1]:
+        interval_index = len(routes) - 1
+        buiten_ijkbereik = True
+    elif route_value == routes[-1]:
+        # Geef bij de laatste anchor het voorgaande interval terug; dat verklaart
+        # juist eindpuntcasussen zoals het korte interval 6.2-6.3.
+        interval_index = len(routes) - 1
+    else:
+        for index in range(1, len(routes)):
+            if route_value <= routes[index]:
+                interval_index = index
+                break
+
+    if interval_index is None or interval_index <= 0 or interval_index >= len(routes):
+        return empty
+
+    left_route = float(routes[interval_index - 1])
+    right_route = float(routes[interval_index])
+    left_hm = float(hms[interval_index - 1])
+    right_hm = float(hms[interval_index])
+
+    actual_length_m = right_route - left_route
+    expected_length_m = abs(right_hm - left_hm) * 1000.0
+    if actual_length_m <= 0 or expected_length_m <= 0:
+        return empty
+
+    position_m = route_value - left_route
+    position_pct = (position_m / actual_length_m) * 100.0
+    deviation_m = actual_length_m - expected_length_m
+    interval_label = f"{_format_hm_label(left_hm)}-{_format_hm_label(right_hm)}"
+
+    diagnosis_parts: list[str] = []
+    if buiten_ijkbereik:
+        diagnosis_parts.append("grens buiten ijkbereik; dichtstbijzijnde interval gebruikt voor diagnose")
+    if abs(deviation_m) >= HECTOMETER_INTERVAL_ATTENTION_M:
+        diagnosis_parts.append(
+            "hectometerinterval "
+            f"{interval_label} is fysiek {actual_length_m:.1f} m in plaats van "
+            f"{expected_length_m:.1f} m"
+        )
+
+    return {
+        "hm_interval": interval_label,
+        "hm_interval_lengte_m": float(actual_length_m),
+        "hm_interval_verwacht_m": float(expected_length_m),
+        "hm_interval_afwijking_m": float(deviation_m),
+        "grenspositie_in_interval_m": float(position_m),
+        "grenspositie_in_interval_pct": float(position_pct),
+        "grensdiagnose": "; ".join(diagnosis_parts),
+    }
+
+
+def _copy_boundary_diagnostics(prefix: str, diagnostics: dict[str, Any]) -> dict[str, Any]:
+    """Maak exportkolommen voor begin/eindgrensdiagnose."""
+    return {
+        f"{prefix}_hm_interval": clean_display_value(diagnostics.get("hm_interval", "")),
+        f"{prefix}_hm_interval_lengte_m": _round_or_none(diagnostics.get("hm_interval_lengte_m"), 2),
+        f"{prefix}_hm_interval_verwacht_m": _round_or_none(diagnostics.get("hm_interval_verwacht_m"), 2),
+        f"{prefix}_hm_interval_afwijking_m": _round_or_none(diagnostics.get("hm_interval_afwijking_m"), 2),
+        f"{prefix}_grenspositie_in_interval_m": _round_or_none(
+            diagnostics.get("grenspositie_in_interval_m"),
+            2,
+        ),
+        f"{prefix}_grenspositie_in_interval_pct": _round_or_none(
+            diagnostics.get("grenspositie_in_interval_pct"),
+            1,
+        ),
+        f"{prefix}_grensdiagnose": clean_display_value(diagnostics.get("grensdiagnose", "")),
+    }
+
+
 def _unique_clean_values(values: Iterable[Any]) -> list[str]:
     """Unieke, niet-lege waarden in stabiele volgorde."""
     result: list[str] = []
@@ -2332,7 +2470,7 @@ def _unique_clean_values(values: Iterable[Any]) -> list[str]:
     return result
 
 
-def _choose_segment_status(object_rows: pd.DataFrame, begin_rule: dict[str, Any], end_rule: dict[str, Any]) -> tuple[str, str]:
+def _choose_segment_status(object_rows: pd.DataFrame, begin_rule: dict[str, Any], end_rule: dict[str, Any], segment_length_m: float | None = None) -> tuple[str, str]:
     """Bepaal een voorzichtige status en hoofdmelding voor één groenveldvoorstel."""
     warnings: list[str] = []
     status = "ok"
@@ -2340,6 +2478,15 @@ def _choose_segment_status(object_rows: pd.DataFrame, begin_rule: dict[str, Any]
     if not begin_rule.get("label") or not end_rule.get("label"):
         warnings.append("voorstelgrens kan niet naar onderhoudsprojectnaam worden vertaald")
         status = _worst_status(status, "controleer")
+
+    try:
+        length_value = float(segment_length_m) if segment_length_m is not None else None
+    except (TypeError, ValueError, OverflowError):
+        length_value = None
+    if length_value is not None and math.isfinite(length_value) and length_value <= GREENFIELD_NEAR_ZERO_LENGTH_M:
+        warnings.append("voorstel heeft vrijwel geen fysieke lengte")
+        status = _worst_status(status, "controleer")
+
     if not begin_rule.get("in_range", False):
         warnings.append("begin voorstel buiten ijkbereik")
         status = _worst_status(status, "controleer")
@@ -2368,7 +2515,7 @@ def _build_project_proposals(
     """
     Bouw v0.35-groenveldvoorstellen voor onderhoudsprojecten.
 
-    v0.35.3 gebruikt reeksherkenning:
+    v0.35.4 gebruikt reeksherkenning:
     - eerst technische profielen bepalen;
     - dan aaneengesloten reeksen vormen;
     - lokale afwijkingen insluiten als datakwaliteit/controle;
@@ -2792,14 +2939,17 @@ def _build_project_proposals(
 
             start_m = float(segment["route_start_norm_m"].min())
             end_m = float(segment["route_end_norm_m"].max())
+            segment_length_m = max(end_m - start_m, 0.0)
             begin_rule = _name_rule_from_route(start_m, axis_anchors, snap_tolerance_m=float(boundary_snap_tolerance_m))
             end_rule = _name_rule_from_route(end_m, axis_anchors, snap_tolerance_m=float(boundary_snap_tolerance_m))
+            begin_interval = _hectometer_interval_diagnostics(start_m, axis_anchors)
+            end_interval = _hectometer_interval_diagnostics(end_m, axis_anchors)
             begin_label = str(begin_rule.get("label") or "")
             end_label = str(end_rule.get("label") or "")
 
             road_label = clean_display_value(selected_road)
             proposed_name = f"{road_label}-{project_type}-{begin_label}-{end_label}" if begin_label and end_label else ""
-            status, hoofd = _choose_segment_status(segment, begin_rule, end_rule)
+            status, hoofd = _choose_segment_status(segment, begin_rule, end_rule, segment_length_m)
             status, hoofd = _proposal_status_with_run_signals(status, hoofd, run)
 
             existing_projects = _unique_clean_values(segment.get("Onderhoudsproject", []))
@@ -2845,9 +2995,32 @@ def _build_project_proposals(
                 f"knipreden eind: {end_reason or 'einde spoor'}",
                 f"harde knipsignalen: {hard_signal_text}" if hard_signal_text else "",
                 f"zachte signalen binnen voorstel: {soft_signal_text}" if soft_signal_text else "",
+                (
+                    "grensdiagnose: "
+                    + " | ".join(
+                        part for part in [
+                            clean_display_value(begin_interval.get("grensdiagnose", "")),
+                            clean_display_value(end_interval.get("grensdiagnose", "")),
+                        ]
+                        if part
+                    )
+                    if clean_display_value(begin_interval.get("grensdiagnose", ""))
+                    or clean_display_value(end_interval.get("grensdiagnose", ""))
+                    else ""
+                ),
                 f"technisch profiel: {technical_profile_text}" if technical_profile_text else "",
             ]
             context = "; ".join(part for part in context_parts if part)
+
+            begin_diagnostic_columns = _copy_boundary_diagnostics("begin", begin_interval)
+            end_diagnostic_columns = _copy_boundary_diagnostics("eind", end_interval)
+            combined_grensdiagnose = " | ".join(
+                part for part in [
+                    begin_diagnostic_columns.get("begin_grensdiagnose", ""),
+                    end_diagnostic_columns.get("eind_grensdiagnose", ""),
+                ]
+                if clean_display_value(part)
+            )
 
             family = clean_display_value(first.get("project_family", ""))
             situering = clean_display_value(first.get("situering", ""))
@@ -2863,7 +3036,7 @@ def _build_project_proposals(
                     "situering": situering,
                     "fysiek_begin_m": _round_or_none(start_m, 0),
                     "fysiek_eind_m": _round_or_none(end_m, 0),
-                    "fysiek_lengte_m": _round_or_none(end_m - start_m, 0),
+                    "fysiek_lengte_m": _round_or_none(segment_length_m, 0),
                     "fysiek_begin_km": _round_or_none(begin_rule.get("km"), 3),
                     "fysiek_eind_km": _round_or_none(end_rule.get("km"), 3),
                     "snap_tolerantie_m": float(boundary_snap_tolerance_m),
@@ -2875,10 +3048,13 @@ def _build_project_proposals(
                     "eind_snap_afstand_m": _round_or_none(end_rule.get("snap_distance_m"), 2),
                     "eind_gesnapt_naar_hm": bool(end_rule.get("snapped_to_hm", False)),
                     "naam_eind": end_label,
+                    **begin_diagnostic_columns,
+                    **end_diagnostic_columns,
+                    "grensdiagnose": combined_grensdiagnose,
                     "onderhoudsproject_voorgesteld": proposed_name,
                     "knipreden_begin": begin_reason,
                     "knipreden_eind": end_reason or "einde spoor",
-                    "knipprofiel": "v0.35.3 reeksherkenning/lokale afwijking",
+                    "knipprofiel": "v0.35.4 reeksherkenning/lokale afwijking",
                     "technisch_profiel": technical_profile_text,
                     "bestek_signalen": bestek_signal_text,
                     "datakwaliteit_signalen": data_quality_signal_text,

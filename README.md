@@ -738,3 +738,23 @@ Belangrijkste wijziging:
 
 Objectligging wordt dus niet meer vermengd met de hoofdreden van een
 projectgrenscontrole.
+
+
+### v0.35.4 — Hectometerinterval- en grensdiagnose
+
+v0.35.4 wijzigt de greenfield-kniplogica van v0.35.3 niet. De release maakt
+wel explicieter waarom een projectgrens soms een andere geijkte hectometrering
+krijgt dan je op basis van fysieke meters verwacht.
+
+Nieuw in de projectvoorstellen:
+
+- route-meters en geijkte hm/km worden naast elkaar zichtbaarer;
+- per begin- en eindgrens wordt het gebruikte hectometerinterval geëxporteerd;
+- de fysieke lengte van dat interval wordt vergeleken met de administratieve
+  hectometerafstand;
+- korte/eindintervallen, zoals bij het einde van de N398, krijgen een
+  expliciete grensdiagnose;
+- voorstellen met vrijwel nul fysieke lengte worden als controleer gemarkeerd.
+
+Deze diagnose is bedoeld om lokale referentieas-/hectometreringsconflicten te
+verklaren, niet om automatisch iASSET te wijzigen.

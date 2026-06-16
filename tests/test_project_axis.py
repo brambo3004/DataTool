@@ -687,7 +687,7 @@ def test_groenveld_projectvoorstellen_knippen_op_beheerkenmerk_niet_op_bestaande
         "N398-HRB-01.5-02.0",
     ]
     assert "harde technische profielknip" in proposals.iloc[0]["knipreden_eind"]
-    assert proposals.iloc[0]["knipprofiel"] == "v0.35.3 reeksherkenning/lokale afwijking"
+    assert proposals.iloc[0]["knipprofiel"] == "v0.35.4 reeksherkenning/lokale afwijking"
 
     comparison = result.proposal_iasset_comparison
     split_rows = comparison[
@@ -699,7 +699,7 @@ def test_groenveld_projectvoorstellen_knippen_op_beheerkenmerk_niet_op_bestaande
 
 
 def test_groenveld_lokale_technische_afwijking_blijft_context_geen_projectknip() -> None:
-    """v0.35.3 sluit korte A-B-A-afwijkingen in als controle, geen project."""
+    """v0.35.4 sluit korte A-B-A-afwijkingen in als controle, geen project."""
     road_gdf = gpd.GeoDataFrame(
         [
             {
@@ -770,7 +770,7 @@ def test_groenveld_lokale_technische_afwijking_blijft_context_geen_projectknip()
 
 
 def test_groenveld_kort_ontbrekend_besteknummer_wordt_datakwaliteit_geen_knip() -> None:
-    """v0.35.3: N398-patroon A, kort leeg bestek, A blijft één voorstel."""
+    """v0.35.4: N398-patroon A, kort leeg bestek, A blijft één voorstel."""
     road_gdf = gpd.GeoDataFrame(
         [
             {
@@ -887,3 +887,64 @@ def test_groenveld_projectvoorstel_met_object_zonder_bestaand_project_krijgt_voo
     assignments = result.proposal_object_assignments
     assert len(assignments) == 1
     assert assignments.iloc[0]["voorstel_id"] == proposal["voorstel_id"]
+
+
+def test_groenveld_hectometerintervaldiagnose_verklaart_kort_eindinterval() -> None:
+    """v0.35.4 legt uit wanneer 100 hm-meters fysiek geen 100 route-meters zijn."""
+    wegas = gpd.GeoDataFrame(
+        [
+            {
+                "nummer": "WA-N398",
+                "naam": "N398",
+                "Wegnummer": "N398",
+                "geometry": LineString([(0, 0), (180, 0)]),
+            }
+        ],
+        geometry="geometry",
+        crs="EPSG:28992",
+    )
+    hectopoints = gpd.GeoDataFrame(
+        [
+            {"hectomtrng": 61, "objectid": 61, "wvk_id": 1061, "geometry": Point(0, 2)},
+            {"hectomtrng": 62, "objectid": 62, "wvk_id": 1062, "geometry": Point(100, 2)},
+            {"hectomtrng": 63, "objectid": 63, "wvk_id": 1063, "geometry": Point(173, 2)},
+        ],
+        geometry="geometry",
+        crs="EPSG:28992",
+    )
+    road_gdf = gpd.GeoDataFrame(
+        [
+            {
+                "sys_id": "eind",
+                "nummer": "RS-EIND",
+                "naam": "kort eindinterval",
+                "subthema": "rijstrook",
+                "Wegnummer": "N398",
+                "Onderhoudsproject": "",
+                "Soort verharding_N": "asfalt",
+                "Jaar deklaag": "2020",
+                "geometry": LineString([(100, 0), (153.44, 0)]),
+            }
+        ],
+        geometry="geometry",
+        crs="EPSG:28992",
+    )
+
+    result = build_project_axis_diagnostics(
+        road_gdf,
+        wegas,
+        hectopoints,
+        pd.DataFrame(),
+        "N398",
+        gap_tolerance_m=5.0,
+        length_tolerance_m=10.0,
+    )
+
+    proposal = result.project_proposals.iloc[0]
+    assert proposal["eind_hm_interval"] == "06.2-06.3"
+    assert proposal["eind_hm_interval_lengte_m"] == 73.0
+    assert proposal["eind_hm_interval_verwacht_m"] == 100.0
+    assert proposal["eind_hm_interval_afwijking_m"] == -27.0
+    assert proposal["eind_grenspositie_in_interval_m"] == 53.44
+    assert proposal["fysiek_eind_km"] == 6.273
+    assert "hectometerinterval 06.2-06.3" in proposal["eind_grensdiagnose"]

@@ -2568,7 +2568,7 @@ with col_inspector:
                         st.caption(
                             "Deze voorstellen worden opgebouwd uit primaire objecten op de geijkte iASSET-as. "
                             "De bestaande onderhoudsprojectnaam wordt hierbij niet gebruikt als uitgangspunt, "
-                            "maar alleen achteraf vergeleken. v0.35.3 gebruikt reeksherkenning: korte "
+                            "maar alleen achteraf vergeleken. v0.35.4 gebruikt reeksherkenning: korte "
                             "lokale afwijkingen worden context, structurele technische wijzigingen worden knip."
                         )
                         proposal_status = (
@@ -2584,11 +2584,12 @@ with col_inspector:
                         with prop_col_3:
                             st.metric("Voorstellen aandacht", int((proposal_status == "aandacht").sum()))
 
-                        with st.expander("🗺️ v0.35.3 Projectvoorstel op kaart inspecteren", expanded=True):
+                        with st.expander("🗺️ v0.35.4 Projectvoorstel op kaart inspecteren", expanded=True):
                             st.caption(
                                 "Kies een groenveldvoorstel om de objecten links op de hoofdkaart uit te lichten. "
                                 "Paars = objecten in het voorstel. Blauw = objecten uit bestaande iASSET-projecten "
-                                "die volgens de vergelijking raken aan dit voorstel, maar niet in het voorstel zitten."
+                                "die volgens de vergelijking raken aan dit voorstel. De lijst toont nu zowel "
+                                "route-meters als geijkte hm/km, zodat de naamregel beter controleerbaar is."
                             )
 
                             proposal_filter_df = project_axis_proposals.copy()
@@ -2663,6 +2664,8 @@ with col_inspector:
                                     object_count = clean_display_value(proposal_row.get("aantal_primaire_objecten", ""))
                                     begin_m = clean_display_value(proposal_row.get("fysiek_begin_m", ""))
                                     eind_m = clean_display_value(proposal_row.get("fysiek_eind_m", ""))
+                                    begin_km = clean_display_value(proposal_row.get("fysiek_begin_km", ""))
+                                    eind_km = clean_display_value(proposal_row.get("fysiek_eind_km", ""))
                                     label_parts = [proposed_name]
                                     details = [
                                         part
@@ -2671,6 +2674,7 @@ with col_inspector:
                                             project_type_text,
                                             f"{object_count} objecten" if object_count else "",
                                             f"{begin_m}-{eind_m} m" if begin_m or eind_m else "",
+                                            f"hm {begin_km}-{eind_km}" if begin_km or eind_km else "",
                                         ]
                                         if part
                                     ]
@@ -2737,8 +2741,21 @@ with col_inspector:
                                         "fysiek_begin_m",
                                         "fysiek_eind_m",
                                         "fysiek_lengte_m",
+                                        "fysiek_begin_km",
+                                        "fysiek_eind_km",
                                         "naam_begin",
                                         "naam_eind",
+                                        "begin_dichtstbijzijnde_hm",
+                                        "begin_snap_afstand_m",
+                                        "eind_dichtstbijzijnde_hm",
+                                        "eind_snap_afstand_m",
+                                        "begin_hm_interval",
+                                        "begin_hm_interval_lengte_m",
+                                        "begin_grenspositie_in_interval_m",
+                                        "eind_hm_interval",
+                                        "eind_hm_interval_lengte_m",
+                                        "eind_grenspositie_in_interval_m",
+                                        "grensdiagnose",
                                         "knipreden_begin",
                                         "knipreden_eind",
                                         "technisch_profiel",
