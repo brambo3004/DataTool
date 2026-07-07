@@ -687,7 +687,7 @@ def test_groenveld_projectvoorstellen_knippen_op_beheerkenmerk_niet_op_bestaande
         "N398-HRB-01.5-02.0",
     ]
     assert "harde technische profielknip" in proposals.iloc[0]["knipreden_eind"]
-    assert proposals.iloc[0]["knipprofiel"] == "v0.35.4 reeksherkenning/lokale afwijking"
+    assert proposals.iloc[0]["knipprofiel"] == "v0.35.5 reeksherkenning/lokale afwijking"
 
     comparison = result.proposal_iasset_comparison
     split_rows = comparison[

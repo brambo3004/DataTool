@@ -1,5 +1,5 @@
 """
-Projectgrenzen en groenveld-projectvoorstellen op een geijkte iASSET-referentieas (v0.35.4).
+Projectgrenzen en groenveld-projectvoorstellen op een geijkte iASSET-referentieas (v0.35.5).
 
 Deze module draait de eerdere referentieasproef bewust om:
 
@@ -35,7 +35,7 @@ from .trajectory import format_name_hm, parse_project_range
 from .utils import clean_display_value, normalize_text
 
 
-PROJECT_AXIS_SCHEMA_VERSION = "projectaxis-v0.35.4"
+PROJECT_AXIS_SCHEMA_VERSION = "projectaxis-v0.35.5"
 
 HECTOMETER_COLUMN_CANDIDATES = (
     "hectomtrng",
@@ -59,7 +59,7 @@ ALLOWED_REQUIRED_SITUERING_CODES = {"L", "R", "LR"}
 STATUS_RANK = {"ok": 0, "overzicht": 0, "projectie": 0, "aandacht": 1, "controleer": 2}
 DEFAULT_BOUNDARY_SNAP_TOLERANCE_M = 2.5
 
-# v0.35.4: de groenveld-kniplogica werkt niet meer object-voor-object,
+# v0.35.5: de groenveld-kniplogica werkt niet meer object-voor-object,
 # maar eerst met technische reeksen. Besteknummer is ondersteunend; het lege
 # veld "verhardingssoort" wordt bewust genegeerd.
 GREENFIELD_TECHNICAL_PROFILE_FIELDS = (
@@ -87,14 +87,15 @@ GREENFIELD_SPLIT_COLUMNS = GREENFIELD_TECHNICAL_PROFILE_FIELDS + GREENFIELD_SUPP
 GREENFIELD_LOCAL_DEVIATION_MAX_OBJECTS = 2
 GREENFIELD_LOCAL_DEVIATION_MAX_LENGTH_M = 100.0
 
-# v0.35.4: diagnose van hectometerintervallen. Een interval kan fysiek korter
+# v0.35.5: diagnose van hectometerintervallen. Een interval kan fysiek korter
 # of langer zijn dan de administratieve 100 m. Dat is geen automatische fout,
 # maar wel belangrijke uitleg bij grenzen zoals einde N398.
-HECTOMETER_INTERVAL_ATTENTION_M = 10.0
+HECTOMETER_INTERVAL_OK_TOLERANCE_M = 5.0
+HECTOMETER_INTERVAL_ATTENTION_M = 15.0
 GREENFIELD_NEAR_ZERO_LENGTH_M = 0.5
 
 # Oude constants blijven beschikbaar voor backwards-compatible tests/imports,
-# maar worden sinds v0.35.4 niet meer als beslislaag gebruikt.
+# maar worden sinds v0.35.5 niet meer als beslislaag gebruikt.
 GREENFIELD_STRONG_CHANGE_FIELDS = set(GREENFIELD_TECHNICAL_PROFILE_FIELDS)
 GREENFIELD_SOFT_ONLY_FIELDS = set(GREENFIELD_SUPPORTING_PROFILE_FIELDS)
 GREENFIELD_MIN_HARD_SPLIT_SPAN_M = 250.0
@@ -116,6 +117,7 @@ class ProjectAxisDiagnosticsResult:
     """
 
     calibration_anchors: pd.DataFrame
+    hectometer_intervals: pd.DataFrame
     project_boundaries: pd.DataFrame
     project_coverage: pd.DataFrame
     object_ranges: pd.DataFrame
@@ -141,6 +143,30 @@ def _empty_anchor_frame() -> pd.DataFrame:
             "hm_monotoon",
             "status",
             "waarschuwing",
+            "bronkwaliteit",
+        ]
+    )
+
+
+def _empty_hectometer_interval_frame() -> pd.DataFrame:
+    """Maak een lege intervaldiagnosetabel voor opeenvolgende hectometerpunten."""
+    return pd.DataFrame(
+        columns=[
+            "axis_id",
+            "axis_naam",
+            "Wegnummer",
+            "hm_van",
+            "hm_tot",
+            "hm_interval",
+            "route_m_van",
+            "route_m_tot",
+            "verwachte_lengte_m",
+            "gemeten_lengte_m",
+            "afwijking_m",
+            "afwijking_pct",
+            "interval_factor",
+            "status",
+            "melding",
             "bronkwaliteit",
         ]
     )
@@ -174,6 +200,31 @@ def _empty_project_boundary_frame() -> pd.DataFrame:
             "eind_binnen_ijking",
             "begin_buiten_ijkbereik",
             "eind_buiten_ijkbereik",
+            "begin_hm_interval",
+            "begin_hm_interval_lengte_m",
+            "begin_hm_interval_verwacht_m",
+            "begin_hm_interval_afwijking_m",
+            "begin_hm_interval_afwijking_pct",
+            "begin_hm_interval_factor",
+            "begin_hm_interval_status",
+            "begin_hm_interval_melding",
+            "begin_grenspositie_in_interval_m",
+            "begin_grenspositie_in_interval_pct",
+            "begin_grens_buiten_ijkbereik",
+            "begin_grensdiagnose",
+            "eind_hm_interval",
+            "eind_hm_interval_lengte_m",
+            "eind_hm_interval_verwacht_m",
+            "eind_hm_interval_afwijking_m",
+            "eind_hm_interval_afwijking_pct",
+            "eind_hm_interval_factor",
+            "eind_hm_interval_status",
+            "eind_hm_interval_melding",
+            "eind_grenspositie_in_interval_m",
+            "eind_grenspositie_in_interval_pct",
+            "eind_grens_buiten_ijkbereik",
+            "eind_grensdiagnose",
+            "grensdiagnose",
             "begin_zone_kleur",
             "begin_zone_id",
             "eind_zone_kleur",
@@ -298,15 +349,25 @@ def _empty_project_proposal_frame() -> pd.DataFrame:
             "begin_hm_interval_lengte_m",
             "begin_hm_interval_verwacht_m",
             "begin_hm_interval_afwijking_m",
+            "begin_hm_interval_afwijking_pct",
+            "begin_hm_interval_factor",
+            "begin_hm_interval_status",
+            "begin_hm_interval_melding",
             "begin_grenspositie_in_interval_m",
             "begin_grenspositie_in_interval_pct",
+            "begin_grens_buiten_ijkbereik",
             "begin_grensdiagnose",
             "eind_hm_interval",
             "eind_hm_interval_lengte_m",
             "eind_hm_interval_verwacht_m",
             "eind_hm_interval_afwijking_m",
+            "eind_hm_interval_afwijking_pct",
+            "eind_hm_interval_factor",
+            "eind_hm_interval_status",
+            "eind_hm_interval_melding",
             "eind_grenspositie_in_interval_m",
             "eind_grenspositie_in_interval_pct",
+            "eind_grens_buiten_ijkbereik",
             "eind_grensdiagnose",
             "grensdiagnose",
             "onderhoudsproject_voorgesteld",
@@ -1687,6 +1748,18 @@ def _build_project_boundaries(
         length_delta_m = as_length_m - project_length_m
         object_summary = chosen["object_summary"]
 
+        begin_interval = _hectometer_interval_diagnostics(route_start, chosen["axis_anchors"])
+        end_interval = _hectometer_interval_diagnostics(route_end, chosen["axis_anchors"])
+        begin_diagnostic_columns = _copy_boundary_diagnostics("begin", begin_interval)
+        end_diagnostic_columns = _copy_boundary_diagnostics("eind", end_interval)
+        combined_grensdiagnose = " | ".join(
+            part for part in [
+                begin_diagnostic_columns.get("begin_grensdiagnose", ""),
+                end_diagnostic_columns.get("eind_grensdiagnose", ""),
+            ]
+            if clean_display_value(part)
+        )
+
         begin_zone_color, begin_zone_id = _find_boundary_zone(
             deviation_zones,
             axis_id=axis["axis_id"],
@@ -1793,6 +1866,9 @@ def _build_project_boundaries(
                 "eind_binnen_ijking": bool(chosen["end_in_range"]),
                 "begin_buiten_ijkbereik": not bool(chosen["start_in_range"]),
                 "eind_buiten_ijkbereik": not bool(chosen["end_in_range"]),
+                **begin_diagnostic_columns,
+                **end_diagnostic_columns,
+                "grensdiagnose": combined_grensdiagnose,
                 "begin_zone_kleur": begin_zone_color,
                 "begin_zone_id": begin_zone_id,
                 "eind_zone_kleur": end_zone_color,
@@ -2289,7 +2365,7 @@ def _candidate_is_missing_only_deviation(
 def _greenfield_change_decision(changed_fields: list[str], current_span_m: float) -> tuple[bool, str, str]:
     """Backwards-compatible beslisfunctie uit v0.35.1.
 
-    Sinds v0.35.4 gebruikt de echte projectvoorstellenlogica reeksherkenning.
+    Sinds v0.35.5 gebruikt de echte projectvoorstellenlogica reeksherkenning.
     Deze functie blijft bestaan omdat tests of externe notebooks haar kunnen
     importeren, maar nieuwe code hoort via technische profielen te lopen.
     """
@@ -2341,6 +2417,133 @@ def _name_rule_from_route(
 
 
 
+def _hectometer_interval_status(actual_length_m: float, expected_length_m: float) -> tuple[str, str, float, float]:
+    """
+    Classificeer een hectometerinterval op basis van fysieke lengte langs de as.
+
+    Statusregels zijn bewust eenvoudig en uitlegbaar:
+    - ok: maximaal 5 m afwijking;
+    - aandacht: 5 tot en met 15 m afwijking;
+    - controleer: meer dan 15 m afwijking.
+
+    We geven ook percentage en factor terug voor exports. De percentageafwijking
+    is relatief aan de administratief verwachte lengte, bijvoorbeeld 100 m bij
+    één hectometerstap of 200 m als een tussenliggend hm-punt ontbreekt.
+    """
+    try:
+        actual = float(actual_length_m)
+        expected = float(expected_length_m)
+    except (TypeError, ValueError, OverflowError):
+        return "controleer", "hectometerinterval kon niet betrouwbaar worden berekend", math.nan, math.nan
+
+    if not math.isfinite(actual) or not math.isfinite(expected) or expected <= 0 or actual <= 0:
+        return "controleer", "hectometerinterval heeft geen bruikbare lengte", math.nan, math.nan
+
+    deviation = actual - expected
+    deviation_abs = abs(deviation)
+    deviation_pct = (deviation / expected) * 100.0
+    factor = actual / expected
+
+    if deviation_abs <= HECTOMETER_INTERVAL_OK_TOLERANCE_M:
+        return "ok", "", deviation_pct, factor
+    if deviation_abs <= HECTOMETER_INTERVAL_ATTENTION_M:
+        return (
+            "aandacht",
+            f"hectometerinterval wijkt {deviation:+.1f} m af van de verwachte {expected:.1f} m",
+            deviation_pct,
+            factor,
+        )
+    return (
+        "controleer",
+        f"hectometerinterval wijkt {deviation:+.1f} m af van de verwachte {expected:.1f} m",
+        deviation_pct,
+        factor,
+    )
+
+
+def _build_hectometer_interval_frame(anchors: pd.DataFrame | None) -> pd.DataFrame:
+    """
+    Maak per as een kwaliteitsdiagnose van opeenvolgende hectometerintervallen.
+
+    Waarom standaard uitvoeren?
+    Projectvoorstellen gebruiken geijkte hectometrering. Als een interval tussen
+    twee hm-punten fysiek geen 100 m is, kan een grens zoals 6.273 heel logisch
+    zijn, ook al lijkt die in fysieke meters dichter bij 6.255 te liggen. Deze
+    tabel maakt zulke gevallen expliciet voordat projectvoorstellen worden
+    beoordeeld.
+    """
+    if anchors is None or anchors.empty:
+        return _empty_hectometer_interval_frame()
+
+    rows: list[dict[str, Any]] = []
+    working = anchors.copy()
+    working["route_m"] = pd.to_numeric(working.get("route_m"), errors="coerce")
+    working["hm_km"] = pd.to_numeric(working.get("hm_km"), errors="coerce")
+    working = working.dropna(subset=["axis_id", "route_m", "hm_km"]).copy()
+    if working.empty:
+        return _empty_hectometer_interval_frame()
+
+    for axis_id, group in working.groupby("axis_id", dropna=False, sort=True):
+        group = group.sort_values(["route_m", "hm_km"]).reset_index(drop=True)
+        if len(group) < 2:
+            continue
+
+        for index in range(1, len(group)):
+            left = group.iloc[index - 1]
+            right = group.iloc[index]
+            try:
+                left_route = float(left["route_m"])
+                right_route = float(right["route_m"])
+                left_hm = float(left["hm_km"])
+                right_hm = float(right["hm_km"])
+            except (TypeError, ValueError, OverflowError):
+                continue
+
+            if not all(math.isfinite(value) for value in [left_route, right_route, left_hm, right_hm]):
+                continue
+
+            measured = right_route - left_route
+            expected = abs(right_hm - left_hm) * 1000.0
+            if measured <= 0 or expected <= 0:
+                continue
+
+            deviation = measured - expected
+            status, status_message, deviation_pct, factor = _hectometer_interval_status(measured, expected)
+            interval_label = f"{_format_hm_label(left_hm)}-{_format_hm_label(right_hm)}"
+            if status == "ok":
+                message = "hectometerinterval is fysiek consistent met de verwachte lengte"
+            else:
+                message = (
+                    f"hectometerinterval {interval_label} is fysiek {measured:.1f} m in plaats van "
+                    f"{expected:.1f} m; {status_message}"
+                )
+
+            rows.append(
+                {
+                    "axis_id": clean_display_value(axis_id),
+                    "axis_naam": clean_display_value(left.get("axis_naam", "")) or clean_display_value(right.get("axis_naam", "")),
+                    "Wegnummer": clean_display_value(left.get("Wegnummer", "")) or clean_display_value(right.get("Wegnummer", "")),
+                    "hm_van": _round_or_none(left_hm, 3),
+                    "hm_tot": _round_or_none(right_hm, 3),
+                    "hm_interval": interval_label,
+                    "route_m_van": _round_or_none(left_route, 2),
+                    "route_m_tot": _round_or_none(right_route, 2),
+                    "verwachte_lengte_m": _round_or_none(expected, 2),
+                    "gemeten_lengte_m": _round_or_none(measured, 2),
+                    "afwijking_m": _round_or_none(deviation, 2),
+                    "afwijking_pct": _round_or_none(deviation_pct, 1),
+                    "interval_factor": _round_or_none(factor, 3),
+                    "status": status,
+                    "melding": message,
+                    "bronkwaliteit": "experimenteel-ijkinterval",
+                }
+            )
+
+    if not rows:
+        return _empty_hectometer_interval_frame()
+    return pd.DataFrame(rows, columns=_empty_hectometer_interval_frame().columns)
+
+
 def _hectometer_interval_diagnostics(route_m: Any, axis_anchors: pd.DataFrame) -> dict[str, Any]:
     """
     Beschrijf in welk geijkt hectometerinterval een routepositie valt.
@@ -2356,8 +2559,13 @@ def _hectometer_interval_diagnostics(route_m: Any, axis_anchors: pd.DataFrame) -
         "hm_interval_lengte_m": None,
         "hm_interval_verwacht_m": None,
         "hm_interval_afwijking_m": None,
+        "hm_interval_afwijking_pct": None,
+        "hm_interval_factor": None,
+        "hm_interval_status": "",
+        "hm_interval_melding": "",
         "grenspositie_in_interval_m": None,
         "grenspositie_in_interval_pct": None,
+        "grens_buiten_ijkbereik": False,
         "grensdiagnose": "",
     }
     if axis_anchors is None or len(axis_anchors) < 2:
@@ -2416,11 +2624,15 @@ def _hectometer_interval_diagnostics(route_m: Any, axis_anchors: pd.DataFrame) -
     position_pct = (position_m / actual_length_m) * 100.0
     deviation_m = actual_length_m - expected_length_m
     interval_label = f"{_format_hm_label(left_hm)}-{_format_hm_label(right_hm)}"
+    interval_status, interval_message, deviation_pct, factor = _hectometer_interval_status(
+        actual_length_m,
+        expected_length_m,
+    )
 
     diagnosis_parts: list[str] = []
     if buiten_ijkbereik:
         diagnosis_parts.append("grens buiten ijkbereik; dichtstbijzijnde interval gebruikt voor diagnose")
-    if abs(deviation_m) >= HECTOMETER_INTERVAL_ATTENTION_M:
+    if interval_status != "ok":
         diagnosis_parts.append(
             "hectometerinterval "
             f"{interval_label} is fysiek {actual_length_m:.1f} m in plaats van "
@@ -2432,8 +2644,13 @@ def _hectometer_interval_diagnostics(route_m: Any, axis_anchors: pd.DataFrame) -
         "hm_interval_lengte_m": float(actual_length_m),
         "hm_interval_verwacht_m": float(expected_length_m),
         "hm_interval_afwijking_m": float(deviation_m),
+        "hm_interval_afwijking_pct": float(deviation_pct) if math.isfinite(float(deviation_pct)) else None,
+        "hm_interval_factor": float(factor) if math.isfinite(float(factor)) else None,
+        "hm_interval_status": interval_status,
+        "hm_interval_melding": interval_message,
         "grenspositie_in_interval_m": float(position_m),
         "grenspositie_in_interval_pct": float(position_pct),
+        "grens_buiten_ijkbereik": bool(buiten_ijkbereik),
         "grensdiagnose": "; ".join(diagnosis_parts),
     }
 
@@ -2445,6 +2662,10 @@ def _copy_boundary_diagnostics(prefix: str, diagnostics: dict[str, Any]) -> dict
         f"{prefix}_hm_interval_lengte_m": _round_or_none(diagnostics.get("hm_interval_lengte_m"), 2),
         f"{prefix}_hm_interval_verwacht_m": _round_or_none(diagnostics.get("hm_interval_verwacht_m"), 2),
         f"{prefix}_hm_interval_afwijking_m": _round_or_none(diagnostics.get("hm_interval_afwijking_m"), 2),
+        f"{prefix}_hm_interval_afwijking_pct": _round_or_none(diagnostics.get("hm_interval_afwijking_pct"), 1),
+        f"{prefix}_hm_interval_factor": _round_or_none(diagnostics.get("hm_interval_factor"), 3),
+        f"{prefix}_hm_interval_status": clean_display_value(diagnostics.get("hm_interval_status", "")),
+        f"{prefix}_hm_interval_melding": clean_display_value(diagnostics.get("hm_interval_melding", "")),
         f"{prefix}_grenspositie_in_interval_m": _round_or_none(
             diagnostics.get("grenspositie_in_interval_m"),
             2,
@@ -2453,8 +2674,10 @@ def _copy_boundary_diagnostics(prefix: str, diagnostics: dict[str, Any]) -> dict
             diagnostics.get("grenspositie_in_interval_pct"),
             1,
         ),
+        f"{prefix}_grens_buiten_ijkbereik": bool(diagnostics.get("grens_buiten_ijkbereik", False)),
         f"{prefix}_grensdiagnose": clean_display_value(diagnostics.get("grensdiagnose", "")),
     }
+
 
 
 def _unique_clean_values(values: Iterable[Any]) -> list[str]:
@@ -2515,7 +2738,7 @@ def _build_project_proposals(
     """
     Bouw v0.35-groenveldvoorstellen voor onderhoudsprojecten.
 
-    v0.35.4 gebruikt reeksherkenning:
+    v0.35.5 gebruikt reeksherkenning:
     - eerst technische profielen bepalen;
     - dan aaneengesloten reeksen vormen;
     - lokale afwijkingen insluiten als datakwaliteit/controle;
@@ -2952,6 +3175,19 @@ def _build_project_proposals(
             status, hoofd = _choose_segment_status(segment, begin_rule, end_rule, segment_length_m)
             status, hoofd = _proposal_status_with_run_signals(status, hoofd, run)
 
+            for boundary_name, rule_details, interval_details in [
+                ("begin", begin_rule, begin_interval),
+                ("eind", end_rule, end_interval),
+            ]:
+                interval_status = clean_display_value(interval_details.get("hm_interval_status", "")).lower()
+                if interval_status in {"aandacht", "controleer"} and not bool(rule_details.get("snapped_to_hm", False)):
+                    status = _worst_status(status, interval_status)
+                    if hoofd == "Voorstel opgebouwd uit primaire objecten vanaf nul.":
+                        hoofd = (
+                            f"{boundary_name}grens ligt in afwijkend hectometerinterval; "
+                            "controleer geijkte grenswaarde."
+                        )
+
             existing_projects = _unique_clean_values(segment.get("Onderhoudsproject", []))
             existing_joined = " | ".join(existing_projects)
             if len(existing_projects) > 1:
@@ -3054,7 +3290,7 @@ def _build_project_proposals(
                     "onderhoudsproject_voorgesteld": proposed_name,
                     "knipreden_begin": begin_reason,
                     "knipreden_eind": end_reason or "einde spoor",
-                    "knipprofiel": "v0.35.4 reeksherkenning/lokale afwijking",
+                    "knipprofiel": "v0.35.5 reeksherkenning/lokale afwijking",
                     "technisch_profiel": technical_profile_text,
                     "bestek_signalen": bestek_signal_text,
                     "datakwaliteit_signalen": data_quality_signal_text,
@@ -3617,6 +3853,8 @@ def build_project_axis_diagnostics(
     )
     warnings.extend(anchor_warnings)
 
+    hectometer_intervals = _build_hectometer_interval_frame(anchors)
+
     object_ranges = _build_object_ranges(
         road_gdf,
         axes,
@@ -3660,6 +3898,7 @@ def build_project_axis_diagnostics(
 
     return ProjectAxisDiagnosticsResult(
         calibration_anchors=anchors,
+        hectometer_intervals=hectometer_intervals,
         project_boundaries=project_boundaries,
         project_coverage=project_coverage,
         object_ranges=object_ranges,

@@ -2143,6 +2143,7 @@ with col_inspector:
             wegas_deviation_zones = pd.DataFrame()
             wegas_detail_map = None
             project_axis_anchors = pd.DataFrame()
+            project_axis_intervals = pd.DataFrame()
             project_axis_boundaries = pd.DataFrame()
             project_axis_coverage = pd.DataFrame()
             project_axis_object_ranges = pd.DataFrame()
@@ -2207,6 +2208,7 @@ with col_inspector:
                     boundary_snap_tolerance_m=float(project_axis_snap_tolerance_m),
                 )
                 project_axis_anchors = project_axis_result.calibration_anchors
+                project_axis_intervals = project_axis_result.hectometer_intervals
                 project_axis_boundaries = project_axis_result.project_boundaries
                 project_axis_coverage = project_axis_result.project_coverage
                 project_axis_object_ranges = project_axis_result.object_ranges
@@ -2238,6 +2240,7 @@ with col_inspector:
                 "wegas_deviation_zones": wegas_deviation_zones,
                 "wegas_detail_map": wegas_detail_map,
                 "project_axis_anchors": project_axis_anchors,
+                "project_axis_intervals": project_axis_intervals,
                 "project_axis_boundaries": project_axis_boundaries,
                 "project_axis_coverage": project_axis_coverage,
                 "project_axis_object_ranges": project_axis_object_ranges,
@@ -2467,6 +2470,7 @@ with col_inspector:
                 project_axis_boundaries = nwb_state.get("project_axis_boundaries")
                 project_axis_coverage = nwb_state.get("project_axis_coverage")
                 project_axis_anchors = nwb_state.get("project_axis_anchors")
+                project_axis_intervals = nwb_state.get("project_axis_intervals")
                 project_axis_object_ranges = nwb_state.get("project_axis_object_ranges")
                 project_axis_proposals = nwb_state.get("project_axis_proposals")
                 project_axis_proposal_objects = nwb_state.get("project_axis_proposal_objects")
@@ -2568,7 +2572,7 @@ with col_inspector:
                         st.caption(
                             "Deze voorstellen worden opgebouwd uit primaire objecten op de geijkte iASSET-as. "
                             "De bestaande onderhoudsprojectnaam wordt hierbij niet gebruikt als uitgangspunt, "
-                            "maar alleen achteraf vergeleken. v0.35.4 gebruikt reeksherkenning: korte "
+                            "maar alleen achteraf vergeleken. v0.35.5 gebruikt reeksherkenning: korte "
                             "lokale afwijkingen worden context, structurele technische wijzigingen worden knip."
                         )
                         proposal_status = (
@@ -2584,7 +2588,7 @@ with col_inspector:
                         with prop_col_3:
                             st.metric("Voorstellen aandacht", int((proposal_status == "aandacht").sum()))
 
-                        with st.expander("🗺️ v0.35.4 Projectvoorstel op kaart inspecteren", expanded=True):
+                        with st.expander("🗺️ v0.35.5 Projectvoorstel op kaart inspecteren", expanded=True):
                             st.caption(
                                 "Kies een groenveldvoorstel om de objecten links op de hoofdkaart uit te lichten. "
                                 "Paars = objecten in het voorstel. Blauw = objecten uit bestaande iASSET-projecten "
@@ -3035,6 +3039,38 @@ with col_inspector:
                             )
                         else:
                             st.info("Geen ijkpunten beschikbaar.")
+
+                        if isinstance(project_axis_intervals, pd.DataFrame) and not project_axis_intervals.empty:
+                            st.markdown("##### Hectometerintervallen op iASSET-wegas")
+                            interval_status = project_axis_intervals.get("status", pd.Series(dtype="object")).fillna("ok").astype(str).str.lower()
+                            int_col_1, int_col_2, int_col_3 = st.columns(3)
+                            with int_col_1:
+                                st.metric("Intervallen ok", int((interval_status == "ok").sum()))
+                            with int_col_2:
+                                st.metric("Intervallen aandacht", int((interval_status == "aandacht").sum()))
+                            with int_col_3:
+                                st.metric("Intervallen controleer", int((interval_status == "controleer").sum()))
+                            interval_preview = project_axis_intervals[
+                                project_axis_intervals.get("status", pd.Series(dtype="object")).fillna("ok").astype(str).str.lower() != "ok"
+                            ].copy()
+                            if interval_preview.empty:
+                                st.success("Alle hectometerintervallen vallen binnen de ingestelde tolerantie.")
+                                interval_preview = project_axis_intervals.head(250)
+                            else:
+                                st.caption(
+                                    "Alleen afwijkende intervallen worden hieronder getoond. "
+                                    "De volledige intervaldiagnose is beschikbaar als CSV."
+                                )
+                            st.dataframe(interval_preview, use_container_width=True, hide_index=True)
+                            intervals_csv = project_axis_intervals.to_csv(index=False, sep=";").encode("utf-8-sig")
+                            st.download_button(
+                                "📥 Download hectometerintervallen referentieas",
+                                data=intervals_csv,
+                                file_name=f"Hectometerintervallen_Referentieas_{sanitize_filename(selected_road)}.csv",
+                                mime="text/csv",
+                            )
+                        else:
+                            st.info("Geen hectometerintervaldiagnose beschikbaar.")
 
                         if isinstance(project_axis_object_ranges, pd.DataFrame) and not project_axis_object_ranges.empty:
                             st.markdown("##### Objecten geprojecteerd op geijkte as")

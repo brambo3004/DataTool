@@ -1,6 +1,32 @@
-# iASSET Advisor - refactor v0.35.3
+# iASSET Advisor - refactor v0.35.5
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
+
+
+## Nieuw in v0.35.5
+
+v0.35.5 rondt de huidige referentieas-/greenfield-fase af met een vaste
+hectometerintervalcontrole. De tool controleert nu standaard of opeenvolgende
+NWB-hectopunten op de iASSET-wegas fysiek ongeveer de verwachte lengte hebben.
+
+Kern:
+- nieuwe export `Hectometerintervallen_Referentieas_<weg>.csv`;
+- intervalstatus `ok`, `aandacht` of `controleer`;
+- afwijkende intervallen worden in het scherm samengevat;
+- projectvoorstellen krijgen extra begin/eindvelden:
+  - `*_hm_interval_status`;
+  - `*_hm_interval_melding`;
+  - `*_hm_interval_afwijking_pct`;
+  - `*_hm_interval_factor`;
+  - `*_grens_buiten_ijkbereik`;
+- afwijkende intervallen worden gekoppeld aan projectgrenzen en projectvoorstellen, zodat grensverschillen beter te verklaren zijn;
+- de greenfield-kniplogica van v0.35.3/v0.35.4 blijft intact.
+
+Waarom:
+Bij het einde van de N398 bleek het interval hm 6.2-6.3 fysiek ongeveer 73 m te
+zijn in plaats van 100 m. Zulke intervallen beïnvloeden de geijkte
+hectometrering direct. v0.35.5 maakt dit standaard zichtbaar voordat de tool
+richting Project Adviseur 2.0 gaat.
 
 
 ## Nieuw in v0.35.3
