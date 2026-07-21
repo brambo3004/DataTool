@@ -4,6 +4,7 @@ import pandas as pd
 
 from iasset_tool.project_advisor_v2 import (
     build_project_advisor_proposal_table,
+    build_project_advisor_run_report,
     build_project_advisor_worklist,
     summarize_project_advisor,
 )
@@ -162,3 +163,68 @@ def test_project_advisor_samenvatting_en_werklijst() -> None:
     assert summary["werklijstregels"] == 1
     assert summary["hm_intervallen_afwijkend"] == 1
     assert list(worklist["voorstel_id"]) == ["controle"]
+
+def test_project_advisor_runrapport_geeft_automatisch_oordeel() -> None:
+    """Het runrapport voorkomt dat de gebruiker specifieke regels handmatig moet zoeken."""
+    proposals = pd.DataFrame(
+        [
+            {
+                "voorstel_id": "ok",
+                "onderhoudsproject_voorgesteld": "N398-HRB-01.6-04.6",
+                "vergelijking_iasset_status": "ok",
+                "status_voorstel": "aandacht",
+                "datakwaliteit_signalen": "enkele objecten missen Besteknummer",
+                "fysiek_lengte_m": 3003.0,
+                "naam_begin": 1.6,
+                "naam_eind": 4.6,
+            },
+            {
+                "voorstel_id": "verschil",
+                "onderhoudsproject_voorgesteld": "N398-HRB-00.8-01.2",
+                "vergelijking_iasset_status": "aandacht",
+                "status_voorstel": "aandacht",
+                "fysiek_lengte_m": 348.0,
+                "naam_begin": 0.8,
+                "naam_eind": 1.2,
+            },
+            {
+                "voorstel_id": "micro",
+                "onderhoudsproject_voorgesteld": "N398-HRB-06.3-06.3",
+                "vergelijking_iasset_status": "ok",
+                "status_voorstel": "controleer",
+                "fysiek_lengte_m": 0.0,
+                "naam_begin": 6.3,
+                "naam_eind": 6.3,
+            },
+        ]
+    )
+
+    advisor_table = build_project_advisor_proposal_table(proposals)
+    summary = summarize_project_advisor(advisor_table)
+    report = build_project_advisor_run_report(
+        advisor_table,
+        summary,
+        selected_road="N398",
+        uploaded_wegassen_name="wegassen_paspoort.geojson",
+        app_version="v0.36.2",
+    )
+
+    oordeel = report.loc[report["onderdeel"] == "Run-oordeel"].iloc[0]
+    assert oordeel["waarde"] == "Bruikbaar als databeheeradvies met werklijst"
+    assert oordeel["urgentie"] == "actie"
+    assert "werk eerst de werklijst af" in oordeel["vervolgstap"]
+
+    werklijst = report.loc[report["onderdeel"] == "Werklijstregels"].iloc[0]
+    assert werklijst["waarde"] == 2
+
+
+def test_project_advisor_runrapport_geen_voorstellen_is_stop() -> None:
+    """Zonder voorstellen moet de run niet als werkbasis worden gepresenteerd."""
+    advisor_table = build_project_advisor_proposal_table(pd.DataFrame())
+    summary = summarize_project_advisor(advisor_table)
+    report = build_project_advisor_run_report(advisor_table, summary, selected_road="N398")
+
+    oordeel = report.loc[report["onderdeel"] == "Run-oordeel"].iloc[0]
+    assert oordeel["waarde"] == "Geen bruikbaar projectadvies"
+    assert oordeel["urgentie"] == "stop"
+

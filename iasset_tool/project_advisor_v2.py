@@ -86,6 +86,17 @@ PROJECT_ADVISOR_WORKLIST_COLUMNS: tuple[str, ...] = (
 )
 
 
+
+PROJECT_ADVISOR_RUN_REPORT_COLUMNS: tuple[str, ...] = (
+    "volgorde",
+    "onderdeel",
+    "waarde",
+    "betekenis",
+    "vervolgstap",
+    "urgentie",
+)
+
+
 def _text(value: Any) -> str:
     """Geef een veilige tekstrepresentatie zonder 'nan' of None."""
     text = clean_display_value(value).strip()
@@ -571,3 +582,194 @@ def build_project_advisor_worklist(advisor_table: pd.DataFrame | None) -> pd.Dat
     worklist = table[table["in_werklijst"].fillna(False).astype(bool)].copy()
     columns = [column for column in PROJECT_ADVISOR_WORKLIST_COLUMNS if column in worklist.columns]
     return worklist[columns] if columns else worklist
+
+def _count_category(table: pd.DataFrame, category: str) -> int:
+    """Tel voorstelcategorieën robuust en zonder harde kolomaanname."""
+    if table.empty or "voorstelcategorie" not in table.columns:
+        return 0
+    return int((table["voorstelcategorie"].fillna("").astype(str).str.lower() == category.lower()).sum())
+
+
+def _build_run_verdict(summary: dict[str, int], advisor_table: pd.DataFrame) -> tuple[str, str, str]:
+    """
+    Bepaal het automatische run-oordeel voor de Project Adviseur.
+
+    Dit oordeel is bedoeld voor de databeheerder: kan deze run als werkbasis
+    dienen, of moet eerst brondata/ijking worden gecontroleerd? Het is géén
+    automatische toestemming om iASSET te wijzigen.
+    """
+    proposals = int(summary.get("voorstellen", 0) or 0)
+    worklist_count = int(summary.get("werklijstregels", 0) or 0)
+    no_direct_action = int(summary.get("geen_directe_actie", 0) or 0)
+    outside_calibration = _count_category(advisor_table, "buiten ijkbereik")
+
+    if proposals <= 0:
+        return (
+            "Geen bruikbaar projectadvies",
+            "Er zijn geen onderhoudsprojectvoorstellen gemaakt.",
+            "Controleer de upload, wegselectie en technische diagnose voordat je verdergaat.",
+        )
+
+    if outside_calibration >= proposals:
+        return (
+            "Niet gebruiken zonder broncontrole",
+            "Alle voorstellen liggen buiten of zonder betrouwbaar ijkbereik.",
+            "Controleer eerst de wegas-/hectometerijking en gebruik deze run nog niet als werkbasis.",
+        )
+
+    if worklist_count <= 0:
+        return (
+            "Bruikbaar: geen directe actiepunten",
+            "Alle voorstellen vallen buiten de actielijst van Project Adviseur.",
+            "Gebruik de voorstellenlijst als controlebasis en beoordeel daarna het kaartbeeld bij verwerking.",
+        )
+
+    if no_direct_action > 0:
+        return (
+            "Bruikbaar als databeheeradvies met werklijst",
+            f"{no_direct_action} voorstel(len) vragen geen directe actie; {worklist_count} regel(s) staan op de werklijst.",
+            "Gebruik de voorstellenlijst als basis en werk eerst de werklijst af voordat je iASSET of het N-wegendocument bijwerkt.",
+        )
+
+    return (
+        "Alle voorstellen vragen beoordeling",
+        "Alle voorstellen staan op de werklijst.",
+        "Gebruik deze run als controlelijst; beoordeel de voorstellen eerst op kaart voordat je conclusies overneemt.",
+    )
+
+
+def build_project_advisor_run_report(
+    advisor_table: pd.DataFrame | None,
+    summary: dict[str, int] | None = None,
+    *,
+    selected_road: str = "",
+    uploaded_wegassen_name: str = "",
+    app_version: str = "",
+) -> pd.DataFrame:
+    """
+    Maak een automatisch runrapport voor de databeheerder.
+
+    Waarom dit rapport?
+    De gebruiker moet niet handmatig specifieke regels hoeven nazoeken om te
+    bepalen of een run bruikbaar is. Dit rapport vat de volledige Project
+    Adviseur-run samen in één oordeel, concrete tellers en een aanbevolen
+    vervolgstap. De detailtabellen blijven beschikbaar als onderbouwing.
+    """
+    table = advisor_table if isinstance(advisor_table, pd.DataFrame) else pd.DataFrame()
+    summary = summary or summarize_project_advisor(table)
+
+    proposals = int(summary.get("voorstellen", 0) or 0)
+    worklist_count = int(summary.get("werklijstregels", 0) or 0)
+    no_direct_action = int(summary.get("geen_directe_actie", 0) or 0)
+    iasset_differences = int(summary.get("iasset_verschillen", 0) or 0)
+    micro_endzone = int(summary.get("micro_eindzone", 0) or 0)
+    hm_intervals = int(summary.get("hm_intervallen_afwijkend", 0) or 0)
+    data_quality = int(summary.get("datakwaliteit_aandacht", 0) or 0)
+    border_attention = int(summary.get("grens_aandacht", 0) or 0) + int(summary.get("grens_controleer", 0) or 0)
+    outside_calibration = _count_category(table, "buiten ijkbereik")
+
+    verdict, meaning, next_step = _build_run_verdict(summary, table)
+    urgency = "stop" if verdict.startswith(("Geen bruikbaar", "Niet gebruiken")) else "actie" if worklist_count else "akkoord"
+
+    rows: list[dict[str, Any]] = [
+        {
+            "volgorde": 1,
+            "onderdeel": "Run-oordeel",
+            "waarde": verdict,
+            "betekenis": meaning,
+            "vervolgstap": next_step,
+            "urgentie": urgency,
+        },
+        {
+            "volgorde": 2,
+            "onderdeel": "Weg en bron",
+            "waarde": selected_road or "onbekend",
+            "betekenis": f"Wegas-upload: {uploaded_wegassen_name or 'onbekend'}; app: {app_version or 'onbekend'}.",
+            "vervolgstap": "Bewaar dit rapport bij de run zodat later duidelijk is met welke brondata het advies is gemaakt.",
+            "urgentie": "informatief",
+        },
+        {
+            "volgorde": 3,
+            "onderdeel": "Projectvoorstellen",
+            "waarde": proposals,
+            "betekenis": "Aantal onderhoudsprojectvoorstellen dat de tool voor deze weg heeft opgebouwd.",
+            "vervolgstap": "Gebruik deze voorstellen als controlebasis; iASSET blijft de bron van waarheid.",
+            "urgentie": "informatief",
+        },
+        {
+            "volgorde": 4,
+            "onderdeel": "Geen directe actie",
+            "waarde": no_direct_action,
+            "betekenis": "Voorstellen die niet in de werklijst staan.",
+            "vervolgstap": "Neem deze mee als basisvoorstellen, maar beoordeel het kaartbeeld wanneer je ze verwerkt.",
+            "urgentie": "akkoord" if no_direct_action else "informatief",
+        },
+        {
+            "volgorde": 5,
+            "onderdeel": "Werklijstregels",
+            "waarde": worklist_count,
+            "betekenis": "Voorstellen waarvoor de tool een concrete databeheeractie benoemt.",
+            "vervolgstap": "Werk deze regels eerst af; ze vormen de praktische actielijst voor deze run.",
+            "urgentie": "actie" if worklist_count else "akkoord",
+        },
+        {
+            "volgorde": 6,
+            "onderdeel": "Verschillen met iASSET",
+            "waarde": iasset_differences,
+            "betekenis": "Voorstellen die afwijken van de bestaande iASSET-indeling.",
+            "vervolgstap": "Vergelijk deze met het N-wegendocument en bepaal daarna of iASSET aangepast moet worden.",
+            "urgentie": "actie" if iasset_differences else "akkoord",
+        },
+        {
+            "volgorde": 7,
+            "onderdeel": "Micro-/eindzonevoorstellen",
+            "waarde": micro_endzone,
+            "betekenis": "Zeer korte of nulmeterachtige voorstellen; geen normale onderhoudsprojecten.",
+            "vervolgstap": "Behandel deze als controlepunt, niet als regulier onderhoudscomplex.",
+            "urgentie": "actie" if micro_endzone else "akkoord",
+        },
+        {
+            "volgorde": 8,
+            "onderdeel": "Buiten ijkbereik",
+            "waarde": outside_calibration,
+            "betekenis": "Voorstellen waarvan de ligging niet betrouwbaar op de geijkte wegas valt.",
+            "vervolgstap": "Gebruik deze niet zonder handmatige kaart- en broncontrole.",
+            "urgentie": "stop" if outside_calibration else "akkoord",
+        },
+        {
+            "volgorde": 9,
+            "onderdeel": "Afwijkende hm-intervallen",
+            "waarde": hm_intervals,
+            "betekenis": "Hectometerintervallen waarvan de fysieke lengte afwijkt van de administratieve verwachting.",
+            "vervolgstap": "Gebruik dit als grenscontext; het hoeft niet automatisch een projectfout te zijn.",
+            "urgentie": "informatief" if hm_intervals else "akkoord",
+        },
+        {
+            "volgorde": 10,
+            "onderdeel": "Datakwaliteit",
+            "waarde": data_quality,
+            "betekenis": "Voorstellen met ontbrekende of verdachte paspoortwaarden.",
+            "vervolgstap": "Corrigeer paspoortdata wanneer je het betreffende project verwerkt.",
+            "urgentie": "informatief" if data_quality else "akkoord",
+        },
+        {
+            "volgorde": 11,
+            "onderdeel": "Grensmeldingen",
+            "waarde": border_attention,
+            "betekenis": "Voorstellen met aandacht voor begin/eindgrens of ijking.",
+            "vervolgstap": "Controleer deze grenzen op kaart als ze ook in de werklijst staan.",
+            "urgentie": "actie" if border_attention and worklist_count else "informatief" if border_attention else "akkoord",
+        },
+        {
+            "volgorde": 12,
+            "onderdeel": "Eindhandeling",
+            "waarde": "Geen automatische mutatie",
+            "betekenis": "De tool doet voorstellen en controles, maar wijzigt iASSET niet.",
+            "vervolgstap": "Werk pas na beoordeling de relevante objecten, onderhoudscomplexen en documenten bij.",
+            "urgentie": "informatief",
+        },
+    ]
+
+    report = pd.DataFrame(rows)
+    return report[[column for column in PROJECT_ADVISOR_RUN_REPORT_COLUMNS if column in report.columns]]
+

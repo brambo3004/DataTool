@@ -85,6 +85,7 @@ from iasset_tool.project_advisor_v2 import (
     PROJECT_ADVISOR_MAIN_COLUMNS,
     PROJECT_ADVISOR_WORKLIST_COLUMNS,
     build_project_advisor_proposal_table,
+    build_project_advisor_run_report,
     build_project_advisor_worklist,
     summarize_project_advisor,
 )
@@ -1232,6 +1233,13 @@ with col_inspector:
                 project_axis_intervals,
                 project_axis_proposal_comparison,
             )
+            run_report = build_project_advisor_run_report(
+                advisor_table,
+                advisor_summary,
+                selected_road=selected_road,
+                uploaded_wegassen_name=advisor_state.get("uploaded_wegassen_name") or "",
+                app_version=advisor_state.get("app_version", APP_VERSION),
+            )
 
             st.markdown("#### 1. Samenvatting")
             st.caption(
@@ -1254,6 +1262,37 @@ with col_inspector:
                 st.metric("Micro/eindzone", advisor_summary["micro_eindzone"])
             with summary_col_6:
                 st.metric("Afwijkende hm-intervallen", advisor_summary["hm_intervallen_afwijkend"])
+
+            if not run_report.empty:
+                run_oordeel = run_report[run_report["onderdeel"] == "Run-oordeel"].head(1)
+                if not run_oordeel.empty:
+                    verdict_row = run_oordeel.iloc[0]
+                    verdict_text = clean_display_value(verdict_row.get("waarde", ""))
+                    meaning_text = clean_display_value(verdict_row.get("betekenis", ""))
+                    next_step_text = clean_display_value(verdict_row.get("vervolgstap", ""))
+                    urgency_text = clean_display_value(verdict_row.get("urgentie", "")).lower()
+
+                    verdict_message = f"**{verdict_text}**\n\n{meaning_text}\n\n**Vervolgstap:** {next_step_text}"
+                    if urgency_text == "stop":
+                        st.error(verdict_message)
+                    elif urgency_text == "actie":
+                        st.info(verdict_message)
+                    else:
+                        st.success(verdict_message)
+
+                with st.expander("Automatisch runrapport", expanded=False):
+                    st.caption(
+                        "Dit rapport vat de hele Project Adviseur-run samen. "
+                        "Gebruik dit voor de eerste beoordeling, zonder handmatig specifieke tabelregels te zoeken."
+                    )
+                    st.dataframe(run_report, use_container_width=True, hide_index=True)
+                    run_report_csv = run_report.to_csv(index=False, sep=";").encode("utf-8-sig")
+                    st.download_button(
+                        "📥 Download runrapport Project Adviseur",
+                        data=run_report_csv,
+                        file_name=f"Projectadvies_Runrapport_{sanitize_filename(selected_road)}.csv",
+                        mime="text/csv",
+                    )
 
             if advisor_table.empty:
                 st.warning(
@@ -1535,6 +1574,14 @@ with col_inspector:
                     )
 
                 st.markdown("#### 5. Exports")
+                run_report_csv = run_report.to_csv(index=False, sep=";").encode("utf-8-sig")
+                st.download_button(
+                    "📥 Download Project Adviseur runrapport",
+                    data=run_report_csv,
+                    file_name=f"Projectadvies_Runrapport_{sanitize_filename(selected_road)}.csv",
+                    mime="text/csv",
+                )
+
                 advisor_csv = advisor_table.to_csv(index=False, sep=";").encode("utf-8-sig")
                 st.download_button(
                     "📥 Download Project Adviseur voorstellen",

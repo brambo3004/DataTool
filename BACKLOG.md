@@ -1,5 +1,21 @@
 # Takenlijst iASSET Advisor
 
+## Klaar in v0.36.2
+
+1. **Automatisch runrapport Project Adviseur**
+   - De tool geeft bovenaan automatisch aan of de run bruikbaar is als databeheeradvies.
+   - De gebruiker hoeft niet meer handmatig specifieke voorstellen op te zoeken om de run te beoordelen.
+   - Het rapport benoemt de vervolgstap: voorstellenlijst gebruiken, werklijst afwerken, of eerst broncontrole doen.
+
+2. **Downloadbare run-samenvatting**
+   - Nieuwe export: `Projectadvies_Runrapport_<weg>.csv`.
+   - Het rapport bevat tellers voor voorstellen, werklijstregels, iASSET-verschillen, micro-/eindzonegevallen, afwijkende hm-intervallen, datakwaliteit en grensmeldingen.
+
+3. **Geen nieuwe rekenlogica**
+   - De projectas-engine blijft ongewijzigd.
+   - v0.36.2 vertaalt bestaande uitkomsten naar een duidelijker werkproces voor databeheer.
+
+
 ## Klaar in v0.36.1
 
 1. **Werklijst als echte databeheer-actielijst**

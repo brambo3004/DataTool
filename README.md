@@ -1,6 +1,30 @@
-# iASSET Advisor - refactor v0.36.1
+# iASSET Advisor - refactor v0.36.2
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
+
+
+## Nieuw in v0.36.2
+
+v0.36.2 voegt een automatisch runrapport toe aan Project Adviseur. De gebruiker
+hoeft daardoor niet meer handmatig specifieke regels in de voorstellenlijst of
+werklijst te zoeken om te bepalen of een run bruikbaar is.
+
+Kern:
+- bovenaan Project Adviseur verschijnt nu een automatisch databeheer-oordeel;
+- het oordeel zegt of de run bruikbaar is als werkbasis, of eerst broncontrole vraagt;
+- het runrapport vat voorstellen, werklijstregels, iASSET-verschillen,
+  micro-/eindzonegevallen, afwijkende hm-intervallen en datakwaliteit samen;
+- het rapport is downloadbaar als `Projectadvies_Runrapport_<weg>.csv`;
+- de voorstellenlijst, werklijst en technische exports blijven beschikbaar als onderbouwing.
+
+Waarom:
+Project Adviseur moet een werkproces ondersteunen. De eerste vraag na een run is
+niet: "welke regel moet ik zoeken?", maar: "kan ik deze analyse gebruiken, en wat
+moet ik daarna doen?" v0.36.2 beantwoordt die vraag automatisch.
+
+Validatie:
+- `pytest -q`: 193 passed
+- `python -m py_compile` op alle Python-bestanden
 
 
 ## Nieuw in v0.36.1
