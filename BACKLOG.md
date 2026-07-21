@@ -1,5 +1,21 @@
 # Takenlijst iASSET Advisor
 
+## Klaar in v0.36.0
+
+1. **Project Adviseur 2.0 als hoofdscherm**
+   - `🏗️ Project Adviseur` is de eerste modus in de app.
+   - Projectadvies wordt vanuit het hoofdscherm berekend met de bestaande v0.35.5-projectas-engine.
+   - De technische diagnose is niet verwijderd, maar staat onder een expander.
+
+2. **Gescheiden statussen**
+   - De UI toont `adviesstatus`, `datakwaliteitstatus`, `grensstatus`, `referentieasstatus` en `eindadvies`.
+   - Datakwaliteit vervuilt het inhoudelijke projectadvies niet automatisch.
+
+3. **Werklijst en kaartinspectie**
+   - Voorstellen met aandacht of controle komen in een compacte werklijst.
+   - Een geselecteerd voorstel kan op de hoofdkaart worden uitgelicht.
+
+
 ## Klaar in v0.20.0
 
 1. **Detailweergave bij Onderhoudscontrolepunten**

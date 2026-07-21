@@ -81,6 +81,13 @@ from iasset_tool.project_axis import (
     build_project_axis_diagnostics,
     build_project_axis_summary,
 )
+from iasset_tool.project_advisor_v2 import (
+    PROJECT_ADVISOR_MAIN_COLUMNS,
+    PROJECT_ADVISOR_WORKLIST_COLUMNS,
+    build_project_advisor_proposal_table,
+    build_project_advisor_worklist,
+    summarize_project_advisor,
+)
 from iasset_tool.nwb import (
     NWB_REFERENCE_SCHEMA_VERSION,
     build_nwb_reference_for_road,
@@ -841,14 +848,14 @@ with col_inspector:
 
     mode = st.radio(
         "Modus:",
-        ["🔍 Data Kwaliteit", "🏗️ Project Adviseur", "🛠️ Onderhoudscontrole", "🧪 Referentieas / PDOK-proef", "🧪 NWB referentieproef", "🧾 Objectinspecteur", "🗺️ Overzicht"],
+        ["🏗️ Project Adviseur", "🔍 Data Kwaliteit", "🛠️ Onderhoudscontrole", "🧪 Referentieas / PDOK-proef", "🧪 NWB referentieproef", "🧾 Objectinspecteur", "🗺️ Overzicht"],
         horizontal=True,
         on_change=lambda: reset_selection(st.session_state),
     )
 
     st.divider()
 
-    if mode != "🧪 NWB referentieproef":
+    if mode not in {"🧪 NWB referentieproef", "🏗️ Project Adviseur"}:
         st.session_state.pop("selected_project_proposal_id", None)
         st.session_state.pop("selected_project_proposal_object_ids", None)
         st.session_state.pop("selected_project_proposal_existing_object_ids", None)
@@ -982,188 +989,817 @@ with col_inspector:
                         st.rerun()
 
     elif mode == "🏗️ Project Adviseur":
-        if st.session_state.get("computed_groups") is None:
-            with st.spinner("Adviesgroepen berekenen..."):
-                st.session_state["computed_groups"] = measure_step(
-                    get_performance_log(),
-                    "Project Adviseur",
-                    generate_grouped_proposals,
-                    road_gdf,
-                    graph_road,
-                )
+        st.markdown("### 🏗️ Project Adviseur 2.0")
+        st.caption(
+            "Functioneel hoofdscherm voor databeheer. De bestaande v0.35.5-engine blijft leidend; "
+            "dit scherm ordent de uitkomsten rustiger met gescheiden statussen, kaartinspectie en een werklijst."
+        )
+        st.info(
+            "iASSET blijft de bron van waarheid. De tool maakt alleen voorstellen en controle-informatie; "
+            "er worden geen iASSET-mutaties uitgevoerd."
+        )
 
-        all_groups = st.session_state["computed_groups"] or {}
-
-        active_groups = {
-            group_id: group_data
-            for group_id, group_data in all_groups.items()
-            if group_id not in st.session_state["processed_groups"]
-            and group_id not in st.session_state["ignored_groups"]
-        }
-
-        if not active_groups:
-            st.success("Geen adviezen meer beschikbaar.")
-
-            if st.button("Herberekenen / Reset"):
-                st.session_state["computed_groups"] = None
-                st.session_state["processed_groups"] = set()
-                st.session_state["ignored_groups"] = set()
-                st.rerun()
-        else:
-            st.write(f"**{len(active_groups)} suggesties beschikbaar**")
-
-            sorted_items = sorted(
-                active_groups.items(),
-                key=lambda item: (
-                    item[1].get("volgorde_nr", item[1].get("advies_volgorde", 999999)),
-                    item[1].get("rank", 99),
-                    item[1].get("sort_value", 0),
-                    item[1].get("tie_breaker_dist", 0),
-                    item[1].get("fallback_tie_breaker_dist", 0),
+        advisor_upload_col, advisor_action_col = st.columns([2, 1])
+        with advisor_upload_col:
+            uploaded_wegassen_advisor = st.file_uploader(
+                "iASSET-wegassen GeoJSON voor Project Adviseur",
+                type=["geojson", "json"],
+                key=f"project_advisor_wegassen_upload_{selected_road}_{current_data_revision_key()}",
+                help=(
+                    "Upload hier bijvoorbeeld wegassen_paspoort.geojson. De Project Adviseur gebruikt "
+                    "dit bestand om bestaande v0.35.5-projectvoorstellen op de geijkte iASSET-wegas te maken."
                 ),
             )
 
-            with st.container(height=400):
-                for group_id, group_data in sorted_items:
-                    count = len(group_data["ids"])
-
-                    if "RIJBAAN" in group_id:
-                        icon = "🛣️"
-                    elif "FIETSPAD" in group_id:
-                        icon = "🚲"
-                    elif "PARALLEL" in group_id:
-                        icon = "🛤️"
-                    else:
-                        icon = "🌳"
-
-                    is_selected = st.session_state["selected_group_id"] == group_id
-                    container_args = {"border": True} if is_selected else {}
-
-                    with st.container(**container_args):
-                        if is_selected:
-                            st.markdown("**:blue-background[GESELECTEERD]**")
-
-                        volgorde_nr = group_data.get("volgorde_nr") or group_data.get("advies_volgorde")
-                        volgorde_label = f"{volgorde_nr}. " if volgorde_nr else ""
-                        st.markdown(f"**{volgorde_label}{icon} {group_data['subthema'].title()}** ({count} obj)")
-                        st.caption(group_data["reason"])
-
-                        tie_breaker_source = group_data.get("tie_breaker_source", "")
-                        if tie_breaker_source == "lokale_route_as":
-                            st.caption("Volgorde: hectometrering + lokale route-as.")
-                        elif tie_breaker_source == "lokale_route_as_overlapcluster":
-                            cluster_label = group_data.get("overlap_cluster_id", "")
-                            st.caption(
-                                "Volgorde: overlappend hm-bereik, lokale route-as bepaalt de positie"
-                                + (f" ({cluster_label})." if cluster_label else ".")
-                            )
-
-                        assignment_note = group_data.get("assignment_note", "")
-                        if assignment_note and assignment_note != "Primaire ruggengraatgroep; secundaire objecten apart toegewezen.":
-                            st.caption(f"Logica: {assignment_note}")
-
-                        attached_fietspad_count = len(group_data.get("attached_fietspad_ids", []))
-                        if attached_fietspad_count:
-                            st.caption(f"Inclusief {attached_fietspad_count} gekoppelde fietspadobject(en).")
-
-                        if group_data.get("review_needed"):
-                            st.warning("Controle nodig: fietspadrelatie is onzeker.", icon="⚠️")
-
-                        old_project = group_data.get("current_project", "")
-                        st.markdown(
-                            f"<small>Huidig: *{old_project if old_project else 'Geen'}*</small>",
-                            unsafe_allow_html=True,
-                        )
-
-                        c_select, c_ignore = st.columns([1, 1])
-
-                        with c_select:
-                            label = "📍 Geselecteerd" if is_selected else "👁️ Selecteer"
-                            if st.button(label, key=f"vis_{group_id}", disabled=is_selected):
-                                st.session_state["selected_group_id"] = group_id
-                                subset_gdf = road_gdf.loc[group_data["ids"]].to_crs(epsg=4326)
-                                try:
-                                    merged_geometry = subset_gdf.geometry.union_all()
-                                except AttributeError:
-                                    merged_geometry = subset_gdf.geometry.unary_union
-
-                                st.session_state["zoom_bounds"] = merged_geometry.bounds
-                                st.rerun()
-
-                        with c_ignore:
-                            if st.button("🗑️ Negeer", key=f"ign_{group_id}"):
-                                st.session_state["ignored_groups"].add(group_id)
-                                if is_selected:
-                                    st.session_state["selected_group_id"] = None
-                                    st.session_state["zoom_bounds"] = None
-                                st.rerun()
-
-                        if not is_selected:
-                            st.divider()
-
-            selected_group_id = st.session_state["selected_group_id"]
-
-            if selected_group_id and selected_group_id in active_groups:
-                selected_group = active_groups[selected_group_id]
-
-                st.divider()
-                st.markdown(f"#### 🏷️ Naamgeven: {selected_group_id}")
-                st.info(f"Bevat {len(selected_group['ids'])} objecten. ({selected_group['reason']})")
-
-                selected_assignment_note = selected_group.get("assignment_note", "")
-                if selected_assignment_note:
-                    st.caption(f"Toewijzingslogica: {selected_assignment_note}")
-
-                attached_fietspad_count = len(selected_group.get("attached_fietspad_ids", []))
-                if attached_fietspad_count:
-                    st.caption(f"Deze groep bevat {attached_fietspad_count} fietspadobject(en) die als kruisend/rotondegebonden zijn gekoppeld.")
-
-                if selected_group.get("review_needed"):
-                    st.warning(
-                        "Deze fietspadgroep is onzeker geclassificeerd. Controleer op de kaart of dit echt een parallelfietspad is.",
-                        icon="⚠️",
-                    )
-
-                old_project_hint = selected_group.get("current_project", "")
-                placeholder_text = old_project_hint if old_project_hint else "bv. N351-HRB-20.1-24.3"
-
-                name_input = st.text_input(
-                    "Projectnaam",
-                    value="",
-                    placeholder=placeholder_text,
-                    key="proj_name_input",
+        with st.expander("Technische instellingen Project Adviseur", expanded=False):
+            st.caption(
+                "Deze instellingen gebruiken dezelfde rekenmotor als de NWB-referentieproef. "
+                "Laat ze normaal op de standaardwaarden staan; wijzig ze alleen bewust voor diagnose."
+            )
+            advisor_settings_col_1, advisor_settings_col_2, advisor_settings_col_3 = st.columns(3)
+            with advisor_settings_col_1:
+                advisor_nwb_buffer_m = st.number_input(
+                    "NWB-opvraagbuffer (m)",
+                    min_value=50.0,
+                    max_value=5000.0,
+                    value=750.0,
+                    step=50.0,
+                    key=f"project_advisor_nwb_buffer_{selected_road}",
+                )
+                advisor_project_axis_anchor_max_m = st.number_input(
+                    "Max. afstand hectopunt tot iASSET-wegas (m)",
+                    min_value=1.0,
+                    max_value=250.0,
+                    value=40.0,
+                    step=5.0,
+                    key=f"project_advisor_anchor_max_{selected_road}",
+                )
+            with advisor_settings_col_2:
+                advisor_nwb_wegas_max_distance_m = st.number_input(
+                    "Max. afstand iASSET-wegas tot NWB (m)",
+                    min_value=1.0,
+                    max_value=250.0,
+                    value=25.0,
+                    step=5.0,
+                    key=f"project_advisor_wegas_max_{selected_road}",
+                )
+                advisor_project_axis_object_max_m = st.number_input(
+                    "Max. afstand object tot iASSET-wegas (m)",
+                    min_value=1.0,
+                    max_value=250.0,
+                    value=40.0,
+                    step=5.0,
+                    key=f"project_advisor_object_max_{selected_road}",
+                )
+            with advisor_settings_col_3:
+                advisor_project_axis_boundary_buffer_m = st.number_input(
+                    "Buffer rond afwijkingszone (m)",
+                    min_value=0.0,
+                    max_value=250.0,
+                    value=25.0,
+                    step=5.0,
+                    key=f"project_advisor_boundary_buffer_{selected_road}",
+                )
+                advisor_project_axis_length_tolerance_m = st.number_input(
+                    "Tolerantie lengteverschil (m)",
+                    min_value=0.0,
+                    max_value=250.0,
+                    value=25.0,
+                    step=5.0,
+                    key=f"project_advisor_length_tol_{selected_road}",
                 )
 
-                if st.button("✅ Opslaan & Toepassen", type="primary"):
-                    if name_input.strip():
-                        new_value = clean_display_value(name_input)
-                        count_updates = 0
+            advisor_extra_col_1, advisor_extra_col_2 = st.columns(2)
+            with advisor_extra_col_1:
+                advisor_project_axis_snap_tolerance_m = st.number_input(
+                    "Snap-tolerantie projectgrens naar hm-punt (m)",
+                    min_value=0.0,
+                    max_value=25.0,
+                    value=2.5,
+                    step=0.5,
+                    key=f"project_advisor_snap_tol_{selected_road}",
+                )
+            with advisor_extra_col_2:
+                advisor_nwb_limit = st.number_input(
+                    "Maximaal features per NWB-pagina",
+                    min_value=100,
+                    max_value=10000,
+                    value=10000,
+                    step=100,
+                    key=f"project_advisor_nwb_limit_{selected_road}",
+                )
 
-                        for object_id in selected_group["ids"]:
-                            if object_id not in raw_gdf.index:
-                                continue
+        with advisor_action_col:
+            st.write("")
+            st.write("")
+            run_project_advisor = st.button(
+                "🚦 Maak projectadvies",
+                type="primary",
+                key=f"run_project_advisor_{selected_road}_{current_data_revision_key()}",
+                help="Bereken projectvoorstellen met de bestaande projectas-engine.",
+            )
 
-                            old_value = raw_gdf.at[object_id, "Onderhoudsproject"]
-                            if clean_display_value(old_value) == new_value:
-                                continue
+        if run_project_advisor:
+            if uploaded_wegassen_advisor is None:
+                st.error("Upload eerst de iASSET-wegassen GeoJSON. Zonder wegas kan de Project Adviseur geen geijkte projectvoorstellen maken.")
+            else:
+                nwb_result = measure_step(
+                    get_performance_log(),
+                    "Project Adviseur - NWB referentie ophalen",
+                    build_nwb_reference_for_road,
+                    road_gdf,
+                    selected_road,
+                    buffer_meters=float(advisor_nwb_buffer_m),
+                    limit=int(advisor_nwb_limit),
+                )
 
-                            register_change(object_id, "Onderhoudsproject", old_value, name_input)
+                uploaded_wegassen_name = uploaded_wegassen_advisor.name
+                wegassen_gdf = read_wegassen_geojson_bytes(uploaded_wegassen_advisor.getvalue())
 
-                            if "Advies_Bron" in raw_gdf.columns:
-                                apply_change_to_data(raw_gdf, object_id, "Advies_Bron", selected_group["reason"])
+                wegas_comparison = measure_step(
+                    get_performance_log(),
+                    "Project Adviseur - wegasvergelijking",
+                    compare_iasset_wegassen_to_nwb,
+                    wegassen_gdf,
+                    nwb_result.wegvakken,
+                    selected_road,
+                    max_distance_m=float(advisor_nwb_wegas_max_distance_m),
+                )
+                wegas_comparison_detail = measure_step(
+                    get_performance_log(),
+                    "Project Adviseur - wegasvergelijking detail",
+                    compare_iasset_wegassen_to_nwb_detail,
+                    wegassen_gdf,
+                    nwb_result.wegvakken,
+                    selected_road,
+                    max_distance_m=float(advisor_nwb_wegas_max_distance_m),
+                    sample_step_m=100.0,
+                )
+                wegas_deviation_zones = measure_step(
+                    get_performance_log(),
+                    "Project Adviseur - afwijkingszones wegas",
+                    build_nwb_wegas_deviation_zones,
+                    wegas_comparison_detail,
+                    selected_road,
+                    max_distance_m=float(advisor_nwb_wegas_max_distance_m),
+                )
 
-                            count_updates += 1
+                project_axis_result = measure_step(
+                    get_performance_log(),
+                    "Project Adviseur - projectvoorstellen",
+                    build_project_axis_diagnostics,
+                    road_gdf,
+                    wegassen_gdf,
+                    nwb_result.hectopunten,
+                    wegas_deviation_zones,
+                    selected_road,
+                    max_anchor_distance_m=float(advisor_project_axis_anchor_max_m),
+                    max_object_offset_m=float(advisor_project_axis_object_max_m),
+                    boundary_zone_buffer_m=float(advisor_project_axis_boundary_buffer_m),
+                    length_tolerance_m=float(advisor_project_axis_length_tolerance_m),
+                    boundary_snap_tolerance_m=float(advisor_project_axis_snap_tolerance_m),
+                )
 
-                        st.session_state["processed_groups"].add(selected_group_id)
-                        st.session_state["selected_group_id"] = None
-                        st.session_state["zoom_bounds"] = None
+                st.session_state["nwb_reference_diagnostics"] = {
+                    "road": selected_road,
+                    "revision": current_data_revision_key(),
+                    "schema_version": NWB_REFERENCE_SCHEMA_VERSION,
+                    "app_version": APP_VERSION,
+                    "buffer_meters": float(advisor_nwb_buffer_m),
+                    "wegas_max_distance_m": float(advisor_nwb_wegas_max_distance_m),
+                    "wegas_detail_sample_step_m": 100.0,
+                    "project_axis_schema_version": PROJECT_AXIS_SCHEMA_VERSION,
+                    "project_axis_anchor_max_m": float(advisor_project_axis_anchor_max_m),
+                    "project_axis_object_max_m": float(advisor_project_axis_object_max_m),
+                    "project_axis_boundary_buffer_m": float(advisor_project_axis_boundary_buffer_m),
+                    "project_axis_length_tolerance_m": float(advisor_project_axis_length_tolerance_m),
+                    "project_axis_snap_tolerance_m": float(advisor_project_axis_snap_tolerance_m),
+                    "uploaded_wegassen_name": uploaded_wegassen_name,
+                    "source_summary": nwb_result.source_summary,
+                    "wegvakken": nwb_result.wegvakken.drop(columns="geometry", errors="ignore"),
+                    "hectopunten": nwb_result.hectopunten.drop(columns="geometry", errors="ignore"),
+                    "wegas_comparison": wegas_comparison,
+                    "wegas_comparison_detail": wegas_comparison_detail,
+                    "wegas_deviation_zones": wegas_deviation_zones,
+                    "wegas_detail_map": None,
+                    "project_axis_anchors": project_axis_result.calibration_anchors,
+                    "project_axis_intervals": project_axis_result.hectometer_intervals,
+                    "project_axis_boundaries": project_axis_result.project_boundaries,
+                    "project_axis_coverage": project_axis_result.project_coverage,
+                    "project_axis_object_ranges": project_axis_result.object_ranges,
+                    "project_axis_proposals": project_axis_result.project_proposals,
+                    "project_axis_proposal_objects": project_axis_result.proposal_object_assignments,
+                    "project_axis_proposal_comparison": project_axis_result.proposal_iasset_comparison,
+                    "project_axis_warning": project_axis_result.warning,
+                    "warning": nwb_result.warning,
+                }
+                st.session_state.pop("selected_project_proposal_id", None)
+                st.session_state.pop("selected_project_proposal_object_ids", None)
+                st.session_state.pop("selected_project_proposal_existing_object_ids", None)
+                st.success("Projectadvies is berekend. De voorstellen staan hieronder en kunnen links op de kaart worden geïnspecteerd.")
+                st.rerun()
 
-                        if count_updates:
-                            st.success(f"Opgeslagen. {count_updates} objecten bijgewerkt.")
+        advisor_state = st.session_state.get("nwb_reference_diagnostics") or {}
+        advisor_state_is_current = (
+            advisor_state.get("road") == selected_road
+            and advisor_state.get("revision") == current_data_revision_key()
+            and advisor_state.get("schema_version") == NWB_REFERENCE_SCHEMA_VERSION
+            and advisor_state.get("project_axis_schema_version") == PROJECT_AXIS_SCHEMA_VERSION
+        )
+
+        if not advisor_state_is_current:
+            st.info(
+                "Nog geen actueel Project Adviseur-resultaat voor deze weg en dataset. "
+                "Upload de wegassen-GeoJSON en klik op 'Maak projectadvies'."
+            )
+        else:
+            if advisor_state.get("warning"):
+                st.warning(advisor_state["warning"], icon="⚠️")
+            if advisor_state.get("project_axis_warning"):
+                st.warning(advisor_state["project_axis_warning"], icon="⚠️")
+
+            project_axis_proposals = advisor_state.get("project_axis_proposals")
+            project_axis_intervals = advisor_state.get("project_axis_intervals")
+            project_axis_proposal_objects = advisor_state.get("project_axis_proposal_objects")
+            project_axis_proposal_comparison = advisor_state.get("project_axis_proposal_comparison")
+            project_axis_boundaries = advisor_state.get("project_axis_boundaries")
+            project_axis_coverage = advisor_state.get("project_axis_coverage")
+            project_axis_object_ranges = advisor_state.get("project_axis_object_ranges")
+
+            advisor_table = build_project_advisor_proposal_table(project_axis_proposals)
+            advisor_summary = summarize_project_advisor(
+                advisor_table,
+                project_axis_intervals,
+                project_axis_proposal_comparison,
+            )
+
+            st.markdown("#### 1. Samenvatting")
+            st.caption(
+                f"Resultaat voor {selected_road}. Wegas-upload: "
+                f"{advisor_state.get('uploaded_wegassen_name') or 'onbekend'}. "
+                f"App: {advisor_state.get('app_version', APP_VERSION)}. "
+                f"Projectas-schema: {advisor_state.get('project_axis_schema_version', PROJECT_AXIS_SCHEMA_VERSION)}."
+            )
+
+            summary_col_1, summary_col_2, summary_col_3, summary_col_4, summary_col_5 = st.columns(5)
+            with summary_col_1:
+                st.metric("Voorstellen", advisor_summary["voorstellen"])
+            with summary_col_2:
+                st.metric("Advies ok", advisor_summary["advies_ok"])
+            with summary_col_3:
+                st.metric("Advies controleer", advisor_summary["advies_controleer"])
+            with summary_col_4:
+                st.metric("Datakwaliteit aandacht", advisor_summary["datakwaliteit_aandacht"])
+            with summary_col_5:
+                st.metric("Grens/ijking aandacht", advisor_summary["grens_aandacht"] + advisor_summary["grens_controleer"] + advisor_summary["referentieas_controleer"])
+
+            if advisor_table.empty:
+                st.warning(
+                    "De engine leverde geen projectvoorstellen op. Controleer de technische diagnose onderaan "
+                    "of ga naar de NWB-referentieproef voor bronanalyse."
+                )
+            else:
+                st.markdown("#### 2. Voorstellenlijst")
+                st.caption(
+                    "De tabel splitst inhoudelijk projectadvies, datakwaliteit en grensbetrouwbaarheid. "
+                    "Een ontbrekend besteknummer maakt het projectadvies dus niet automatisch geel."
+                )
+
+                filter_col_1, filter_col_2, filter_col_3 = st.columns(3)
+                filtered_advisor_table = advisor_table.copy()
+                with filter_col_1:
+                    eindadvies_options = ["Alle eindadviezen"] + sorted(
+                        {
+                            clean_display_value(value).strip()
+                            for value in advisor_table["eindadvies"]
+                            if clean_display_value(value).strip()
+                        }
+                    )
+                    selected_eindadvies_filter = st.selectbox(
+                        "Filter eindadvies",
+                        eindadvies_options,
+                        key=f"advisor_filter_eindadvies_{selected_road}",
+                    )
+                with filter_col_2:
+                    project_type_options = ["Alle projecttypes"]
+                    if "project_type" in advisor_table.columns:
+                        project_type_options.extend(
+                            sorted(
+                                {
+                                    clean_display_value(value).strip()
+                                    for value in advisor_table["project_type"]
+                                    if clean_display_value(value).strip()
+                                }
+                            )
+                        )
+                    selected_project_type_filter = st.selectbox(
+                        "Filter projecttype",
+                        project_type_options,
+                        key=f"advisor_filter_projecttype_{selected_road}",
+                    )
+                with filter_col_3:
+                    show_only_worklist = st.checkbox(
+                        "Alleen werklijstregels",
+                        value=False,
+                        key=f"advisor_filter_worklist_{selected_road}",
+                    )
+
+                if selected_eindadvies_filter != "Alle eindadviezen":
+                    filtered_advisor_table = filtered_advisor_table[
+                        filtered_advisor_table["eindadvies"].map(clean_display_value).str.strip()
+                        == selected_eindadvies_filter
+                    ]
+
+                if selected_project_type_filter != "Alle projecttypes" and "project_type" in filtered_advisor_table.columns:
+                    filtered_advisor_table = filtered_advisor_table[
+                        filtered_advisor_table["project_type"].map(clean_display_value).str.strip()
+                        == selected_project_type_filter
+                    ]
+
+                if show_only_worklist:
+                    worklist_ids = set()
+                    worklist_for_filter = build_project_advisor_worklist(advisor_table)
+                    if "voorstel_id" in worklist_for_filter.columns:
+                        worklist_ids = {
+                            clean_display_value(value).strip()
+                            for value in worklist_for_filter["voorstel_id"]
+                            if clean_display_value(value).strip()
+                        }
+                    if "voorstel_id" in filtered_advisor_table.columns:
+                        filtered_advisor_table = filtered_advisor_table[
+                            filtered_advisor_table["voorstel_id"].map(clean_display_value).str.strip().isin(worklist_ids)
+                        ]
+
+                display_columns = [column for column in PROJECT_ADVISOR_MAIN_COLUMNS if column in filtered_advisor_table.columns]
+                if filtered_advisor_table.empty:
+                    st.info("Geen voorstellen binnen deze filters.")
+                else:
+                    st.dataframe(
+                        filtered_advisor_table[display_columns] if display_columns else filtered_advisor_table,
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+                st.markdown("#### 3. Kaartinspectie en detailpaneel")
+                proposal_select_table = filtered_advisor_table.copy()
+                if proposal_select_table.empty or "voorstel_id" not in proposal_select_table.columns:
+                    st.info("Geen voorstel beschikbaar voor kaartinspectie binnen deze filters.")
+                    st.session_state.pop("selected_project_proposal_id", None)
+                    st.session_state.pop("selected_project_proposal_object_ids", None)
+                    st.session_state.pop("selected_project_proposal_existing_object_ids", None)
+                else:
+                    proposal_select_table["voorstel_id"] = proposal_select_table["voorstel_id"].map(clean_display_value).str.strip()
+                    proposal_select_table = proposal_select_table[proposal_select_table["voorstel_id"] != ""].copy()
+
+                    if proposal_select_table.empty:
+                        st.info("Geen voorstel met een bruikbaar voorstel-id beschikbaar voor kaartinspectie.")
+                        st.session_state.pop("selected_project_proposal_id", None)
+                        st.session_state.pop("selected_project_proposal_object_ids", None)
+                        st.session_state.pop("selected_project_proposal_existing_object_ids", None)
+                    else:
+                        label_by_id: dict[str, str] = {}
+                        for _, proposal_row in proposal_select_table.iterrows():
+                            proposal_id = clean_display_value(proposal_row.get("voorstel_id", "")).strip()
+                            proposed_name = clean_display_value(
+                                proposal_row.get("onderhoudsproject_voorgesteld", proposal_id)
+                            ).strip() or proposal_id
+                            status_parts = [
+                                clean_display_value(proposal_row.get("eindadvies", "")),
+                                clean_display_value(proposal_row.get("project_type", "")),
+                                clean_display_value(proposal_row.get("fysiek_begin_km", "")) + "-"
+                                + clean_display_value(proposal_row.get("fysiek_eind_km", "")),
+                            ]
+                            label_by_id[proposal_id] = f"{proposed_name} | " + " · ".join(
+                                part for part in status_parts if part and part != "-"
+                            )
+
+                        selected_proposal_id = st.selectbox(
+                            "Kies projectvoorstel voor inspectie",
+                            list(label_by_id.keys()),
+                            format_func=lambda proposal_id: label_by_id.get(proposal_id, proposal_id),
+                            key=f"advisor_projectvoorstel_selectie_{selected_road}",
+                        )
+
+                        selected_proposal_rows = advisor_table[
+                            advisor_table["voorstel_id"].map(clean_display_value).str.strip()
+                            == selected_proposal_id
+                        ]
+                        selected_proposal_row = (
+                            selected_proposal_rows.iloc[0]
+                            if not selected_proposal_rows.empty
+                            else pd.Series(dtype="object")
+                        )
+
+                        selected_assignment_rows = pd.DataFrame()
+                        selected_object_ids: set[str] = set()
+                        if (
+                            isinstance(project_axis_proposal_objects, pd.DataFrame)
+                            and not project_axis_proposal_objects.empty
+                            and "voorstel_id" in project_axis_proposal_objects.columns
+                        ):
+                            selected_assignment_rows = project_axis_proposal_objects[
+                                project_axis_proposal_objects["voorstel_id"].map(clean_display_value).str.strip()
+                                == selected_proposal_id
+                            ].copy()
+                            if "sys_id" in selected_assignment_rows.columns:
+                                selected_object_ids = _object_id_key_set_for_ui(selected_assignment_rows["sys_id"])
+
+                        existing_project_names = _project_names_from_comparison(
+                            project_axis_proposal_comparison,
+                            selected_proposal_id,
+                        )
+                        existing_object_ids = _object_ids_for_existing_projects(road_gdf, existing_project_names)
+                        comparison_only_ids = existing_object_ids - selected_object_ids
+
+                        st.session_state["selected_project_proposal_id"] = selected_proposal_id
+                        st.session_state["selected_project_proposal_object_ids"] = sorted(selected_object_ids)
+                        st.session_state["selected_project_proposal_existing_object_ids"] = sorted(comparison_only_ids)
+
+                        metric_col_1, metric_col_2, metric_col_3 = st.columns(3)
+                        with metric_col_1:
+                            st.metric("Objecten in voorstel", len(selected_object_ids))
+                        with metric_col_2:
+                            st.metric("Bestaande iASSET-projecten", len(existing_project_names))
+                        with metric_col_3:
+                            st.metric("Extra contextobjecten", len(comparison_only_ids))
+
+                        zoom_bounds = _bounds_for_object_keys(road_gdf, selected_object_ids)
+                        if st.button(
+                            "🔎 Zoom hoofdkaart op geselecteerd voorstel",
+                            key=f"advisor_zoom_projectvoorstel_{selected_road}_{selected_proposal_id}",
+                            disabled=zoom_bounds is None,
+                        ):
+                            st.session_state["zoom_bounds"] = zoom_bounds
+                            st.rerun()
+
+                        status_detail_columns = [
+                            column for column in [
+                                "eindadvies",
+                                "adviesstatus",
+                                "datakwaliteitstatus",
+                                "grensstatus",
+                                "referentieasstatus",
+                                "voorstel_id",
+                                "onderhoudsproject_voorgesteld",
+                                "status_voorstel",
+                                "project_type",
+                                "fysiek_begin_m",
+                                "fysiek_eind_m",
+                                "fysiek_lengte_m",
+                                "fysiek_begin_km",
+                                "fysiek_eind_km",
+                                "naam_begin",
+                                "naam_eind",
+                                "begin_hm_interval",
+                                "begin_hm_interval_lengte_m",
+                                "begin_hm_interval_afwijking_m",
+                                "begin_grensdiagnose",
+                                "eind_hm_interval",
+                                "eind_hm_interval_lengte_m",
+                                "eind_hm_interval_afwijking_m",
+                                "eind_grensdiagnose",
+                                "knipreden_begin",
+                                "knipreden_eind",
+                                "technisch_profiel",
+                                "bestek_signalen",
+                                "datakwaliteit_signalen",
+                                "lokale_afwijkingen",
+                                "bestaande_onderhoudsprojecten",
+                                "hoofdmelding",
+                                "contextmelding",
+                            ]
+                            if column in selected_proposal_row.index
+                        ]
+                        if status_detail_columns:
+                            st.dataframe(
+                                pd.DataFrame([selected_proposal_row[status_detail_columns].to_dict()]),
+                                use_container_width=True,
+                                hide_index=True,
+                            )
+
+                        if existing_project_names:
+                            st.caption(
+                                "Bestaande iASSET-projecten in de vergelijking: "
+                                + ", ".join(sorted(existing_project_names))
+                            )
+
+                        if isinstance(selected_assignment_rows, pd.DataFrame) and not selected_assignment_rows.empty:
+                            selected_assignment_columns = [
+                                column for column in [
+                                    "sys_id",
+                                    "nummer",
+                                    "naam",
+                                    "subthema",
+                                    "bestaand_onderhoudsproject",
+                                    "fysiek_begin_m",
+                                    "fysiek_eind_m",
+                                    "Besteknummer",
+                                    "Soort deklaag specifiek",
+                                    "Jaar deklaag",
+                                    "technisch_profiel",
+                                    "object_kniprol",
+                                    "lokale_afwijking_type",
+                                    "toewijzing_status",
+                                    "toewijzing_melding",
+                                ]
+                                if column in selected_assignment_rows.columns
+                            ]
+                            st.dataframe(
+                                selected_assignment_rows[selected_assignment_columns].head(250)
+                                if selected_assignment_columns
+                                else selected_assignment_rows.head(250),
+                                use_container_width=True,
+                                hide_index=True,
+                            )
                         else:
-                            st.info("Geen wijzigingen nodig, naam stond al goed.")
+                            st.warning("Geen objecttoewijzing gevonden voor dit voorstel.")
 
-                        st.rerun()
+                st.markdown("#### 4. Werklijst")
+                worklist = build_project_advisor_worklist(advisor_table)
+                if worklist.empty:
+                    st.success("Geen aparte werklijstregels: alle voorstellen zijn volgens de huidige statuspresentatie akkoord.")
+                else:
+                    st.caption(
+                        "Deze werklijst bevat alleen voorstellen met aandacht of controle. "
+                        "Gebruik dit als eerste databeheercheck; de brede exports blijven beschikbaar voor detailanalyse."
+                    )
+                    st.dataframe(worklist, use_container_width=True, hide_index=True)
+                    worklist_csv = worklist.to_csv(index=False, sep=";").encode("utf-8-sig")
+                    st.download_button(
+                        "📥 Download werklijst Project Adviseur",
+                        data=worklist_csv,
+                        file_name=f"Projectadvies_Werklijst_{sanitize_filename(selected_road)}.csv",
+                        mime="text/csv",
+                    )
+
+                st.markdown("#### 5. Exports")
+                advisor_csv = advisor_table.to_csv(index=False, sep=";").encode("utf-8-sig")
+                st.download_button(
+                    "📥 Download Project Adviseur voorstellen",
+                    data=advisor_csv,
+                    file_name=f"Projectadvies_Voorstellen_{sanitize_filename(selected_road)}.csv",
+                    mime="text/csv",
+                )
+
+                with st.expander("Technische diagnose en oude exports", expanded=False):
+                    st.caption(
+                        "Deze tabellen blijven beschikbaar voor diagnose en regressietest, maar zijn niet meer "
+                        "het hoofdscherm van de tool."
+                    )
+
+                    if isinstance(project_axis_boundaries, pd.DataFrame) and isinstance(project_axis_coverage, pd.DataFrame) and isinstance(project_axis_object_ranges, pd.DataFrame):
+                        project_axis_control = build_project_axis_control_export(
+                            project_axis_boundaries,
+                            project_axis_coverage,
+                            project_axis_object_ranges,
+                            selected_road=selected_road,
+                        )
+                    else:
+                        project_axis_control = pd.DataFrame()
+
+                    if not project_axis_control.empty:
+                        st.markdown("##### Compacte controlelijst referentieas")
+                        st.dataframe(project_axis_control, use_container_width=True, hide_index=True)
+                        control_csv = project_axis_control.to_csv(index=False, sep=";").encode("utf-8-sig")
+                        st.download_button(
+                            "📥 Download compacte controlelijst referentieas",
+                            data=control_csv,
+                            file_name=f"Projectcontrole_Referentieas_{sanitize_filename(selected_road)}.csv",
+                            mime="text/csv",
+                        )
+
+                    if isinstance(project_axis_intervals, pd.DataFrame) and not project_axis_intervals.empty:
+                        st.markdown("##### Afwijkende hectometerintervallen")
+                        interval_status = project_axis_intervals.get("status", pd.Series(dtype="object")).fillna("ok").astype(str).str.lower()
+                        interval_preview = project_axis_intervals[interval_status != "ok"].copy()
+                        if interval_preview.empty:
+                            st.success("Alle hectometerintervallen vallen binnen de ingestelde tolerantie.")
+                            interval_preview = project_axis_intervals.head(250)
+                        st.dataframe(interval_preview, use_container_width=True, hide_index=True)
+                        intervals_csv = project_axis_intervals.to_csv(index=False, sep=";").encode("utf-8-sig")
+                        st.download_button(
+                            "📥 Download hectometerintervallen referentieas",
+                            data=intervals_csv,
+                            file_name=f"Hectometerintervallen_Referentieas_{sanitize_filename(selected_road)}.csv",
+                            mime="text/csv",
+                        )
+
+                    if isinstance(project_axis_proposal_objects, pd.DataFrame) and not project_axis_proposal_objects.empty:
+                        st.markdown("##### Objecttoewijzing projectvoorstellen")
+                        st.dataframe(project_axis_proposal_objects.head(1500), use_container_width=True, hide_index=True)
+                        proposal_objects_csv = project_axis_proposal_objects.to_csv(index=False, sep=";").encode("utf-8-sig")
+                        st.download_button(
+                            "📥 Download objecttoewijzing projectvoorstellen",
+                            data=proposal_objects_csv,
+                            file_name=f"Projectvoorstel_Objecten_{sanitize_filename(selected_road)}.csv",
+                            mime="text/csv",
+                        )
+
+                    if isinstance(project_axis_proposal_comparison, pd.DataFrame) and not project_axis_proposal_comparison.empty:
+                        st.markdown("##### Vergelijking met bestaande iASSET-projecten")
+                        st.dataframe(project_axis_proposal_comparison, use_container_width=True, hide_index=True)
+                        comparison_csv = project_axis_proposal_comparison.to_csv(index=False, sep=";").encode("utf-8-sig")
+                        st.download_button(
+                            "📥 Download vergelijking projectvoorstellen met iASSET",
+                            data=comparison_csv,
+                            file_name=f"Projectvoorstel_Vergelijking_iASSET_{sanitize_filename(selected_road)}.csv",
+                            mime="text/csv",
+                        )
+
+        legacy_groups_enabled = st.checkbox(
+            "Toon oude adviesgroepen uit v0.35.5",
+            value=False,
+            key=f"legacy_project_advisor_groups_{selected_road}",
+            help=(
+                "Alleen gebruiken wanneer je de oudere objectgroep-/naamgevingsworkflow nog wilt raadplegen. "
+                "De nieuwe Project Adviseur 2.0 hierboven is het hoofdscherm."
+            ),
+        )
+
+        if legacy_groups_enabled:
+            if st.session_state.get("computed_groups") is None:
+                with st.spinner("Adviesgroepen berekenen..."):
+                    st.session_state["computed_groups"] = measure_step(
+                        get_performance_log(),
+                        "Project Adviseur",
+                        generate_grouped_proposals,
+                        road_gdf,
+                        graph_road,
+                    )
+
+            all_groups = st.session_state["computed_groups"] or {}
+
+            active_groups = {
+                group_id: group_data
+                for group_id, group_data in all_groups.items()
+                if group_id not in st.session_state["processed_groups"]
+                and group_id not in st.session_state["ignored_groups"]
+            }
+
+            if not active_groups:
+                st.success("Geen adviezen meer beschikbaar.")
+
+                if st.button("Herberekenen / Reset"):
+                    st.session_state["computed_groups"] = None
+                    st.session_state["processed_groups"] = set()
+                    st.session_state["ignored_groups"] = set()
+                    st.rerun()
+            else:
+                st.write(f"**{len(active_groups)} suggesties beschikbaar**")
+
+                sorted_items = sorted(
+                    active_groups.items(),
+                    key=lambda item: (
+                        item[1].get("volgorde_nr", item[1].get("advies_volgorde", 999999)),
+                        item[1].get("rank", 99),
+                        item[1].get("sort_value", 0),
+                        item[1].get("tie_breaker_dist", 0),
+                        item[1].get("fallback_tie_breaker_dist", 0),
+                    ),
+                )
+
+                with st.container(height=400):
+                    for group_id, group_data in sorted_items:
+                        count = len(group_data["ids"])
+
+                        if "RIJBAAN" in group_id:
+                            icon = "🛣️"
+                        elif "FIETSPAD" in group_id:
+                            icon = "🚲"
+                        elif "PARALLEL" in group_id:
+                            icon = "🛤️"
+                        else:
+                            icon = "🌳"
+
+                        is_selected = st.session_state["selected_group_id"] == group_id
+                        container_args = {"border": True} if is_selected else {}
+
+                        with st.container(**container_args):
+                            if is_selected:
+                                st.markdown("**:blue-background[GESELECTEERD]**")
+
+                            volgorde_nr = group_data.get("volgorde_nr") or group_data.get("advies_volgorde")
+                            volgorde_label = f"{volgorde_nr}. " if volgorde_nr else ""
+                            st.markdown(f"**{volgorde_label}{icon} {group_data['subthema'].title()}** ({count} obj)")
+                            st.caption(group_data["reason"])
+
+                            tie_breaker_source = group_data.get("tie_breaker_source", "")
+                            if tie_breaker_source == "lokale_route_as":
+                                st.caption("Volgorde: hectometrering + lokale route-as.")
+                            elif tie_breaker_source == "lokale_route_as_overlapcluster":
+                                cluster_label = group_data.get("overlap_cluster_id", "")
+                                st.caption(
+                                    "Volgorde: overlappend hm-bereik, lokale route-as bepaalt de positie"
+                                    + (f" ({cluster_label})." if cluster_label else ".")
+                                )
+
+                            assignment_note = group_data.get("assignment_note", "")
+                            if assignment_note and assignment_note != "Primaire ruggengraatgroep; secundaire objecten apart toegewezen.":
+                                st.caption(f"Logica: {assignment_note}")
+
+                            attached_fietspad_count = len(group_data.get("attached_fietspad_ids", []))
+                            if attached_fietspad_count:
+                                st.caption(f"Inclusief {attached_fietspad_count} gekoppelde fietspadobject(en).")
+
+                            if group_data.get("review_needed"):
+                                st.warning("Controle nodig: fietspadrelatie is onzeker.", icon="⚠️")
+
+                            old_project = group_data.get("current_project", "")
+                            st.markdown(
+                                f"<small>Huidig: *{old_project if old_project else 'Geen'}*</small>",
+                                unsafe_allow_html=True,
+                            )
+
+                            c_select, c_ignore = st.columns([1, 1])
+
+                            with c_select:
+                                label = "📍 Geselecteerd" if is_selected else "👁️ Selecteer"
+                                if st.button(label, key=f"vis_{group_id}", disabled=is_selected):
+                                    st.session_state["selected_group_id"] = group_id
+                                    subset_gdf = road_gdf.loc[group_data["ids"]].to_crs(epsg=4326)
+                                    try:
+                                        merged_geometry = subset_gdf.geometry.union_all()
+                                    except AttributeError:
+                                        merged_geometry = subset_gdf.geometry.unary_union
+
+                                    st.session_state["zoom_bounds"] = merged_geometry.bounds
+                                    st.rerun()
+
+                            with c_ignore:
+                                if st.button("🗑️ Negeer", key=f"ign_{group_id}"):
+                                    st.session_state["ignored_groups"].add(group_id)
+                                    if is_selected:
+                                        st.session_state["selected_group_id"] = None
+                                        st.session_state["zoom_bounds"] = None
+                                    st.rerun()
+
+                            if not is_selected:
+                                st.divider()
+
+                selected_group_id = st.session_state["selected_group_id"]
+
+                if selected_group_id and selected_group_id in active_groups:
+                    selected_group = active_groups[selected_group_id]
+
+                    st.divider()
+                    st.markdown(f"#### 🏷️ Naamgeven: {selected_group_id}")
+                    st.info(f"Bevat {len(selected_group['ids'])} objecten. ({selected_group['reason']})")
+
+                    selected_assignment_note = selected_group.get("assignment_note", "")
+                    if selected_assignment_note:
+                        st.caption(f"Toewijzingslogica: {selected_assignment_note}")
+
+                    attached_fietspad_count = len(selected_group.get("attached_fietspad_ids", []))
+                    if attached_fietspad_count:
+                        st.caption(f"Deze groep bevat {attached_fietspad_count} fietspadobject(en) die als kruisend/rotondegebonden zijn gekoppeld.")
+
+                    if selected_group.get("review_needed"):
+                        st.warning(
+                            "Deze fietspadgroep is onzeker geclassificeerd. Controleer op de kaart of dit echt een parallelfietspad is.",
+                            icon="⚠️",
+                        )
+
+                    old_project_hint = selected_group.get("current_project", "")
+                    placeholder_text = old_project_hint if old_project_hint else "bv. N351-HRB-20.1-24.3"
+
+                    name_input = st.text_input(
+                        "Projectnaam",
+                        value="",
+                        placeholder=placeholder_text,
+                        key="proj_name_input",
+                    )
+
+                    if st.button("✅ Opslaan & Toepassen", type="primary"):
+                        if name_input.strip():
+                            new_value = clean_display_value(name_input)
+                            count_updates = 0
+
+                            for object_id in selected_group["ids"]:
+                                if object_id not in raw_gdf.index:
+                                    continue
+
+                                old_value = raw_gdf.at[object_id, "Onderhoudsproject"]
+                                if clean_display_value(old_value) == new_value:
+                                    continue
+
+                                register_change(object_id, "Onderhoudsproject", old_value, name_input)
+
+                                if "Advies_Bron" in raw_gdf.columns:
+                                    apply_change_to_data(raw_gdf, object_id, "Advies_Bron", selected_group["reason"])
+
+                                count_updates += 1
+
+                            st.session_state["processed_groups"].add(selected_group_id)
+                            st.session_state["selected_group_id"] = None
+                            st.session_state["zoom_bounds"] = None
+
+                            if count_updates:
+                                st.success(f"Opgeslagen. {count_updates} objecten bijgewerkt.")
+                            else:
+                                st.info("Geen wijzigingen nodig, naam stond al goed.")
+
+                            st.rerun()
+
 
 
 

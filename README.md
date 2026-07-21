@@ -1,6 +1,37 @@
-# iASSET Advisor - refactor v0.35.5
+# iASSET Advisor - refactor v0.36.0
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
+
+
+## Nieuw in v0.36.0
+
+v0.36.0 zet de stap van technische referentieasfase naar **Project Adviseur 2.0**.
+De bestaande v0.35.5-rekenmotor blijft inhoudelijk intact; de vernieuwing zit in
+het hoofdscherm en de presentatie van de uitkomsten.
+
+Kern:
+- `🏗️ Project Adviseur` staat nu als eerste modus en wordt het functionele hoofdscherm;
+- projectadvies kan direct vanuit dit scherm worden berekend met de bestaande NWB-/projectas-engine;
+- voorstellen krijgen in de UI gescheiden statussen:
+  - `adviesstatus`;
+  - `datakwaliteitstatus`;
+  - `grensstatus`;
+  - `referentieasstatus`;
+  - `eindadvies`;
+- kaartinspectie van één voorstel is naar het hoofdscherm gehaald;
+- er is een compacte werklijst voor voorstellen die aandacht of controle vragen;
+- technische diagnose en brede exports blijven beschikbaar, maar staan onder een expander;
+- de oude adviesgroepenworkflow uit v0.35.5 is niet verwijderd, maar staat achter een expliciete legacy-optie.
+
+Waarom:
+De tool moet nu niet verder groeien als verzameling losse diagnosetabellen, maar
+als dagelijks bruikbaar databeheerscherm. Een databeheerder moet kunnen zien wat
+inhoudelijk logisch is, waar datakwaliteit speelt en welke grenzen extra controle
+vragen, zonder eerst alle technische CSV's te lezen.
+
+Validatie:
+- `pytest -q`: 189 passed
+- `python -m py_compile` op alle Python-bestanden
 
 
 ## Nieuw in v0.35.5
