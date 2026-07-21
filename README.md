@@ -1,6 +1,34 @@
-# iASSET Advisor - refactor v0.36.0
+# iASSET Advisor - refactor v0.36.1
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
+
+
+## Nieuw in v0.36.1
+
+v0.36.1 kalibreert de Project Adviseur voor dagelijks databeheer. De rekenmotor
+blijft ongewijzigd; de wijziging zit in de vertaling van technische signalen
+naar een echte werklijst.
+
+Kern:
+- de werklijst bevat alleen voorstellen waarvoor nu een concrete databeheeractie
+  is benoemd;
+- voorstellen die overeenkomen met iASSET verdwijnen niet, maar komen niet meer
+  automatisch in de werklijst door een informatief bestek- of datakwaliteitssignaal;
+- verschillen met bestaande iASSET-projecten blijven wel actiepunten;
+- micro-/eindzonevoorstellen worden apart gemarkeerd en voelen niet meer als
+  normale onderhoudsprojecten;
+- de samenvatting toont nu functionele tellers: voorstellen, geen directe actie,
+  werklijstregels, iASSET-verschillen, micro/eindzone en afwijkende hm-intervallen.
+
+Waarom:
+De databeheerder moet de tool kunnen gebruiken als werkvoorbereiding: eerst zien
+welke onderhoudsprojecten worden voorgesteld, daarna alleen de echte acties
+oppakken. De brede voorstellenlijst en technische exports blijven beschikbaar
+voor detailcontrole.
+
+Validatie:
+- `pytest -q`: 191 passed
+- `python -m py_compile` op alle Python-bestanden
 
 
 ## Nieuw in v0.36.0

@@ -1,5 +1,22 @@
 # Takenlijst iASSET Advisor
 
+## Klaar in v0.36.1
+
+1. **Werklijst als echte databeheer-actielijst**
+   - Alleen voorstellen met een concrete actie komen in de werklijst.
+   - Informatieve bestek-, datakwaliteit- en grenssignalen blijven zichtbaar in de voorstellenlijst.
+   - De werklijst herhaalt niet langer bijna alle voorstellen.
+
+2. **Functionele statusvertaling**
+   - iASSET-overeenkomst weegt geruststellend mee in de presentatie.
+   - Verschillen met iASSET blijven expliciet actiepunt.
+   - Micro-/eindzonevoorstellen worden apart gemarkeerd.
+
+3. **Samenvatting voor dagelijks gebruik**
+   - Nieuwe tellers: geen directe actie, in werklijst, iASSET-verschillen, micro/eindzone en afwijkende hm-intervallen.
+   - De Project Adviseur blijft voorstel- en controletool; er worden geen iASSET-mutaties uitgevoerd.
+
+
 ## Klaar in v0.36.0
 
 1. **Project Adviseur 2.0 als hoofdscherm**

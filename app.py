@@ -1241,17 +1241,19 @@ with col_inspector:
                 f"Projectas-schema: {advisor_state.get('project_axis_schema_version', PROJECT_AXIS_SCHEMA_VERSION)}."
             )
 
-            summary_col_1, summary_col_2, summary_col_3, summary_col_4, summary_col_5 = st.columns(5)
+            summary_col_1, summary_col_2, summary_col_3, summary_col_4, summary_col_5, summary_col_6 = st.columns(6)
             with summary_col_1:
                 st.metric("Voorstellen", advisor_summary["voorstellen"])
             with summary_col_2:
-                st.metric("Advies ok", advisor_summary["advies_ok"])
+                st.metric("Geen directe actie", advisor_summary["geen_directe_actie"])
             with summary_col_3:
-                st.metric("Advies controleer", advisor_summary["advies_controleer"])
+                st.metric("In werklijst", advisor_summary["werklijstregels"])
             with summary_col_4:
-                st.metric("Datakwaliteit aandacht", advisor_summary["datakwaliteit_aandacht"])
+                st.metric("iASSET-verschillen", advisor_summary["iasset_verschillen"])
             with summary_col_5:
-                st.metric("Grens/ijking aandacht", advisor_summary["grens_aandacht"] + advisor_summary["grens_controleer"] + advisor_summary["referentieas_controleer"])
+                st.metric("Micro/eindzone", advisor_summary["micro_eindzone"])
+            with summary_col_6:
+                st.metric("Afwijkende hm-intervallen", advisor_summary["hm_intervallen_afwijkend"])
 
             if advisor_table.empty:
                 st.warning(
@@ -1517,7 +1519,7 @@ with col_inspector:
                 st.markdown("#### 4. Werklijst")
                 worklist = build_project_advisor_worklist(advisor_table)
                 if worklist.empty:
-                    st.success("Geen aparte werklijstregels: alle voorstellen zijn volgens de huidige statuspresentatie akkoord.")
+                    st.success("Geen aparte werklijstregels: er zijn geen voorstellen waarvoor nu een concrete databeheeractie is benoemd.")
                 else:
                     st.caption(
                         "Deze werklijst bevat alleen voorstellen met aandacht of controle. "
