@@ -1,11 +1,39 @@
-# iASSET Advisor - refactor v0.36.4
+# iASSET Advisor - refactor v0.36.5
+
+
+## Nieuw in v0.36.5
+
+v0.36.5 corrigeert de zichtbare layout van de concept-export in
+N-wegendocument-format. v0.36.4 had de hectometrering inhoudelijk goed, maar
+schreef HRB, PW en FP nog te veel in één generieke layout. Daardoor was vooral
+het FP-tabblad niet goed vergelijkbaar met het handmatige N-wegendocument.
+
+Kern:
+- HRB gebruikt de herkenbare statusblok-layout met nieuwe complexen in kolom C;
+- PW gebruikt de layout met een eerste filterkolom, oud complex in kolom B en
+  nieuw complex in kolom C;
+- FP gebruikt de compacte fietspad-layout zonder knipkolommen;
+- `Conceptregels_data` blijft bestaan als volledig technisch brontabblad;
+- de projectadvies-engine, werklijst en runrapport blijven inhoudelijk
+  ongewijzigd.
+
+Waarom:
+Het conceptbestand moet niet alleen de juiste waarden bevatten, maar ook snel
+naast de handmatige N-wegentabbladen te leggen zijn. Dat vraagt per tabblad een
+layout die aansluit op de bestaande werkvorm.
+
+Validatie:
+- `pytest -q`: 198 passed
+- `python -m py_compile` op alle Python-bestanden
+- proefexport gecontroleerd: N354 (FP) heeft 12 zichtbare kolommen, N354 (PW)
+  heeft oud/nieuw op kolom B/C en de knipwaarden blijven in hectometreringsmeters.
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
 
 
-## Nieuw in v0.36.4
+## Nieuw in v0.36.5
 
-v0.36.4 corrigeert de concept-export in N-wegendocument-format. De tabbladen
+v0.36.5 corrigeert de concept-export in N-wegendocument-format. De tabbladen
 gebruikten in v0.36.3 nog relatieve route-meters van de projectas voor
 `knip (begin)`, `knip (einde)`, `verharding (begin)` en `verharding (einde)`.
 Dat was technisch verklaarbaar, maar niet vergelijkbaar met het handmatige

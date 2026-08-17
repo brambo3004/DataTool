@@ -24,9 +24,75 @@ import pandas as pd
 from .utils import clean_display_value, sanitize_filename
 
 
-NWEGENDOC_HEADERS: tuple[str, ...] = (
+# Interne conceptkolommen. De Excel-tabbladen gebruiken hieronder bewust
+# verschillende zichtbare layouts, omdat het bestaande N-wegendocument dat ook
+# doet: HRB/PW bevatten knipkolommen, FP niet.
+NWEGENDOC_DATA_COLUMNS: tuple[str, ...] = (
+    "onderhoudscomplex_oud",
+    "statuskolom",
+    "onderhoudscomplex_nieuw",
+    "knip_begin",
+    "knip_einde",
+    "objecten",
+    "locatie",
+    "besteknummer",
+    "documentatie",
+    "verharding_begin",
+    "verharding_einde",
+    "verhardingsoort",
+    "conservering",
+    "jaar_aanleg",
+    "jaar_deklaag",
+    "jaar_conservering",
+    "jaar_herstrating",
+    "bijzonderheden",
+)
+
+HRB_VISIBLE_HEADERS: tuple[str, ...] = (
     "onderhoudscomplex oud",
+    "onderhoudscomplex nieuw",
     "",
+    "knip (begin)",
+    "knip (einde)",
+    "objecten",
+    "locatie",
+    "besteknummer",
+    "documentatie",
+    "verharding (begin)",
+    "verharding (einde)",
+    "verhardingsoort",
+    "conservering",
+    "jaar aanleg",
+    "jaar deklaag",
+    "jaar conservering",
+    "jaar herstrating",
+    "bijzonderheden",
+)
+
+HRB_VISIBLE_DATA_COLUMNS: tuple[str, ...] = (
+    "onderhoudscomplex_oud",
+    "statuskolom",
+    "onderhoudscomplex_nieuw",
+    "knip_begin",
+    "knip_einde",
+    "objecten",
+    "locatie",
+    "besteknummer",
+    "documentatie",
+    "verharding_begin",
+    "verharding_einde",
+    "verhardingsoort",
+    "conservering",
+    "jaar_aanleg",
+    "jaar_deklaag",
+    "jaar_conservering",
+    "jaar_herstrating",
+    "bijzonderheden",
+)
+
+PW_VISIBLE_HEADERS: tuple[str, ...] = (
+    "filters obv oude complexen",
+    "onderhoudscomplex oud",
     "onderhoudscomplex nieuw",
     "knip (begin)",
     "knip (einde)",
@@ -45,9 +111,9 @@ NWEGENDOC_HEADERS: tuple[str, ...] = (
     "bijzonderheden",
 )
 
-NWEGENDOC_DATA_COLUMNS: tuple[str, ...] = (
-    "onderhoudscomplex_oud",
+PW_VISIBLE_DATA_COLUMNS: tuple[str, ...] = (
     "statuskolom",
+    "onderhoudscomplex_oud",
     "onderhoudscomplex_nieuw",
     "knip_begin",
     "knip_einde",
@@ -57,6 +123,36 @@ NWEGENDOC_DATA_COLUMNS: tuple[str, ...] = (
     "documentatie",
     "verharding_begin",
     "verharding_einde",
+    "verhardingsoort",
+    "conservering",
+    "jaar_aanleg",
+    "jaar_deklaag",
+    "jaar_conservering",
+    "jaar_herstrating",
+    "bijzonderheden",
+)
+
+FP_VISIBLE_HEADERS: tuple[str, ...] = (
+    "onderhoudscomplex oud",
+    "onderhoudscomplex nieuw",
+    "objecten",
+    "locatie",
+    "besteknummer",
+    "verhardingsoort",
+    "conservering",
+    "jaar aanleg",
+    "jaar deklaag",
+    "jaar conservering",
+    "jaar herstrating",
+    "bijzonderheden",
+)
+
+FP_VISIBLE_DATA_COLUMNS: tuple[str, ...] = (
+    "onderhoudscomplex_oud",
+    "onderhoudscomplex_nieuw",
+    "objecten",
+    "locatie",
+    "besteknummer",
     "verhardingsoort",
     "conservering",
     "jaar_aanleg",
@@ -339,22 +435,84 @@ def _safe_sheet_name(name: str) -> str:
     return safe[:31] or "Sheet"
 
 
-def _write_nwegendoc_sheet(writer: pd.ExcelWriter, sheet_name: str, rows: pd.DataFrame, selected_road: str) -> None:
-    """Schrijf één concepttabblad in N-wegendocument-layout."""
-    workbook = writer.book
-    worksheet = workbook.create_sheet(_safe_sheet_name(sheet_name))
-    writer.sheets[worksheet.title] = worksheet
+def _sheet_layout(tab: str) -> tuple[tuple[str, ...], tuple[str, ...], int, str, str]:
+    """
+    Geef de zichtbare layout voor een N-wegendocumenttabblad.
 
-    # Bovenblok, gebaseerd op de handmatige N-wegendocumenttabbladen.
-    worksheet.append(["Status", "", "Concept-export Project Adviseur", ""])
+    Retourneert:
+    - headers
+    - databronkolommen
+    - eerste datarij
+    - autofilterbereik-startcel
+    - freeze_panes
+
+    Waarom per tabblad?
+    Het N-wegendocument is historisch gegroeid. HRB, PW en FP hebben niet overal
+    exact dezelfde kolomindeling. De concept-export volgt die werkvorm, zodat het
+    bestand naast de handmatige tabbladen te leggen is.
+    """
+    tab = tab.upper()
+    if tab == "PW":
+        return PW_VISIBLE_HEADERS, PW_VISIBLE_DATA_COLUMNS, 5, "A1", "A5"
+    if tab == "FP":
+        return FP_VISIBLE_HEADERS, FP_VISIBLE_DATA_COLUMNS, 2, "A1", "A2"
+    return HRB_VISIBLE_HEADERS, HRB_VISIBLE_DATA_COLUMNS, 8, "A3", "A8"
+
+
+def _append_status_block(worksheet, tab: str, selected_road: str) -> None:
+    """Schrijf het bovenblok zoals het betreffende N-wegendocumenttabblad het verwacht."""
+    tab = tab.upper()
+
+    if tab == "FP":
+        # Het fietspadtabblad in het N-wegendocument heeft een compacte layout:
+        # direct de kolomkoppen, zonder statusblok en zonder knipkolommen.
+        worksheet.append(list(FP_VISIBLE_HEADERS))
+        return
+
+    if tab == "PW":
+        worksheet.append(list(PW_VISIBLE_HEADERS))
+        worksheet.append(["", "Oud complex verwijderd uit iASSET", "Alleen paspoort gevuld"])
+        worksheet.append(["", "", "Paspoort + onderhoudscomplex aangemaakt"])
+        worksheet.append([])
+        return
+
+    # HRB-layout: N354 gebruikt een statusblok met oude complexen in kolom A,
+    # een status/spacerkolom B en nieuwe complexen in kolom C.
+    worksheet.append(["Status", "", "Concept-export Project Adviseur", selected_road])
     worksheet.append([])
-    worksheet.append(list(NWEGENDOC_HEADERS))
+    worksheet.append(list(HRB_VISIBLE_HEADERS))
     worksheet.append(["Oud onderhoudscomplex verwijderd", "", "Alleen paspoort gevuld"])
     worksheet.append(["", "", "Paspoort gevuld + nieuw onderhoudscomplex aangemaakt"])
     worksheet.append(["", "", "Maatregeltoetsdocument bijgewerkt"])
     worksheet.append([])
 
-    display_rows = rows[list(NWEGENDOC_DATA_COLUMNS)] if not rows.empty else pd.DataFrame(columns=NWEGENDOC_DATA_COLUMNS)
+    # In het handmatige N354-HRB-tabblad is de kop "onderhoudscomplex nieuw"
+    # visueel over kolom B en C getrokken. Dat nemen we over; de eigenlijke
+    # projectnamen blijven in kolom C.
+    try:
+        worksheet.merge_cells("B3:C3")
+    except ValueError:
+        # Robuust houden bij schrijf-/templatevarianten.
+        pass
+
+
+def _write_nwegendoc_sheet(
+    writer: pd.ExcelWriter,
+    sheet_name: str,
+    rows: pd.DataFrame,
+    selected_road: str,
+    *,
+    tab: str,
+) -> None:
+    """Schrijf één concepttabblad in N-wegendocument-layout."""
+    workbook = writer.book
+    worksheet = workbook.create_sheet(_safe_sheet_name(sheet_name))
+    writer.sheets[worksheet.title] = worksheet
+
+    headers, data_columns, first_data_row, filter_start_cell, freeze_panes = _sheet_layout(tab)
+    _append_status_block(worksheet, tab, selected_road)
+
+    display_rows = rows[list(data_columns)] if not rows.empty else pd.DataFrame(columns=data_columns)
     for values in display_rows.itertuples(index=False, name=None):
         worksheet.append(list(values))
 
@@ -368,57 +526,102 @@ def _write_nwegendoc_sheet(writer: pd.ExcelWriter, sheet_name: str, rows: pd.Dat
     thin = Side(style="thin", color="D9D9D9")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-    for cell in worksheet[1]:
-        cell.font = Font(bold=True)
-        cell.fill = status_fill
+    max_row = worksheet.max_row
+    max_col = len(headers)
 
-    for row_idx in (3, 4, 5, 6):
+    if tab.upper() == "HRB":
+        header_rows = (1, 3, 4, 5, 6)
+    elif tab.upper() == "PW":
+        header_rows = (1, 2, 3)
+    else:
+        header_rows = (1,)
+
+    for row_idx in header_rows:
+        if row_idx > worksheet.max_row:
+            continue
         for cell in worksheet[row_idx]:
-            cell.fill = header_fill if row_idx == 3 else status_fill
-            cell.font = Font(bold=row_idx == 3)
+            cell.fill = header_fill if row_idx in {1, 3} else status_fill
+            cell.font = Font(bold=row_idx in {1, 3})
             cell.border = border
             cell.alignment = Alignment(wrap_text=True, vertical="top")
 
-    max_row = worksheet.max_row
-    max_col = len(NWEGENDOC_HEADERS)
-    for row in worksheet.iter_rows(min_row=8, max_row=max_row, max_col=max_col):
+    for row in worksheet.iter_rows(min_row=first_data_row, max_row=max_row, max_col=max_col):
         for cell in row:
             cell.border = border
             cell.alignment = Alignment(wrap_text=True, vertical="top")
 
-    if max_row >= 8:
-        worksheet.auto_filter.ref = f"A3:R{max_row}"
+    if max_row >= first_data_row:
+        worksheet.auto_filter.ref = f"{filter_start_cell}:{worksheet.cell(max_row, max_col).coordinate}"
 
-    worksheet.freeze_panes = "A8"
+    worksheet.freeze_panes = freeze_panes
 
-    widths = {
-        "A": 24,
-        "B": 4,
-        "C": 24,
-        "D": 12,
-        "E": 12,
-        "F": 34,
-        "G": 22,
-        "H": 20,
-        "I": 28,
-        "J": 13,
-        "K": 13,
-        "L": 24,
-        "M": 18,
-        "N": 12,
-        "O": 12,
-        "P": 16,
-        "Q": 16,
-        "R": 60,
-    }
+    if tab.upper() == "FP":
+        widths = {
+            "A": 24,
+            "B": 24,
+            "C": 34,
+            "D": 22,
+            "E": 20,
+            "F": 24,
+            "G": 18,
+            "H": 12,
+            "I": 12,
+            "J": 16,
+            "K": 16,
+            "L": 60,
+        }
+        note_column = "L"
+    elif tab.upper() == "PW":
+        widths = {
+            "A": 24,
+            "B": 24,
+            "C": 24,
+            "D": 12,
+            "E": 12,
+            "F": 34,
+            "G": 22,
+            "H": 20,
+            "I": 28,
+            "J": 13,
+            "K": 13,
+            "L": 24,
+            "M": 18,
+            "N": 12,
+            "O": 12,
+            "P": 16,
+            "Q": 16,
+            "R": 60,
+        }
+        note_column = "R"
+    else:
+        widths = {
+            "A": 24,
+            "B": 4,
+            "C": 24,
+            "D": 12,
+            "E": 12,
+            "F": 34,
+            "G": 22,
+            "H": 20,
+            "I": 28,
+            "J": 13,
+            "K": 13,
+            "L": 24,
+            "M": 18,
+            "N": 12,
+            "O": 12,
+            "P": 16,
+            "Q": 16,
+            "R": 60,
+        }
+        note_column = "R"
+
     for column_letter, width in widths.items():
         worksheet.column_dimensions[column_letter].width = width
 
-    if max_row >= 8:
-        for cell in worksheet[f"R8:R{max_row}"]:
-            cell[0].fill = note_fill
-
-    worksheet["D1"] = selected_road
+    if max_row >= first_data_row:
+        for cell_tuple in worksheet[f"{note_column}{first_data_row}:{note_column}{max_row}"]:
+            cell_tuple[0].fill = note_fill
 
 
 def _write_dataframe_sheet(writer: pd.ExcelWriter, sheet_name: str, df: pd.DataFrame) -> None:
@@ -499,7 +702,7 @@ def build_nwegendocument_concept_workbook_bytes(
                 # Maak PW/FP alleen aan als ze echt voorkomen. HRB blijft bestaan
                 # zodat een lege run voor een hoofdrijbaan herkenbaar is.
                 continue
-            _write_nwegendoc_sheet(writer, f"{selected_road or 'Weg'} ({tab})", rows_for_tab, selected_road)
+            _write_nwegendoc_sheet(writer, f"{selected_road or 'Weg'} ({tab})", rows_for_tab, selected_road, tab=tab)
 
         not_auto = pd.DataFrame(
             [
@@ -522,6 +725,10 @@ def build_nwegendocument_concept_workbook_bytes(
                 {
                     "veld": "buiten ijkbereik",
                     "toelichting": "Niet overnemen zonder handmatige kaart- en broncontrole.",
+                },
+                {
+                    "veld": "FP-tabblad",
+                    "toelichting": "Het fietspadtabblad volgt het compacte N-wegendocument-format zonder knipkolommen.",
                 },
             ]
         )

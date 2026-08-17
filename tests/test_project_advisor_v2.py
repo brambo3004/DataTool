@@ -381,3 +381,82 @@ def test_nwegendocument_concept_export_maakt_xlsx_bytes() -> None:
     exported = pd.read_excel(workbook, sheet_name="N398 (HRB)", header=None)
     assert "onderhoudscomplex oud" in exported.iloc[2].astype(str).tolist()
     assert "N398-HRB-01.6-04.6" in exported.astype(str).to_string()
+
+
+def test_nwegendocument_export_fp_heeft_compact_fietspadformat() -> None:
+    """FP volgt het compacte N-wegendocumentformat zonder knipkolommen."""
+    proposals = pd.DataFrame(
+        [
+            {
+                "voorstel_id": "fp",
+                "onderhoudsproject_voorgesteld": "N354-FPR-25.8-27.5",
+                "project_type": "FPR",
+                "project_family": "FP",
+                "bestaande_onderhoudsprojecten": "N354-FPR-25.7-28.0",
+                "fysiek_begin_km": 25.8,
+                "fysiek_eind_km": 27.5,
+                "fysiek_lengte_m": 1700.0,
+            }
+        ]
+    )
+
+    advisor_table = build_project_advisor_proposal_table(proposals)
+    xlsx_bytes = build_nwegendocument_concept_workbook_bytes(advisor_table, selected_road="N354")
+
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(io.BytesIO(xlsx_bytes), data_only=True)
+    worksheet = workbook["N354 (FP)"]
+
+    headers = [worksheet.cell(1, column).value for column in range(1, worksheet.max_column + 1)]
+    assert headers == [
+        "onderhoudscomplex oud",
+        "onderhoudscomplex nieuw",
+        "objecten",
+        "locatie",
+        "besteknummer",
+        "verhardingsoort",
+        "conservering",
+        "jaar aanleg",
+        "jaar deklaag",
+        "jaar conservering",
+        "jaar herstrating",
+        "bijzonderheden",
+    ]
+    assert worksheet.max_column == 12
+    assert worksheet["A2"].value == "N354-FPR-25.7-28.0"
+    assert worksheet["B2"].value == "N354-FPR-25.8-27.5"
+
+
+def test_nwegendocument_export_pw_zet_oud_en_nieuw_in_kolom_b_en_c() -> None:
+    """PW volgt de bestaande layout met filterkolom, oud in B en nieuw in C."""
+    proposals = pd.DataFrame(
+        [
+            {
+                "voorstel_id": "pw",
+                "onderhoudsproject_voorgesteld": "N354-PWL-10.9-12.7",
+                "project_type": "PWL",
+                "project_family": "PW",
+                "bestaande_onderhoudsprojecten": "N354-PWL-10.8-20.5",
+                "fysiek_begin_km": 10.9,
+                "fysiek_eind_km": 12.7,
+                "fysiek_lengte_m": 1800.0,
+            }
+        ]
+    )
+
+    advisor_table = build_project_advisor_proposal_table(proposals)
+    xlsx_bytes = build_nwegendocument_concept_workbook_bytes(advisor_table, selected_road="N354")
+
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(io.BytesIO(xlsx_bytes), data_only=True)
+    worksheet = workbook["N354 (PW)"]
+
+    assert worksheet["A1"].value == "filters obv oude complexen"
+    assert worksheet["B1"].value == "onderhoudscomplex oud"
+    assert worksheet["C1"].value == "onderhoudscomplex nieuw"
+    assert worksheet["B5"].value == "N354-PWL-10.8-20.5"
+    assert worksheet["C5"].value == "N354-PWL-10.9-12.7"
+    assert worksheet["D5"].value == 10900
+    assert worksheet["E5"].value == 12700

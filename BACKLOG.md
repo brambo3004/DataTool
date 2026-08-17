@@ -1,5 +1,22 @@
 # Takenlijst iASSET Advisor
 
+## Klaar in v0.36.5
+
+1. **N-wegendocument-export volgt tabbladspecifieke layouts**
+   - HRB, PW en FP worden niet meer allemaal in dezelfde generieke kolomindeling geschreven.
+   - HRB volgt de statusblokindeling met nieuwe onderhoudscomplexen in kolom C.
+   - PW volgt de indeling met filterkolom, oud onderhoudscomplex in kolom B en nieuw onderhoudscomplex in kolom C.
+   - FP volgt de compacte fietspadindeling zonder knip- en verharding-begin/einde-kolommen.
+
+2. **Conceptregels blijven volledig beschikbaar**
+   - Het tabblad `Conceptregels_data` behoudt alle volledige technische conceptvelden.
+   - De zichtbare N-wegentabbladen zijn bedoeld voor vergelijking met het handmatige werkdocument.
+
+3. **Geen nieuwe projectlogica**
+   - De Project Adviseur-engine, runrapportage en werklijst blijven inhoudelijk ongewijzigd.
+   - v0.36.5 corrigeert de werkvorm van de Excel-export.
+
+
 ## Klaar in v0.36.4
 
 1. **N-wegendocument-export gebruikt hectometreringsmeters**
