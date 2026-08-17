@@ -1,6 +1,38 @@
-# iASSET Advisor - refactor v0.36.3
+# iASSET Advisor - refactor v0.36.4
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
+
+
+## Nieuw in v0.36.4
+
+v0.36.4 corrigeert de concept-export in N-wegendocument-format. De tabbladen
+gebruikten in v0.36.3 nog relatieve route-meters van de projectas voor
+`knip (begin)`, `knip (einde)`, `verharding (begin)` en `verharding (einde)`.
+Dat was technisch verklaarbaar, maar niet vergelijkbaar met het handmatige
+N-wegendocument.
+
+Kern:
+- de N-wegendocument-export gebruikt nu primair `fysiek_begin_km` en
+  `fysiek_eind_km`;
+- die waarden worden omgezet naar hectometreringsmeters, bijvoorbeeld
+  `25.800 km` → `25800`;
+- relatieve projectas-meters blijven alleen fallback wanneer km-waarden
+  ontbreken;
+- de export blijft een los conceptbestand en overschrijft het bestaande
+  N-wegendocument niet;
+- Project Adviseur, werklijst en runrapport blijven inhoudelijk ongewijzigd.
+
+Waarom:
+De concept-export moet naast het handmatige N-wegendocument gelegd kunnen worden.
+Daarvoor moeten de knip- en verhardingswaarden dezelfde betekenis/schaal hebben
+als in de bestaande tabbladen.
+
+Validatie:
+- `pytest -q`: 196 passed
+- `python -m py_compile` op alle Python-bestanden
+- proefexport voor N354 gecontroleerd: knipwaarden zoals `25.8–26.3` worden nu
+  als `25800–26300` geëxporteerd
+
 
 
 ## Nieuw in v0.36.3
