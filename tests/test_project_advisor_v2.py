@@ -248,8 +248,10 @@ def test_nwegendocument_concept_export_vult_werkbladkolommen() -> None:
                 "bestaande_onderhoudsprojecten": "N398-HRB-01.6-04.6",
                 "vergelijking_iasset_status": "ok",
                 "status_voorstel": "ok",
-                "fysiek_begin_m": 1600.0,
-                "fysiek_eind_m": 4600.0,
+                "fysiek_begin_m": 0.0,
+                "fysiek_eind_m": 3000.0,
+                "fysiek_begin_km": 1.6,
+                "fysiek_eind_km": 4.6,
                 "fysiek_lengte_m": 3000.0,
                 "naam_begin": 1.6,
                 "naam_eind": 4.6,
@@ -262,8 +264,10 @@ def test_nwegendocument_concept_export_vult_werkbladkolommen() -> None:
                 "project_family": "BB",
                 "vergelijking_iasset_status": "ok",
                 "status_voorstel": "ok",
-                "fysiek_begin_m": 4600.0,
-                "fysiek_eind_m": 4800.0,
+                "fysiek_begin_m": 3000.0,
+                "fysiek_eind_m": 3200.0,
+                "fysiek_begin_km": 4.6,
+                "fysiek_eind_km": 4.8,
                 "fysiek_lengte_m": 200.0,
                 "naam_begin": 4.6,
                 "naam_eind": 4.8,
@@ -308,6 +312,38 @@ def test_nwegendocument_concept_export_vult_werkbladkolommen() -> None:
     assert bb["tabblad"] == "PW"
 
 
+
+def test_nwegendocument_concept_export_gebruikt_hectometrering_in_meters() -> None:
+    """Relatieve route-meters mogen niet in het N-wegendocument terechtkomen."""
+    proposals = pd.DataFrame(
+        [
+            {
+                "voorstel_id": "n354",
+                "onderhoudsproject_voorgesteld": "N354-HRB-25.8-26.3",
+                "project_type": "HRB",
+                "project_family": "HRB",
+                # Relatieve route-meters op de wegas:
+                "fysiek_begin_m": 0.0,
+                "fysiek_eind_m": 524.0,
+                # Administratieve hectometrering:
+                "fysiek_begin_km": 25.8,
+                "fysiek_eind_km": 26.3,
+                "fysiek_lengte_m": 524.0,
+                "naam_begin": 25.8,
+                "naam_eind": 26.3,
+            }
+        ]
+    )
+
+    advisor_table = build_project_advisor_proposal_table(proposals)
+    concept_rows = build_nwegendocument_concept_rows(advisor_table)
+    row = concept_rows.iloc[0]
+
+    assert row["knip_begin"] == 25800
+    assert row["knip_einde"] == 26300
+    assert row["verharding_begin"] == 25800
+    assert row["verharding_einde"] == 26300
+
 def test_nwegendocument_concept_export_maakt_xlsx_bytes() -> None:
     """De app kan een downloadbare Excel-export maken zonder templatebestand."""
     proposals = pd.DataFrame(
@@ -319,8 +355,10 @@ def test_nwegendocument_concept_export_maakt_xlsx_bytes() -> None:
                 "project_family": "HRB",
                 "vergelijking_iasset_status": "ok",
                 "status_voorstel": "ok",
-                "fysiek_begin_m": 1600.0,
-                "fysiek_eind_m": 4600.0,
+                "fysiek_begin_m": 0.0,
+                "fysiek_eind_m": 3000.0,
+                "fysiek_begin_km": 1.6,
+                "fysiek_eind_km": 4.6,
                 "fysiek_lengte_m": 3000.0,
                 "naam_begin": 1.6,
                 "naam_eind": 4.6,
@@ -332,7 +370,7 @@ def test_nwegendocument_concept_export_maakt_xlsx_bytes() -> None:
     xlsx_bytes = build_nwegendocument_concept_workbook_bytes(
         advisor_table,
         selected_road="N398",
-        app_version="v0.36.3",
+        app_version="v0.36.4",
     )
 
     assert xlsx_bytes[:2] == b"PK"

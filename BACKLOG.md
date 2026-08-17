@@ -1,5 +1,21 @@
 # Takenlijst iASSET Advisor
 
+## Klaar in v0.36.4
+
+1. **N-wegendocument-export gebruikt hectometreringsmeters**
+   - `knip (begin)`, `knip (einde)`, `verharding (begin)` en `verharding (einde)` worden nu primair gevuld vanuit `fysiek_begin_km` en `fysiek_eind_km`.
+   - Voorbeeld: `25.800 km` wordt `25800`, zodat het concepttabblad vergelijkbaar is met het handmatige N-wegendocument.
+   - Relatieve projectas-meters worden alleen nog als fallback gebruikt wanneer km-waarden ontbreken.
+
+2. **Concepttabblad blijft veilig**
+   - Het bestaande N-wegendocument wordt niet overschreven.
+   - De export blijft een los conceptbestand voor vergelijking en handmatige overname.
+
+3. **Geen extra diagnose of nieuwe projectlogica**
+   - Project Adviseur, runrapport en werklijst blijven inhoudelijk ongewijzigd.
+   - v0.36.4 corrigeert de werkproces-export, niet de projectas-engine.
+
+
 ## Klaar in v0.36.3
 
 1. **Concept-export in N-wegendocument-format**

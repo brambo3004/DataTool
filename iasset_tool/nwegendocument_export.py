@@ -129,22 +129,33 @@ def _number(value: Any) -> float | None:
     return number if number == number else None
 
 
-def _as_meter_value(value: Any) -> int | float | str:
+def _as_nwegendoc_meter_value(km_value: Any, *, fallback_meter_value: Any = None) -> int | float | str:
     """
-    Schrijf fysieke knipwaarden in meters.
+    Schrijf knipwaarden in de schaal van het N-wegendocument.
 
-    Het N-wegendocument gebruikt in de handmatige tabbladen meestal fysieke
-    meterwaarden, bijvoorbeeld 8605 in plaats van 8.605 km. Daarom gebruiken we
-    ``fysiek_begin_m``/``fysiek_eind_m`` en ronden we af op hele meters als dat
-    logisch is.
+    De projectas-engine rekent intern met relatieve route-meters op de gekozen
+    wegas (`fysiek_begin_m`/`fysiek_eind_m`). Die waarden zijn nuttig voor GIS,
+    maar niet vergelijkbaar met het handmatige N-wegendocument. Daar worden de
+    knippen als hectometreringsmeters vastgelegd: 25.800 km wordt dus 25800.
+
+    Daarom gebruikt deze export primair `fysiek_begin_km`/`fysiek_eind_km` en
+    vermenigvuldigt die met 1000. Alleen wanneer de km-waarde ontbreekt, vallen
+    we terug op de oude meterwaarde. Zo blijft de export robuust bij oudere of
+    onvolledige tussenbestanden.
     """
-    number = _number(value)
-    if number is None:
+    km_number = _number(km_value)
+    if km_number is not None:
+        meter_number = km_number * 1000.0
+    else:
+        meter_number = _number(fallback_meter_value)
+
+    if meter_number is None:
         return ""
-    rounded = round(number)
-    if abs(number - rounded) < 0.001:
+
+    rounded = round(meter_number)
+    if abs(meter_number - rounded) < 0.001:
         return int(rounded)
-    return round(number, 3)
+    return round(meter_number, 3)
 
 
 def _parse_technisch_profiel(profile: Any) -> dict[str, str]:
@@ -296,14 +307,14 @@ def build_nwegendocument_concept_rows(
             "onderhoudscomplex_oud": _text(proposal_row.get("bestaande_onderhoudsprojecten", "")),
             "statuskolom": "",
             "onderhoudscomplex_nieuw": _text(proposal_row.get("onderhoudsproject_voorgesteld", "")),
-            "knip_begin": _as_meter_value(proposal_row.get("fysiek_begin_m", "")),
-            "knip_einde": _as_meter_value(proposal_row.get("fysiek_eind_m", "")),
+            "knip_begin": _as_nwegendoc_meter_value(proposal_row.get("fysiek_begin_km", ""), fallback_meter_value=proposal_row.get("fysiek_begin_m", "")),
+            "knip_einde": _as_nwegendoc_meter_value(proposal_row.get("fysiek_eind_km", ""), fallback_meter_value=proposal_row.get("fysiek_eind_m", "")),
             "objecten": _object_summary(object_rows),
             "locatie": "",
             "besteknummer": besteknummer,
             "documentatie": "",
-            "verharding_begin": _as_meter_value(proposal_row.get("fysiek_begin_m", "")),
-            "verharding_einde": _as_meter_value(proposal_row.get("fysiek_eind_m", "")),
+            "verharding_begin": _as_nwegendoc_meter_value(proposal_row.get("fysiek_begin_km", ""), fallback_meter_value=proposal_row.get("fysiek_begin_m", "")),
+            "verharding_einde": _as_nwegendoc_meter_value(proposal_row.get("fysiek_eind_km", ""), fallback_meter_value=proposal_row.get("fysiek_eind_m", "")),
             "verhardingsoort": verhardingsoort,
             "conservering": _value_from_objects_or_profile(proposal_row, object_rows, "Soort conservering", "Soort conservering"),
             "jaar_aanleg": _value_from_objects_or_profile(proposal_row, object_rows, "Jaar aanleg", "Jaar aanleg"),
