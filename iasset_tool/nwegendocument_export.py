@@ -764,7 +764,7 @@ def build_nwegendocument_concept_workbook_bytes(
             {"onderdeel": "App-versie", "waarde": app_version or "onbekend"},
             {
                 "onderdeel": "Belangrijk",
-                "waarde": "Concept-export: controleer altijd in kaart, iASSET en N-wegendocument voordat je gegevens overneemt.",
+                "waarde": "Concept-export: controleer altijd met kaartbeeld, actuele iASSET-data en beschikbare broninformatie voordat je gegevens verwerkt. Het concept-N-wegendocument is een werkblad, geen waarheid.",
             },
             {
                 "onderdeel": "Niet automatisch gevuld",

@@ -1,4 +1,26 @@
-# iASSET Advisor - refactor v0.36.7
+# iASSET Advisor - refactor v0.36.8
+
+
+## Nieuw in v0.36.8
+
+v0.36.8 is een kleine afrondende tekstcorrectie voor de Excel-export
+`Projectadvies_Nwegendocument_<weg>.xlsx`.
+
+De samenvatting in de concept-export zegt nu expliciet:
+- controleer met kaartbeeld, actuele iASSET-data en beschikbare broninformatie;
+- het concept-N-wegendocument is een werkblad, geen waarheid;
+- oude handmatige N-wegentabbladen worden niet als automatische beoordelingsbron gebruikt.
+
+Er is geen nieuwe rekenlogica toegevoegd. Projectvoorstellen, werklijst,
+runrapporttellingen en de inhoudelijke N-wegendocument-export blijven gelijk aan
+v0.36.7.
+
+Validatie:
+- `pytest -q`: 202 passed
+- `python -m py_compile` op alle Python-bestanden
+- test toegevoegd die bewaakt dat de Excel-samenvatting niet meer verwijst naar
+  het N-wegendocument als controlebron.
+
 
 
 ## Nieuw in v0.36.7

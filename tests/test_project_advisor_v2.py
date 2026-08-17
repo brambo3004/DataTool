@@ -565,3 +565,41 @@ def test_nwegendocument_export_schrijft_objecttoewijzing_apart() -> None:
     object_sheet = pd.read_excel(workbook, sheet_name="Objecttoewijzing_data")
     assert "naam" in object_sheet.columns
     assert "WKT" not in object_sheet.columns
+
+
+def test_nwegendocument_export_samenvatting_benoemt_werkblad_geen_waarheid() -> None:
+    """De Excel-samenvatting gebruikt het concept-N-wegendocument niet als controlebron."""
+    proposals = pd.DataFrame(
+        [
+            {
+                "voorstel_id": "hrb",
+                "onderhoudsproject_voorgesteld": "N354-HRB-10.9-11.5",
+                "project_type": "HRB",
+                "project_family": "HRB",
+                "fysiek_begin_km": 10.9,
+                "fysiek_eind_km": 11.5,
+                "fysiek_lengte_m": 600.0,
+            }
+        ]
+    )
+
+    advisor_table = build_project_advisor_proposal_table(proposals)
+    xlsx_bytes = build_nwegendocument_concept_workbook_bytes(
+        advisor_table,
+        selected_road="N354",
+        app_version="v0.36.8",
+    )
+
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(io.BytesIO(xlsx_bytes), data_only=True)
+    worksheet = workbook["Samenvatting"]
+
+    waarden = [str(row[1]) for row in worksheet.iter_rows(min_row=2, values_only=True) if row[1]]
+    tekst = "\n".join(waarden)
+
+    assert "controleer altijd in kaart, iASSET en N-wegendocument" not in tekst
+    assert "kaartbeeld" in tekst
+    assert "actuele iASSET-data" in tekst
+    assert "beschikbare broninformatie" in tekst
+    assert "werkblad, geen waarheid" in tekst

@@ -1,5 +1,19 @@
 # Takenlijst iASSET Advisor
 
+## Klaar in v0.36.8
+
+1. **Excel-samenvatting concept-N-wegendocument aangescherpt**
+   - De samenvatting verwijst niet meer naar het N-wegendocument als controlebron.
+   - De export noemt kaartbeeld, actuele iASSET-data en beschikbare broninformatie als controlebasis.
+   - Het concept-N-wegendocument wordt expliciet benoemd als werkblad, niet als waarheid.
+
+2. **v0.36-fase afgerond als Project Adviseur basisversie**
+   - Geen nieuwe analyse.
+   - Geen nieuwe projectlogica.
+   - Geen automatische vergelijking met oude handmatige N-wegentabbladen.
+   - Volgende grote stap blijft v0.37.0: N354 inhoudelijke kalibratie onderhoudscomplexen.
+
+
 ## Klaar in v0.36.7
 
 1. **Runrapportformulering gecorrigeerd**
