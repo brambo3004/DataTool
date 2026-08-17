@@ -1,5 +1,23 @@
 # Takenlijst iASSET Advisor
 
+## Klaar in v0.36.6
+
+1. **Objecten-kolom in N-wegendocument-export gecorrigeerd**
+   - De kolom `objecten` wordt niet meer gevuld met alle objectnamen of objectnummers.
+   - Alleen bijzondere objecten worden voorzichtig gevuld, bijvoorbeeld rotonde, kruispunt, brug, tunnel, viaduct of aansluiting.
+   - Wanneer bijzondere objecten niet betrouwbaar uit de brondata zijn af te leiden, blijft de cel leeg.
+
+2. **Objecttoewijzing apart bewaard**
+   - Volledige objectcontext staat niet meer in de zichtbare N-wegentabbladen.
+   - De Excel-export krijgt een ondersteunend tabblad `Objecttoewijzing_data` wanneer objecttoewijzing beschikbaar is.
+   - Geometrie-/WKT-kolommen worden daaruit geweerd zodat het bestand werkbaar blijft.
+
+3. **Geen vergelijking met oude handmatige lijsten**
+   - Het N-wegendocument blijft een format- en werkprocesvoorbeeld.
+   - Handmatige tabbladen worden niet als waarheid gebruikt voor automatische beoordeling.
+   - De Project Adviseur-engine en onderhoudscomplexlogica blijven in deze tussenversie inhoudelijk ongewijzigd.
+
+
 ## Klaar in v0.36.5
 
 1. **N-wegendocument-export volgt tabbladspecifieke layouts**
@@ -10,7 +28,7 @@
 
 2. **Conceptregels blijven volledig beschikbaar**
    - Het tabblad `Conceptregels_data` behoudt alle volledige technische conceptvelden.
-   - De zichtbare N-wegentabbladen zijn bedoeld voor vergelijking met het handmatige werkdocument.
+   - De zichtbare N-wegentabbladen zijn bedoeld als conceptwerkblad in de bekende N-wegendocument-werkvorm.
 
 3. **Geen nieuwe projectlogica**
    - De Project Adviseur-engine, runrapportage en werklijst blijven inhoudelijk ongewijzigd.

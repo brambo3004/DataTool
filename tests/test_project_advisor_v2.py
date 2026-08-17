@@ -460,3 +460,102 @@ def test_nwegendocument_export_pw_zet_oud_en_nieuw_in_kolom_b_en_c() -> None:
     assert worksheet["C5"].value == "N354-PWL-10.9-12.7"
     assert worksheet["D5"].value == 10900
     assert worksheet["E5"].value == 12700
+
+
+def test_nwegendocument_export_objecten_kolom_vult_geen_generieke_objectlijst() -> None:
+    """De zichtbare objecten-kolom is alleen voor bijzondere objecten."""
+    proposals = pd.DataFrame(
+        [
+            {
+                "voorstel_id": "hrb",
+                "onderhoudsproject_voorgesteld": "N398-HRB-01.6-04.6",
+                "project_type": "HRB",
+                "project_family": "HRB",
+                "fysiek_begin_km": 1.6,
+                "fysiek_eind_km": 4.6,
+                "fysiek_lengte_m": 3000.0,
+            }
+        ]
+    )
+    objects = pd.DataFrame(
+        [
+            {"voorstel_id": "hrb", "naam": "rijstrook-1", "subthema": "rijstrook"},
+            {"voorstel_id": "hrb", "naam": "fietspad-2", "subthema": "fietspad"},
+        ]
+    )
+
+    advisor_table = build_project_advisor_proposal_table(proposals)
+    concept_rows = build_nwegendocument_concept_rows(advisor_table, objects)
+
+    assert concept_rows.iloc[0]["objecten"] == ""
+
+
+def test_nwegendocument_export_objecten_kolom_vult_bijzondere_objecten() -> None:
+    """Bijzondere objecten blijven zichtbaar in de objecten-kolom."""
+    proposals = pd.DataFrame(
+        [
+            {
+                "voorstel_id": "hrb",
+                "onderhoudsproject_voorgesteld": "N354-HRB-10.9-11.5",
+                "project_type": "HRB",
+                "project_family": "HRB",
+                "fysiek_begin_km": 10.9,
+                "fysiek_eind_km": 11.5,
+                "fysiek_lengte_m": 600.0,
+            }
+        ]
+    )
+    objects = pd.DataFrame(
+        [
+            {"voorstel_id": "hrb", "naam": "rijstrook-1", "subthema": "rijstrook"},
+            {"voorstel_id": "hrb", "naam": "Rotonde Sneek", "subthema": "rotonde"},
+            {"voorstel_id": "hrb", "naam": "brugdek", "Type onderdeel": "brug"},
+        ]
+    )
+
+    advisor_table = build_project_advisor_proposal_table(proposals)
+    concept_rows = build_nwegendocument_concept_rows(advisor_table, objects)
+
+    assert concept_rows.iloc[0]["objecten"] == "Rotonde Sneek, brugdek"
+
+
+def test_nwegendocument_export_schrijft_objecttoewijzing_apart() -> None:
+    """Volledige objectcontext staat apart en niet in de zichtbare objecten-kolom."""
+    proposals = pd.DataFrame(
+        [
+            {
+                "voorstel_id": "hrb",
+                "onderhoudsproject_voorgesteld": "N398-HRB-01.6-04.6",
+                "project_type": "HRB",
+                "project_family": "HRB",
+                "fysiek_begin_km": 1.6,
+                "fysiek_eind_km": 4.6,
+                "fysiek_lengte_m": 3000.0,
+            }
+        ]
+    )
+    objects = pd.DataFrame(
+        [
+            {
+                "voorstel_id": "hrb",
+                "naam": "rijstrook-1",
+                "subthema": "rijstrook",
+                "WKT": "LINESTRING (0 0, 1 1)",
+            }
+        ]
+    )
+
+    advisor_table = build_project_advisor_proposal_table(proposals)
+    xlsx_bytes = build_nwegendocument_concept_workbook_bytes(
+        advisor_table,
+        proposal_objects=objects,
+        selected_road="N398",
+        app_version="v0.36.6",
+    )
+
+    workbook = pd.ExcelFile(io.BytesIO(xlsx_bytes))
+    assert "Objecttoewijzing_data" in workbook.sheet_names
+
+    object_sheet = pd.read_excel(workbook, sheet_name="Objecttoewijzing_data")
+    assert "naam" in object_sheet.columns
+    assert "WKT" not in object_sheet.columns

@@ -1,4 +1,36 @@
-# iASSET Advisor - refactor v0.36.5
+# iASSET Advisor - refactor v0.36.6
+
+
+## Nieuw in v0.36.6
+
+v0.36.6 schoont de concept-export in N-wegendocument-format inhoudelijk op. 
+De zichtbare tabbladen zijn bedoeld als werkexport op basis van actuele iASSET-data,
+niet als automatische vergelijking met oude handmatige lijsten.
+
+Kern:
+- de kolom `objecten` wordt niet meer gevuld met alle objecten binnen een voorstel;
+- `objecten` is nu alleen bedoeld voor bijzondere objecten zoals rotonde, kruispunt,
+  brug, tunnel, viaduct of aansluiting;
+- als zulke objecten niet betrouwbaar uit de paspoortvelden zijn af te leiden,
+  blijft de cel leeg;
+- volledige objectcontext wordt apart bewaard in `Objecttoewijzing_data`;
+- geometrie-/WKT-kolommen worden uit dat tabblad geweerd om de Excel-export
+  werkbaar te houden;
+- Project Adviseur, werklijst, runrapport en projectas-engine blijven inhoudelijk
+  ongewijzigd.
+
+Waarom:
+Het N-wegendocument is voor de tool een format- en werkprocesvoorbeeld, geen
+waarheidsbron. De concept-export moet daarom aansluiten op de betekenis van de
+kolommen zonder oude handmatige tabbladen als norm te behandelen.
+
+Validatie:
+- `pytest -q`: 201 passed
+- `python -m py_compile` op alle Python-bestanden
+- tests toegevoegd voor:
+  - generieke objectlijsten niet meer in de kolom `objecten`;
+  - bijzondere objecten wel zichtbaar;
+  - objecttoewijzing apart in `Objecttoewijzing_data` zonder WKT/geometrie.
 
 
 ## Nieuw in v0.36.5
@@ -19,7 +51,7 @@ Kern:
 
 Waarom:
 Het conceptbestand moet niet alleen de juiste waarden bevatten, maar ook snel
-naast de handmatige N-wegentabbladen te leggen zijn. Dat vraagt per tabblad een
+naast de bestaande N-wegendocument-werkvorm te gebruiken zijn. Dat vraagt per tabblad een
 layout die aansluit op de bestaande werkvorm.
 
 Validatie:
@@ -51,7 +83,7 @@ Kern:
 - Project Adviseur, werklijst en runrapport blijven inhoudelijk ongewijzigd.
 
 Waarom:
-De concept-export moet naast het handmatige N-wegendocument gelegd kunnen worden.
+De concept-export moet in dezelfde werkvorm als het N-wegendocument gebruikt kunnen worden.
 Daarvoor moeten de knip- en verhardingswaarden dezelfde betekenis/schaal hebben
 als in de bestaande tabbladen.
 
@@ -82,7 +114,7 @@ Kern:
 Waarom:
 De Project Adviseur moet niet alleen technische voorstellen tonen, maar ook een
 werkblad opleveren dat naast het bestaande handmatige N-wegendocument gelegd kan
-worden. Zo kan de databeheerder voorstellen vergelijken en bewust overnemen in
+worden. Zo kan de databeheerder voorstellen beoordelen en bewust verwerken in
 het eigen werkproces.
 
 Validatie:

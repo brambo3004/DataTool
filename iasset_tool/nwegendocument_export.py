@@ -3,7 +3,7 @@ Concept-export in het format van het N-wegendocument.
 
 Deze module maakt géén mutatie in het bestaande N-wegendocument. De export is
 een nieuw Excelbestand met concepttabbladen per wegdeeltype. De databeheerder kan
-dit naast het handmatige N-wegendocument leggen en daarna bewust overnemen.
+dit als conceptwerkblad gebruiken en daarna bewust beoordelen voordat iets wordt overgenomen.
 
 Waarom apart van Project Adviseur?
 - Project Adviseur blijft de presentatielaag voor de Streamlit-app.
@@ -324,18 +324,105 @@ def _proposal_objects_for_id(proposal_objects: pd.DataFrame, proposal_id: str) -
     ].copy()
 
 
-def _object_summary(object_rows: pd.DataFrame) -> str:
-    """Maak een compacte objectomschrijving voor het N-wegendocument."""
+SPECIAL_OBJECT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("rotonde", ("rotonde", "turborotonde", "ovonde")),
+    ("kruispunt", ("kruispunt", "kruising")),
+    ("aansluiting", ("aansluiting", "oprit", "afrit")),
+    ("brug", ("brug", "brugdek", "beweegbare brug")),
+    ("tunnel", ("tunnel", "onderdoorgang")),
+    ("viaduct", ("viaduct",)),
+    ("aquaduct", ("aquaduct",)),
+    ("spoorwegovergang", ("spoorwegovergang", "overweg")),
+)
+
+SPECIAL_OBJECT_COLUMNS: tuple[str, ...] = (
+    "Object naam",
+    "naam",
+    "subthema",
+    "Subthema",
+    "Type onderdeel",
+    "Gebruikersfunctie",
+    "Thema",
+    "objecttype",
+    "Objecttype",
+)
+
+
+def _special_objects_summary(object_rows: pd.DataFrame) -> str:
+    """
+    Vul de kolom ``objecten`` alleen met bijzondere objecten.
+
+    In het N-wegendocument betekent de kolom ``objecten`` niet: alle objecten
+    binnen het onderhoudscomplex. De kolom is bedoeld voor herkenbare bijzondere
+    objecten, zoals rotondes, kruispunten, bruggen of tunnels. Daarom schrijven
+    we hier alleen iets wanneer zo'n object voorzichtig uit de paspoortvelden is
+    af te leiden. Bij twijfel blijft de cel leeg.
+
+    De volledige objecttoewijzing hoort niet in het zichtbare werkblad, maar in
+    het technische objectenbestand of het tabblad ``Objecttoewijzing_data``.
+    """
     if object_rows.empty:
         return ""
 
-    candidate_columns = ["naam", "Object naam", "nummer", "Object nummer", "sys_id"]
-    for column in candidate_columns:
-        if column in object_rows.columns:
-            summary = _unique_join(object_rows[column], max_items=8, separator=", ")
-            if summary:
-                return summary
-    return ""
+    found: list[str] = []
+    for _, object_row in object_rows.iterrows():
+        searchable_values = [
+            _text(object_row.get(column, ""))
+            for column in SPECIAL_OBJECT_COLUMNS
+            if column in object_rows.columns
+        ]
+        combined = " | ".join(value.lower() for value in searchable_values if value)
+        if not combined:
+            continue
+
+        for label, markers in SPECIAL_OBJECT_MARKERS:
+            if not any(marker in combined for marker in markers):
+                continue
+
+            # Gebruik een herkenbare objectnaam als die zelf de marker bevat.
+            # Anders gebruiken we alleen de objectcategorie, zodat we niet
+            # alsnog generieke rijstrook-/fietspadnamen in deze kolom zetten.
+            display_value = ""
+            for name_column in ("Object naam", "naam"):
+                candidate = _text(object_row.get(name_column, ""))
+                if candidate and any(marker in candidate.lower() for marker in markers):
+                    display_value = candidate
+                    break
+            if not display_value:
+                display_value = label
+
+            if display_value not in found:
+                found.append(display_value)
+            break
+
+    if not found:
+        return ""
+
+    if len(found) <= 6:
+        return ", ".join(found)
+    return ", ".join(found[:6]) + f", … (+{len(found) - 6})"
+
+
+def _build_objecttoewijzing_sheet(proposal_objects: pd.DataFrame | None) -> pd.DataFrame:
+    """
+    Maak een ondersteunend tabblad met objecttoewijzing.
+
+    Het zichtbare N-wegendocument blijft compact. Deze tabel bewaart de
+    objectcontext die eerder ten onrechte in de kolom ``objecten`` terechtkwam.
+    Geometriekolommen worden bewust weggelaten om de Excel-export werkbaar te
+    houden; de technische CSV-export blijft de volledige bron voor diepe
+    diagnose.
+    """
+    if not isinstance(proposal_objects, pd.DataFrame) or proposal_objects.empty:
+        return pd.DataFrame()
+
+    drop_markers = ("geometry", "geom", "wkt")
+    keep_columns = [
+        column
+        for column in proposal_objects.columns
+        if not any(marker in str(column).lower() for marker in drop_markers)
+    ]
+    return proposal_objects[keep_columns].copy()
 
 
 def _build_bijzonderheden(row: pd.Series) -> str:
@@ -405,7 +492,7 @@ def build_nwegendocument_concept_rows(
             "onderhoudscomplex_nieuw": _text(proposal_row.get("onderhoudsproject_voorgesteld", "")),
             "knip_begin": _as_nwegendoc_meter_value(proposal_row.get("fysiek_begin_km", ""), fallback_meter_value=proposal_row.get("fysiek_begin_m", "")),
             "knip_einde": _as_nwegendoc_meter_value(proposal_row.get("fysiek_eind_km", ""), fallback_meter_value=proposal_row.get("fysiek_eind_m", "")),
-            "objecten": _object_summary(object_rows),
+            "objecten": _special_objects_summary(object_rows),
             "locatie": "",
             "besteknummer": besteknummer,
             "documentatie": "",
@@ -683,6 +770,10 @@ def build_nwegendocument_concept_workbook_bytes(
                 "onderdeel": "Niet automatisch gevuld",
                 "waarde": "locatie, documentatie en menselijke opmerkingen blijven grotendeels handmatig.",
             },
+            {
+                "onderdeel": "Objecten-kolom",
+                "waarde": "Alleen bijzondere objecten worden zichtbaar gevuld; volledige objecttoewijzing staat apart.",
+            },
         ]
         _write_dataframe_sheet(writer, "Samenvatting", pd.DataFrame(summary_rows))
 
@@ -716,7 +807,7 @@ def build_nwegendocument_concept_workbook_bytes(
                 },
                 {
                     "veld": "objecten",
-                    "toelichting": "Compacte samenvatting uit objecttoewijzing; controleer bij complexe kruisingen of rotondes op kaart.",
+                    "toelichting": "Alleen bijzondere objecten zoals rotonde, kruispunt, brug, tunnel of viaduct. Geen volledige objectlijst.",
                 },
                 {
                     "veld": "micro-/eindzone",
@@ -736,6 +827,10 @@ def build_nwegendocument_concept_workbook_bytes(
 
         if isinstance(run_report, pd.DataFrame) and not run_report.empty:
             _write_dataframe_sheet(writer, "Runrapport", run_report)
+
+        objecttoewijzing = _build_objecttoewijzing_sheet(proposal_objects)
+        if not objecttoewijzing.empty:
+            _write_dataframe_sheet(writer, "Objecttoewijzing_data", objecttoewijzing)
 
         if not concept_rows.empty:
             _write_dataframe_sheet(writer, "Conceptregels_data", concept_rows)
