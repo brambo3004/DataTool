@@ -1,5 +1,26 @@
 # Takenlijst iASSET Advisor
 
+## Klaar in v0.37.1
+
+1. **Zichtbare onderhoudscomplexlaag toegevoegd**
+   - Nieuwe export `Projectadvies_Zichtbare_Onderhoudscomplexen_<weg>.csv`.
+   - Ruwe projectvoorstellen blijven beschikbaar als technische onderbouwing.
+   - De zichtbare laag is bedoeld voor het concept-N-wegendocument en snelle databeheerbeoordeling.
+
+2. **Dubbele projectnamen geclusterd**
+   - Meerdere ruwe voorstellen met dezelfde voorgestelde projectnaam worden één zichtbare regel.
+   - Onderliggende ruwe voorstel-id's blijven bewaard in `bron_voorstel_ids`.
+
+3. **Korte technische segmenten niet meer als normaal complex in het werkblad**
+   - Reguliere voorstellen korter dan 100 meter worden controlepunt.
+   - Micro-/eindzonevoorstellen blijven controlepunt.
+   - Deze regels komen niet automatisch in de zichtbare HRB/PW/FP-tabbladen van het concept-N-wegendocument.
+
+4. **Concept-N-wegendocument gebruikt de zichtbare laag**
+   - HRB/PW/FP-tabbladen tonen de zichtbare onderhoudscomplexen.
+   - Uitgesloten controlepunten staan apart in `Controlepunten_data`.
+   - Volledige objectcontext blijft beschikbaar in `Objecttoewijzing_data`.
+
 ## Klaar in v0.37.0
 
 1. **Kalibratierapport Project Adviseur toegevoegd**

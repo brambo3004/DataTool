@@ -97,6 +97,11 @@ from iasset_tool.project_calibration import (
     build_project_calibration_workbook_bytes,
     project_calibration_export_filename,
 )
+from iasset_tool.visible_complexes import (
+    VISIBLE_COMPLEX_COLUMNS,
+    build_visible_maintenance_complex_table,
+    visible_maintenance_complex_export_filename,
+)
 from iasset_tool.nwb import (
     NWB_REFERENCE_SCHEMA_VERSION,
     build_nwb_reference_for_road,
@@ -1248,6 +1253,10 @@ with col_inspector:
                 uploaded_wegassen_name=advisor_state.get("uploaded_wegassen_name") or "",
                 app_version=advisor_state.get("app_version", APP_VERSION),
             )
+            visible_complexes = build_visible_maintenance_complex_table(
+                advisor_table,
+                project_axis_proposal_objects,
+            )
 
             st.markdown("#### 1. Samenvatting")
             st.caption(
@@ -1270,6 +1279,21 @@ with col_inspector:
                 st.metric("Micro/eindzone", advisor_summary["micro_eindzone"])
             with summary_col_6:
                 st.metric("Afwijkende hm-intervallen", advisor_summary["hm_intervallen_afwijkend"])
+
+            if not visible_complexes.empty:
+                visible_in_doc = (
+                    int(visible_complexes["in_concept_nwegendocument"].fillna(False).astype(bool).sum())
+                    if "in_concept_nwegendocument" in visible_complexes.columns
+                    else int(len(visible_complexes))
+                )
+                visible_control = int(len(visible_complexes) - visible_in_doc)
+                visible_col_1, visible_col_2, visible_col_3 = st.columns(3)
+                with visible_col_1:
+                    st.metric("Zichtbare onderhoudscomplexen", len(visible_complexes))
+                with visible_col_2:
+                    st.metric("In conceptwerkblad", visible_in_doc)
+                with visible_col_3:
+                    st.metric("Controlepunten", visible_control)
 
             if not run_report.empty:
                 run_oordeel = run_report[run_report["onderdeel"] == "Run-oordeel"].head(1)
@@ -1389,7 +1413,34 @@ with col_inspector:
                         hide_index=True,
                     )
 
-                st.markdown("#### 3. Kaartinspectie en detailpaneel")
+                st.markdown("#### 3. Zichtbare onderhoudscomplexlaag")
+                if visible_complexes.empty:
+                    st.info("Er is nog geen zichtbare onderhoudscomplexlaag beschikbaar.")
+                else:
+                    st.caption(
+                        "Deze laag vertaalt de ruwe projectvoorstellen naar een werklaag: dubbele projectnamen "
+                        "worden geclusterd en micro-/korte technische segmenten worden als controlepunt behandeld. "
+                        "De ruwe voorstellen blijven apart beschikbaar als onderbouwing."
+                    )
+                    visible_display_columns = [
+                        column
+                        for column in VISIBLE_COMPLEX_COLUMNS
+                        if column in visible_complexes.columns
+                    ]
+                    st.dataframe(
+                        visible_complexes[visible_display_columns] if visible_display_columns else visible_complexes,
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                    visible_csv = visible_complexes.to_csv(index=False, sep=";").encode("utf-8-sig")
+                    st.download_button(
+                        "📥 Download zichtbare onderhoudscomplexlaag",
+                        data=visible_csv,
+                        file_name=visible_maintenance_complex_export_filename(selected_road),
+                        mime="text/csv",
+                    )
+
+                st.markdown("#### 4. Kaartinspectie en detailpaneel")
                 proposal_select_table = filtered_advisor_table.copy()
                 if proposal_select_table.empty or "voorstel_id" not in proposal_select_table.columns:
                     st.info("Geen voorstel beschikbaar voor kaartinspectie binnen deze filters.")
@@ -1563,7 +1614,7 @@ with col_inspector:
                         else:
                             st.warning("Geen objecttoewijzing gevonden voor dit voorstel.")
 
-                st.markdown("#### 4. Werklijst")
+                st.markdown("#### 5. Werklijst")
                 worklist = build_project_advisor_worklist(advisor_table)
                 if worklist.empty:
                     st.success("Geen aparte werklijstregels: er zijn geen voorstellen waarvoor nu een concrete databeheeractie is benoemd.")
@@ -1581,7 +1632,7 @@ with col_inspector:
                         mime="text/csv",
                     )
 
-                st.markdown("#### 5. Exports")
+                st.markdown("#### 6. Exports")
                 run_report_csv = run_report.to_csv(index=False, sep=";").encode("utf-8-sig")
                 st.download_button(
                     "📥 Download Project Adviseur runrapport",
@@ -1598,8 +1649,17 @@ with col_inspector:
                     mime="text/csv",
                 )
 
+                if not visible_complexes.empty:
+                    visible_csv = visible_complexes.to_csv(index=False, sep=";").encode("utf-8-sig")
+                    st.download_button(
+                        "📥 Download zichtbare onderhoudscomplexlaag",
+                        data=visible_csv,
+                        file_name=visible_maintenance_complex_export_filename(selected_road),
+                        mime="text/csv",
+                    )
+
                 nwegendocument_xlsx = build_nwegendocument_concept_workbook_bytes(
-                    advisor_table,
+                    visible_complexes if not visible_complexes.empty else advisor_table,
                     project_axis_proposal_objects,
                     run_report,
                     selected_road=selected_road,

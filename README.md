@@ -1,4 +1,36 @@
-# iASSET Advisor - refactor v0.37.0
+# iASSET Advisor - refactor v0.37.1
+
+
+## Nieuw in v0.37.1
+
+v0.37.1 voegt een zichtbare onderhoudscomplexlaag toe bovenop de ruwe
+Project Adviseur-voorstellen.
+
+Doel:
+- ruwe technische projectvoorstellen blijven beschikbaar als onderbouwing;
+- dubbele voorgestelde projectnamen worden als één zichtbaar cluster getoond;
+- zeer korte reguliere technische segmenten worden controlepunten en komen niet
+  automatisch als normaal onderhoudscomplex in het concept-N-wegendocument;
+- micro-/eindzonevoorstellen blijven controlepunten;
+- objectfamilie-mismatches worden benoemd als controlepunt, niet als nieuwe
+  projectbasis;
+- het concept-N-wegendocument gebruikt de zichtbare onderhoudscomplexlaag als
+  werklaag, met raw/contextdata apart in ondersteunende tabbladen.
+
+Nieuwe export:
+- `Projectadvies_Zichtbare_Onderhoudscomplexen_<weg>.csv`
+
+Belangrijk:
+- v0.37.1 verandert de projectas-engine niet;
+- oude handmatige N-wegentabbladen blijven geen waarheid;
+- de ruwe voorstellen, werklijst en kalibratierapport blijven beschikbaar voor
+  controle en vervolganalyse.
+
+Validatie:
+- `pytest -q`: zie releaseantwoord;
+- `python -m py_compile` op alle Python-bestanden;
+- tests toegevoegd voor dubbele projectnamen, korte technische segmenten en
+  objectcontext bij samengevoegde zichtbare complexen.
 
 
 ## Nieuw in v0.37.0

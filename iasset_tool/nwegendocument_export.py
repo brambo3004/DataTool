@@ -315,13 +315,47 @@ def _classify_sheet(row: pd.Series) -> str:
     return "PW"
 
 
-def _proposal_objects_for_id(proposal_objects: pd.DataFrame, proposal_id: str) -> pd.DataFrame:
-    """Selecteer objecttoewijzingen voor één voorstel-id."""
-    if proposal_objects.empty or "voorstel_id" not in proposal_objects.columns or not proposal_id:
+def _split_proposal_ids(value: Any) -> list[str]:
+    """Lees één of meer voorstel-id's uit een samengestelde waarde."""
+    text = _text(value)
+    if not text:
+        return []
+    result: list[str] = []
+    for part in text.replace(",", ";").replace("|", ";").split(";"):
+        clean = part.strip()
+        if clean and clean not in result:
+            result.append(clean)
+    return result
+
+
+def _proposal_objects_for_ids(proposal_objects: pd.DataFrame, proposal_ids: Iterable[str]) -> pd.DataFrame:
+    """Selecteer objecttoewijzingen voor één of meer ruwe voorstel-id's."""
+    ids = {proposal_id for proposal_id in proposal_ids if proposal_id}
+    if proposal_objects.empty or "voorstel_id" not in proposal_objects.columns or not ids:
         return pd.DataFrame()
     return proposal_objects[
-        proposal_objects["voorstel_id"].map(_text).str.strip() == proposal_id
+        proposal_objects["voorstel_id"].map(_text).str.strip().isin(ids)
     ].copy()
+
+
+def _proposal_objects_for_row(proposal_objects: pd.DataFrame, proposal_row: pd.Series) -> pd.DataFrame:
+    """
+    Selecteer objecttoewijzingen voor een conceptregel.
+
+    Vanaf v0.37.1 kan een zichtbare onderhoudscomplexregel meerdere ruwe
+    voorstel-id's bevatten in ``bron_voorstel_ids``. Voor oudere exports valt
+    deze functie terug op ``voorstel_id``.
+    """
+    proposal_ids = _split_proposal_ids(proposal_row.get("bron_voorstel_ids", ""))
+    proposal_ids.extend(_split_proposal_ids(proposal_row.get("voorstel_id", "")))
+
+    # Verwijder duplicaten met behoud van volgorde.
+    unique_ids: list[str] = []
+    for proposal_id in proposal_ids:
+        if proposal_id not in unique_ids:
+            unique_ids.append(proposal_id)
+
+    return _proposal_objects_for_ids(proposal_objects, unique_ids)
 
 
 SPECIAL_OBJECT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -464,7 +498,7 @@ def build_nwegendocument_concept_rows(
 
     for _, proposal_row in advisor_table.iterrows():
         proposal_id = _text(proposal_row.get("voorstel_id", ""))
-        object_rows = _proposal_objects_for_id(objects, proposal_id)
+        object_rows = _proposal_objects_for_row(objects, proposal_row)
 
         besteknummer = _unique_join(object_rows.get("Besteknummer", []), max_items=4) if not object_rows.empty else ""
         if not besteknummer and not object_rows.empty and "besteknummer_norm" in object_rows.columns:
@@ -749,8 +783,24 @@ def build_nwegendocument_concept_workbook_bytes(
 
     Dit bestand is bedoeld om naast het bestaande N-wegendocument te leggen. Het
     overschrijft geen bronbestand en is geen directe iASSET-mutatie.
+
+    Vanaf v0.37.1 mag ``advisor_table`` ook de zichtbare
+    onderhoudscomplexlaag zijn. Als daarin ``in_concept_nwegendocument`` staat,
+    worden alleen die zichtbare regels in HRB/PW/FP gezet. De uitgesloten regels
+    blijven als controlepunten beschikbaar in ``Controlepunten_data``.
     """
-    concept_rows = build_nwegendocument_concept_rows(advisor_table, proposal_objects)
+    source_table = advisor_table if isinstance(advisor_table, pd.DataFrame) else pd.DataFrame()
+    control_points = pd.DataFrame()
+    if not source_table.empty and "in_concept_nwegendocument" in source_table.columns:
+        include_mask = source_table["in_concept_nwegendocument"].map(
+            lambda value: str(value).strip().lower() in {"true", "waar", "ja", "yes", "1"}
+            if not isinstance(value, bool)
+            else value
+        )
+        control_points = source_table[~include_mask].copy()
+        source_table = source_table[include_mask].copy()
+
+    concept_rows = build_nwegendocument_concept_rows(source_table, proposal_objects)
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -831,6 +881,32 @@ def build_nwegendocument_concept_workbook_bytes(
         objecttoewijzing = _build_objecttoewijzing_sheet(proposal_objects)
         if not objecttoewijzing.empty:
             _write_dataframe_sheet(writer, "Objecttoewijzing_data", objecttoewijzing)
+
+        if not control_points.empty:
+            _write_dataframe_sheet(writer, "Controlepunten_data", control_points)
+
+        if isinstance(advisor_table, pd.DataFrame) and not advisor_table.empty:
+            zichtbare_columns = [
+                column
+                for column in (
+                    "zichtbaar_complex_id",
+                    "zichtbare_status",
+                    "zichtbare_klasse",
+                    "in_concept_nwegendocument",
+                    "onderhoudsproject_voorgesteld",
+                    "project_type",
+                    "fysiek_begin_km",
+                    "fysiek_eind_km",
+                    "fysiek_lengte_m",
+                    "aantal_ruwe_voorstellen",
+                    "bron_voorstel_ids",
+                    "objectfamilie_mismatch_aantal",
+                    "bijzonderheden",
+                )
+                if column in advisor_table.columns
+            ]
+            if zichtbare_columns:
+                _write_dataframe_sheet(writer, "Zichtbare_complexen_data", advisor_table[zichtbare_columns].copy())
 
         if not concept_rows.empty:
             _write_dataframe_sheet(writer, "Conceptregels_data", concept_rows)
