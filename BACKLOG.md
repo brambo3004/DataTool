@@ -1,6 +1,6 @@
 # Takenlijst iASSET Advisor
 
-## Klaar in v0.37.1
+## Klaar in v0.37.2
 
 1. **Zichtbare onderhoudscomplexlaag toegevoegd**
    - Nieuwe export `Projectadvies_Zichtbare_Onderhoudscomplexen_<weg>.csv`.
@@ -37,7 +37,7 @@
 
 3. **Koers v0.37.x vastgelegd**
    - v0.37.0 is diagnose in dienst van kalibratie, geen losse debug.
-   - v0.37.1 kan daarna gericht een eerste inhoudelijke regelwijziging kiezen.
+   - v0.37.2 kan daarna gericht een eerste inhoudelijke regelwijziging kiezen.
    - Oude handmatige N-wegentabbladen blijven context, geen waarheid.
 
 

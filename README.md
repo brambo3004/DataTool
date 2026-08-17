@@ -1,9 +1,9 @@
-# iASSET Advisor - refactor v0.37.1
+# iASSET Advisor - refactor v0.37.2
 
 
-## Nieuw in v0.37.1
+## Nieuw in v0.37.2
 
-v0.37.1 voegt een zichtbare onderhoudscomplexlaag toe bovenop de ruwe
+v0.37.2 voegt een zichtbare onderhoudscomplexlaag toe bovenop de ruwe
 Project Adviseur-voorstellen.
 
 Doel:
@@ -21,7 +21,7 @@ Nieuwe export:
 - `Projectadvies_Zichtbare_Onderhoudscomplexen_<weg>.csv`
 
 Belangrijk:
-- v0.37.1 verandert de projectas-engine niet;
+- v0.37.2 verandert de projectas-engine niet;
 - oude handmatige N-wegentabbladen blijven geen waarheid;
 - de ruwe voorstellen, werklijst en kalibratierapport blijven beschikbaar voor
   controle en vervolganalyse.
@@ -56,7 +56,7 @@ Belangrijk:
 - v0.37.0 is een kalibratielaag, geen nieuwe waarheid;
 - oude handmatige N-wegentabbladen worden niet als automatische beoordelingsbron
   gebruikt;
-- het rapport is bedoeld om v0.37.1 gericht te kunnen kiezen: eerst weten waar
+- het rapport is bedoeld om v0.37.2 gericht te kunnen kiezen: eerst weten waar
   de tool splitst, daarna pas de samenvoeg-/knipregels aanpassen.
 
 Validatie:

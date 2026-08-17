@@ -1324,6 +1324,7 @@ with col_inspector:
                         data=run_report_csv,
                         file_name=f"Projectadvies_Runrapport_{sanitize_filename(selected_road)}.csv",
                         mime="text/csv",
+                        key=f"download_project_advisor_runreport_inline_{selected_road}",
                     )
 
             if advisor_table.empty:
@@ -1438,6 +1439,7 @@ with col_inspector:
                         data=visible_csv,
                         file_name=visible_maintenance_complex_export_filename(selected_road),
                         mime="text/csv",
+                        key=f"download_visible_complexes_inline_{selected_road}",
                     )
 
                 st.markdown("#### 4. Kaartinspectie en detailpaneel")
@@ -1630,6 +1632,7 @@ with col_inspector:
                         data=worklist_csv,
                         file_name=f"Projectadvies_Werklijst_{sanitize_filename(selected_road)}.csv",
                         mime="text/csv",
+                        key=f"download_project_advisor_worklist_{selected_road}",
                     )
 
                 st.markdown("#### 6. Exports")
@@ -1639,6 +1642,7 @@ with col_inspector:
                     data=run_report_csv,
                     file_name=f"Projectadvies_Runrapport_{sanitize_filename(selected_road)}.csv",
                     mime="text/csv",
+                    key=f"download_project_advisor_runreport_exports_{selected_road}",
                 )
 
                 advisor_csv = advisor_table.to_csv(index=False, sep=";").encode("utf-8-sig")
@@ -1647,6 +1651,7 @@ with col_inspector:
                     data=advisor_csv,
                     file_name=f"Projectadvies_Voorstellen_{sanitize_filename(selected_road)}.csv",
                     mime="text/csv",
+                    key=f"download_project_advisor_proposals_{selected_road}",
                 )
 
                 if not visible_complexes.empty:
@@ -1656,6 +1661,7 @@ with col_inspector:
                         data=visible_csv,
                         file_name=visible_maintenance_complex_export_filename(selected_road),
                         mime="text/csv",
+                        key=f"download_visible_complexes_exports_{selected_road}",
                     )
 
                 nwegendocument_xlsx = build_nwegendocument_concept_workbook_bytes(
@@ -1674,6 +1680,7 @@ with col_inspector:
                         "Maakt een nieuw Excelbestand in het format van het N-wegendocument. "
                         "Dit overschrijft het bestaande N-wegendocument niet."
                     ),
+                    key=f"download_project_advisor_nwegendocument_{selected_road}",
                 )
 
                 calibration_xlsx = build_project_calibration_workbook_bytes(
@@ -1692,6 +1699,7 @@ with col_inspector:
                         "Maakt een Excelrapport dat aanwijst waar de projectlogica mogelijk te fijn knipt. "
                         "Dit rapport past de projectvoorstellen niet automatisch aan."
                     ),
+                    key=f"download_project_advisor_calibration_{selected_road}",
                 )
 
                 with st.expander("Technische diagnose en oude exports", expanded=False):
@@ -1719,6 +1727,7 @@ with col_inspector:
                             data=control_csv,
                             file_name=f"Projectcontrole_Referentieas_{sanitize_filename(selected_road)}.csv",
                             mime="text/csv",
+                            key=f"download_project_advisor_control_{selected_road}",
                         )
 
                     if isinstance(project_axis_intervals, pd.DataFrame) and not project_axis_intervals.empty:
@@ -1735,6 +1744,7 @@ with col_inspector:
                             data=intervals_csv,
                             file_name=f"Hectometerintervallen_Referentieas_{sanitize_filename(selected_road)}.csv",
                             mime="text/csv",
+                            key=f"download_project_advisor_intervals_{selected_road}",
                         )
 
                     if isinstance(project_axis_proposal_objects, pd.DataFrame) and not project_axis_proposal_objects.empty:
@@ -1746,6 +1756,7 @@ with col_inspector:
                             data=proposal_objects_csv,
                             file_name=f"Projectvoorstel_Objecten_{sanitize_filename(selected_road)}.csv",
                             mime="text/csv",
+                            key=f"download_project_advisor_proposal_objects_{selected_road}",
                         )
 
                     if isinstance(project_axis_proposal_comparison, pd.DataFrame) and not project_axis_proposal_comparison.empty:
@@ -1757,6 +1768,7 @@ with col_inspector:
                             data=comparison_csv,
                             file_name=f"Projectvoorstel_Vergelijking_iASSET_{sanitize_filename(selected_road)}.csv",
                             mime="text/csv",
+                            key=f"download_project_advisor_comparison_{selected_road}",
                         )
 
         legacy_groups_enabled = st.checkbox(
@@ -3352,6 +3364,7 @@ with col_inspector:
                             data=control_csv,
                             file_name=f"Projectcontrole_Referentieas_{sanitize_filename(selected_road)}.csv",
                             mime="text/csv",
+                            key=f"download_reference_axis_control_{selected_road}",
                         )
                     else:
                         st.success("Geen projectgrenzen, gaten of overlaps met aandacht/controleer-status gevonden.")
