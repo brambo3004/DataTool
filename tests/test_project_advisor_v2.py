@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import io
+
 import pandas as pd
 
+from iasset_tool.nwegendocument_export import (
+    build_nwegendocument_concept_rows,
+    build_nwegendocument_concept_workbook_bytes,
+)
 from iasset_tool.project_advisor_v2 import (
     build_project_advisor_proposal_table,
     build_project_advisor_run_report,
@@ -228,3 +234,112 @@ def test_project_advisor_runrapport_geen_voorstellen_is_stop() -> None:
     assert oordeel["waarde"] == "Geen bruikbaar projectadvies"
     assert oordeel["urgentie"] == "stop"
 
+
+
+def test_nwegendocument_concept_export_vult_werkbladkolommen() -> None:
+    """De concept-export vertaalt voorstellen naar de kolommen van het N-wegendocument."""
+    proposals = pd.DataFrame(
+        [
+            {
+                "voorstel_id": "hrb",
+                "onderhoudsproject_voorgesteld": "N398-HRB-01.6-04.6",
+                "project_type": "HRB",
+                "project_family": "HRB",
+                "bestaande_onderhoudsprojecten": "N398-HRB-01.6-04.6",
+                "vergelijking_iasset_status": "ok",
+                "status_voorstel": "ok",
+                "fysiek_begin_m": 1600.0,
+                "fysiek_eind_m": 4600.0,
+                "fysiek_lengte_m": 3000.0,
+                "naam_begin": 1.6,
+                "naam_eind": 4.6,
+                "technisch_profiel": "Soort verharding_N=SMA, Soort deklaag specifiek=SMA-NL 8A, Jaar aanleg=1990, Jaar deklaag=2020, Jaar conservering=<leeg>, Jaar herstrating=<leeg>",
+            },
+            {
+                "voorstel_id": "bb",
+                "onderhoudsproject_voorgesteld": "N398-BBLR-04.6-04.8",
+                "project_type": "BBLR",
+                "project_family": "BB",
+                "vergelijking_iasset_status": "ok",
+                "status_voorstel": "ok",
+                "fysiek_begin_m": 4600.0,
+                "fysiek_eind_m": 4800.0,
+                "fysiek_lengte_m": 200.0,
+                "naam_begin": 4.6,
+                "naam_eind": 4.8,
+            },
+        ]
+    )
+    objects = pd.DataFrame(
+        [
+            {
+                "voorstel_id": "hrb",
+                "naam": "rijstrook",
+                "Besteknummer": "20-01-W",
+                "Soort deklaag specifiek": "SMA-NL 8A",
+                "Jaar aanleg": 1990,
+                "Jaar deklaag": 2020,
+            },
+            {
+                "voorstel_id": "hrb",
+                "naam": "rijstrook-2",
+                "Besteknummer": "20-01-W",
+                "Soort deklaag specifiek": "SMA-NL 8A",
+                "Jaar aanleg": 1990,
+                "Jaar deklaag": 2020,
+            },
+        ]
+    )
+
+    advisor_table = build_project_advisor_proposal_table(proposals)
+    concept_rows = build_nwegendocument_concept_rows(advisor_table, objects)
+
+    hrb = concept_rows[concept_rows["voorstel_id"] == "hrb"].iloc[0]
+    bb = concept_rows[concept_rows["voorstel_id"] == "bb"].iloc[0]
+
+    assert hrb["tabblad"] == "HRB"
+    assert hrb["onderhoudscomplex_nieuw"] == "N398-HRB-01.6-04.6"
+    assert hrb["knip_begin"] == 1600
+    assert hrb["besteknummer"] == "20-01-W"
+    assert hrb["verhardingsoort"] == "SMA-NL 8A"
+    assert str(hrb["jaar_deklaag"]) == "2020"
+
+    # Busbanen horen in het concept bij het parallelweg-tabblad.
+    assert bb["tabblad"] == "PW"
+
+
+def test_nwegendocument_concept_export_maakt_xlsx_bytes() -> None:
+    """De app kan een downloadbare Excel-export maken zonder templatebestand."""
+    proposals = pd.DataFrame(
+        [
+            {
+                "voorstel_id": "hrb",
+                "onderhoudsproject_voorgesteld": "N398-HRB-01.6-04.6",
+                "project_type": "HRB",
+                "project_family": "HRB",
+                "vergelijking_iasset_status": "ok",
+                "status_voorstel": "ok",
+                "fysiek_begin_m": 1600.0,
+                "fysiek_eind_m": 4600.0,
+                "fysiek_lengte_m": 3000.0,
+                "naam_begin": 1.6,
+                "naam_eind": 4.6,
+            }
+        ]
+    )
+
+    advisor_table = build_project_advisor_proposal_table(proposals)
+    xlsx_bytes = build_nwegendocument_concept_workbook_bytes(
+        advisor_table,
+        selected_road="N398",
+        app_version="v0.36.3",
+    )
+
+    assert xlsx_bytes[:2] == b"PK"
+
+    workbook = pd.ExcelFile(io.BytesIO(xlsx_bytes))
+    assert "Samenvatting" in workbook.sheet_names
+    assert "N398 (HRB)" in workbook.sheet_names
+    exported = pd.read_excel(workbook, sheet_name="N398 (HRB)", header=None)
+    assert "onderhoudscomplex oud" in exported.iloc[2].astype(str).tolist()
+    assert "N398-HRB-01.6-04.6" in exported.astype(str).to_string()

@@ -1,5 +1,22 @@
 # Takenlijst iASSET Advisor
 
+## Klaar in v0.36.3
+
+1. **Concept-export in N-wegendocument-format**
+   - Nieuwe export: `Projectadvies_Nwegendocument_<weg>.xlsx`.
+   - Het bestand bevat concepttabbladen per wegdeeltype, bijvoorbeeld HRB, PW en FP.
+   - Het bestaande N-wegendocument wordt niet automatisch aangepast of overschreven.
+
+2. **Aansluiting op dagelijks databeheer**
+   - De export zet projectvoorstellen om naar de kolommen van het N-wegendocument.
+   - Automatisch vulbaar: oude/nieuwe onderhoudscomplexen, knipwaarden, verharding, jaren, besteknummer en bijzonderheden.
+   - Niet betrouwbaar automatisch vulbaar: locatie, documentatie en menselijke context.
+
+3. **Geen extra projectas-rekenlogica**
+   - De projectas-engine blijft ongewijzigd.
+   - v0.36.3 is een werkproces-export bovenop de bestaande Project Adviseur-uitkomsten.
+
+
 ## Klaar in v0.36.2
 
 1. **Automatisch runrapport Project Adviseur**

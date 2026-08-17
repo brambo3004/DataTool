@@ -1,6 +1,35 @@
-# iASSET Advisor - refactor v0.36.2
+# iASSET Advisor - refactor v0.36.3
 
 Deze versie splitst de bestaande Streamlit proof-of-concept op in een onderhoudbare projectstructuur.
+
+
+## Nieuw in v0.36.3
+
+v0.36.3 koppelt Project Adviseur directer aan het dagelijkse werkproces van de
+databeheerder: naast runrapport, voorstellenlijst en werklijst kan de app nu een
+concept-export maken in het format van het N-wegendocument.
+
+Kern:
+- nieuwe Excel-export: `Projectadvies_Nwegendocument_<weg>.xlsx`;
+- het bestaande N-wegendocument wordt niet overschreven;
+- de export bevat concepttabbladen zoals `N354 (HRB)`, `N354 (PW)` en `N354 (FP)`;
+- busbanen en landbouwpaden worden in het concept bij het PW-tabblad geplaatst;
+- automatisch gevulde kolommen zijn onder andere oude/nieuwe onderhoudscomplexen,
+  knipwaarden, verharding, jaartallen, besteknummer en bijzonderheden;
+- locatie, documentatie en menselijke opmerkingen blijven expliciet als niet
+  automatisch gevuld benoemd.
+
+Waarom:
+De Project Adviseur moet niet alleen technische voorstellen tonen, maar ook een
+werkblad opleveren dat naast het bestaande handmatige N-wegendocument gelegd kan
+worden. Zo kan de databeheerder voorstellen vergelijken en bewust overnemen in
+het eigen werkproces.
+
+Validatie:
+- `pytest -q`: 195 passed
+- `python -m py_compile` op alle Python-bestanden
+- proefexport `Projectadvies_Nwegendocument_N354.xlsx` gecontroleerd op tabbladen
+  en N-wegendocument-kolomstructuur
 
 
 ## Nieuw in v0.36.2

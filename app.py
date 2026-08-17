@@ -89,6 +89,10 @@ from iasset_tool.project_advisor_v2 import (
     build_project_advisor_worklist,
     summarize_project_advisor,
 )
+from iasset_tool.nwegendocument_export import (
+    build_nwegendocument_concept_workbook_bytes,
+    nwegendocument_export_filename,
+)
 from iasset_tool.nwb import (
     NWB_REFERENCE_SCHEMA_VERSION,
     build_nwb_reference_for_road,
@@ -1588,6 +1592,24 @@ with col_inspector:
                     data=advisor_csv,
                     file_name=f"Projectadvies_Voorstellen_{sanitize_filename(selected_road)}.csv",
                     mime="text/csv",
+                )
+
+                nwegendocument_xlsx = build_nwegendocument_concept_workbook_bytes(
+                    advisor_table,
+                    project_axis_proposal_objects,
+                    run_report,
+                    selected_road=selected_road,
+                    app_version=advisor_state.get("app_version", APP_VERSION),
+                )
+                st.download_button(
+                    "📘 Download concept N-wegendocument-tabblad",
+                    data=nwegendocument_xlsx,
+                    file_name=nwegendocument_export_filename(selected_road),
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    help=(
+                        "Maakt een nieuw Excelbestand in het format van het N-wegendocument. "
+                        "Dit overschrijft het bestaande N-wegendocument niet."
+                    ),
                 )
 
                 with st.expander("Technische diagnose en oude exports", expanded=False):
