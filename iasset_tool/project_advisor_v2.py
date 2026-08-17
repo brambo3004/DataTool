@@ -628,7 +628,7 @@ def _build_run_verdict(summary: dict[str, int], advisor_table: pd.DataFrame) -> 
         return (
             "Bruikbaar als databeheeradvies met werklijst",
             f"{no_direct_action} voorstel(len) vragen geen directe actie; {worklist_count} regel(s) staan op de werklijst.",
-            "Gebruik de voorstellenlijst als basis en werk eerst de werklijst af voordat je iASSET of het N-wegendocument bijwerkt.",
+            "Gebruik de voorstellenlijst als basis en werk eerst de werklijst af voordat je wijzigingen in iASSET voorbereidt of het conceptwerkblad verwerkt.",
         )
 
     return (
@@ -717,7 +717,7 @@ def build_project_advisor_run_report(
             "onderdeel": "Verschillen met iASSET",
             "waarde": iasset_differences,
             "betekenis": "Voorstellen die afwijken van de bestaande iASSET-indeling.",
-            "vervolgstap": "Vergelijk deze met het N-wegendocument en bepaal daarna of iASSET aangepast moet worden.",
+            "vervolgstap": "Beoordeel deze verschillen met kaartbeeld, actuele iASSET-data en beschikbare broninformatie. Gebruik het concept-N-wegendocument als werkblad, niet als waarheid.",
             "urgentie": "actie" if iasset_differences else "akkoord",
         },
         {

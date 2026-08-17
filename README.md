@@ -1,9 +1,39 @@
-# iASSET Advisor - refactor v0.36.6
+# iASSET Advisor - refactor v0.36.7
+
+
+## Nieuw in v0.36.7
+
+v0.36.7 rondt de v0.36-fase af met een tekstcorrectie in het runrapport en de
+werkprocesdocumentatie. De Project Adviseur blijft inhoudelijk gelijk aan
+v0.36.6: geen nieuwe projectlogica, geen nieuwe diagnose en geen automatische
+vergelijking met oude handmatige N-wegentabbladen.
+
+Kern:
+- de vervolgstap bij `Verschillen met iASSET` verwijst niet meer naar het
+  N-wegendocument als beoordelingsbron;
+- de tool benoemt expliciet dat verschillen beoordeeld moeten worden met
+  kaartbeeld, actuele iASSET-data en beschikbare broninformatie;
+- het concept-N-wegendocument blijft een werkblad en geen waarheid;
+- projectvoorstellen, werklijst, runrapporttellingen en N-wegendocument-export
+  blijven verder ongewijzigd.
+
+Waarom:
+Oude handmatige N-wegentabbladen kunnen nuttige context zijn, maar mogen de tool
+niet kalibreren alsof zij altijd actueel of juist zijn. iASSET blijft bron van
+waarheid; de tool ondersteunt de databeheerder met voorstel-, controle- en
+werkbestanden.
+
+Validatie:
+- `pytest -q`: 201 passed
+- `python -m py_compile` op alle Python-bestanden
+- test toegevoegd die bewaakt dat het runrapport geen formulering meer bevat
+  waarin het oude N-wegendocument als vergelijkings- of waarheidsbron wordt
+  gepresenteerd.
 
 
 ## Nieuw in v0.36.6
 
-v0.36.6 schoont de concept-export in N-wegendocument-format inhoudelijk op. 
+v0.36.6 schoont de concept-export in N-wegendocument-format inhoudelijk op.
 De zichtbare tabbladen zijn bedoeld als werkexport op basis van actuele iASSET-data,
 niet als automatische vergelijking met oude handmatige lijsten.
 

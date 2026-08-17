@@ -1,5 +1,19 @@
 # Takenlijst iASSET Advisor
 
+## Klaar in v0.36.7
+
+1. **Runrapportformulering gecorrigeerd**
+   - De vervolgstap bij `Verschillen met iASSET` verwijst niet meer naar het N-wegendocument als beoordelingsbron.
+   - Verschillen moeten worden beoordeeld met kaartbeeld, actuele iASSET-data en beschikbare broninformatie.
+   - Het concept-N-wegendocument wordt expliciet behandeld als werkblad, niet als waarheid.
+
+2. **v0.36-fase netjes afgerond**
+   - Geen nieuwe rekenlogica.
+   - Geen nieuwe technische diagnose.
+   - Geen automatische vergelijking met oude handmatige N-wegentabbladen.
+   - Project Adviseur 2.0 blijft de basis voor de volgende fase: N354 inhoudelijke kalibratie.
+
+
 ## Klaar in v0.36.6
 
 1. **Objecten-kolom in N-wegendocument-export gecorrigeerd**

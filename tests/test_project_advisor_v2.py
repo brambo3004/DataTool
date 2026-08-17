@@ -223,6 +223,12 @@ def test_project_advisor_runrapport_geeft_automatisch_oordeel() -> None:
     werklijst = report.loc[report["onderdeel"] == "Werklijstregels"].iloc[0]
     assert werklijst["waarde"] == 2
 
+    verschillen = report.loc[report["onderdeel"] == "Verschillen met iASSET"].iloc[0]
+    assert "Vergelijk deze met het N-wegendocument" not in verschillen["vervolgstap"]
+    assert "kaartbeeld" in verschillen["vervolgstap"]
+    assert "actuele iASSET-data" in verschillen["vervolgstap"]
+    assert "werkblad, niet als waarheid" in verschillen["vervolgstap"]
+
 
 def test_project_advisor_runrapport_geen_voorstellen_is_stop() -> None:
     """Zonder voorstellen moet de run niet als werkbasis worden gepresenteerd."""
